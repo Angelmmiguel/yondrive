@@ -1,0 +1,7 @@
+extends:
+  - recommended
+rules:
+  # The health and spec routes have no request a client could get wrong, so
+  # they have no 4XX of their own. Every route that takes input must declare
+  # its failures, and the rule is on for them.
+  operation-4xx-response: off

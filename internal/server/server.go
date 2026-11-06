@@ -48,6 +48,9 @@ type Config struct {
 	BodyTimeout time.Duration
 	// MaxBodyBytes is the default limit on request bodies.
 	MaxBodyBytes int64
+	// SetupComplete reports whether the first-run setup has been completed.
+	// Nil means it has not.
+	SetupComplete func() bool
 	// UI serves the web app. Nil disables it and every non-API path 404s.
 	UI http.Handler
 	// Logger receives request and error logs. Nil uses slog.Default.
@@ -87,6 +90,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
+	s.apiHandler(mux)
 
 	// Unknown API paths answer in JSON instead of falling through to the app.
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, _ *http.Request) {

@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	spec "github.com/Angelmmiguel/yondrive/api"
 	"github.com/Angelmmiguel/yondrive/internal/server"
 )
 
@@ -200,5 +202,62 @@ func TestStalledBodyIsCutOff(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a body that never completes was not cut off")
+	}
+}
+
+func TestHealth(t *testing.T) {
+	done := false
+	ts := newServer(t, server.Config{Version: "1.2.3", SetupComplete: func() bool { return done }})
+
+	resp := do(t, ts, http.MethodGet, "/api/v1/health", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	var got struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+		Setup   bool   `json:"setup"`
+	}
+	if err := json.Unmarshal([]byte(resp.Body), &got); err != nil {
+		t.Fatalf("body %q: %v", resp.Body, err)
+	}
+	if got.Status != "ok" || got.Version != "1.2.3" || got.Setup {
+		t.Errorf("health = %+v", got)
+	}
+
+	done = true
+	resp = do(t, ts, http.MethodGet, "/api/v1/health", nil)
+	if !strings.Contains(resp.Body, `"setup":true`) {
+		t.Errorf("body = %q, want setup true", resp.Body)
+	}
+}
+
+func TestHealthWithoutSetupFuncReportsNotSetUp(t *testing.T) {
+	resp := do(t, newServer(t, server.Config{}), http.MethodGet, "/api/v1/health", nil)
+	if !strings.Contains(resp.Body, `"setup":false`) {
+		t.Errorf("body = %q, want setup false", resp.Body)
+	}
+}
+
+func TestHealthRejectsOtherMethods(t *testing.T) {
+	resp := do(t, newServer(t, server.Config{}), http.MethodPost, "/api/v1/health", nil)
+	if resp.StatusCode != http.StatusMethodNotAllowed && resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want 405 or 404", resp.StatusCode)
+	}
+}
+
+func TestServesTheEmbeddedSpec(t *testing.T) {
+	resp := do(t, newServer(t, server.Config{}), http.MethodGet, "/api/openapi.yaml", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/yaml" {
+		t.Errorf("Content-Type = %q, want application/yaml", ct)
+	}
+	if resp.Body != string(spec.YAML) {
+		t.Error("served document differs from the embedded one")
+	}
+	if !strings.HasPrefix(resp.Body, "openapi: 3.1") {
+		t.Errorf("document starts %.20q, want an OpenAPI 3.1 header", resp.Body)
 	}
 }

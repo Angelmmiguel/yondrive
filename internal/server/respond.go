@@ -9,9 +9,10 @@ import (
 // identifiers, never free-form messages: an internal error must not describe
 // the state of the server.
 const (
-	codeForbidden = "forbidden"
-	codeNotFound  = "not_found"
-	codeInternal  = "internal"
+	codeBadRequest = "bad_request"
+	codeForbidden  = "forbidden"
+	codeNotFound   = "not_found"
+	codeInternal   = "internal"
 )
 
 type errorBody struct {

@@ -28,6 +28,7 @@ test: web-test
 
 # Vet and lint everything.
 lint: web-check
+    redocly lint --config api/redocly.yaml api/openapi.yaml
     go vet ./...
     golangci-lint run
 
@@ -44,6 +45,19 @@ image version="latest":
 # Report files that gofmt would change.
 fmt:
     gofmt -l .
+
+# Regenerate the Go and TypeScript code from api/openapi.yaml, after linting it.
+api: web-install
+    redocly lint --config api/redocly.yaml api/openapi.yaml
+    oapi-codegen -config api/oapi-codegen.yaml api/openapi.yaml
+    cd web && pnpm api
+
+# Fail if the generated code differs from what the spec produces, as CI does.
+api-check: api
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git diff --exit-code -- internal/api web/src/lib/api
+    [ -z "$(git ls-files --others --exclude-standard internal/api web/src/lib/api)" ]
 
 # Web
 

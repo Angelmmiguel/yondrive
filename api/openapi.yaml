@@ -1,0 +1,89 @@
+openapi: 3.1.0
+info:
+  title: YonDrive API
+  version: 0.1.0
+  summary: HTTP API of a YonDrive server.
+  description: |
+    The web app and future native clients use this API. The server stores and
+    serves content without inspecting it; in end-to-end mode everything it
+    receives is ciphertext.
+
+    The specification is written by hand. Go and TypeScript code is generated
+    from it (`just api`).
+  license:
+    name: AGPL-3.0-only
+    identifier: AGPL-3.0-only
+servers:
+  - url: /
+    description: The server that delivered this document.
+tags:
+  - name: system
+    description: Liveness and the state of the server.
+paths:
+  /api/v1/health:
+    get:
+      operationId: getHealth
+      tags: [system]
+      summary: Report that the server is up
+      description: |
+        Open to anyone. Tells a client which build it is talking to and
+        whether the first-run setup has been completed, so the web app can
+        choose between the wizard and the sign-in screen.
+      security: []
+      responses:
+        "200":
+          description: The server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/openapi.yaml:
+    get:
+      operationId: getOpenAPISpec
+      tags: [system]
+      summary: Fetch this specification
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI document this server implements.
+          content:
+            application/yaml:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Error"
+components:
+  schemas:
+    Health:
+      type: object
+      required: [status, version, setup]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        version:
+          type: string
+          description: Build version of the server, or `dev`.
+          examples: ["0.1.0"]
+        setup:
+          type: boolean
+          description: Whether the first-run setup has been completed.
+    Error:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          description: |
+            Stable machine-readable identifier, such as `not_found`. Never a
+            free-form message.
+          examples: [not_found]
+  responses:
+    Error:
+      description: The request failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
