@@ -472,8 +472,7 @@ Scope, kept deliberately minimal:
 
 ## 7. Nix environment
 
-One locked `nixos-unstable`, since Go 1.26 needs a current channel. All of the tools below are available in nixpkgs (Go 1.26.7, Node 22.23.2, pnpm 11.25.0, Playwright 1.61.1, oapi-codegen 2.8.0, Redocly 2.17.0,
-sqlite 3.53.3, just 1.58.0).
+One locked `nixos-unstable`, since Go 1.26 needs a current channel. All of the tools below are available in nixpkgs, and `flake.lock` pins their versions.
 
 ```nix
 packages = with pkgs; [
@@ -528,6 +527,13 @@ health route, `tokens.css`, self-hosted fonts, Dockerfile.
 
 **Exit:** `nix develop && just build` gives a working binary. The format table in the README is corrected to match the findings.
 
+**Findings** are in `docs/spikes/`. The mechanisms hold, and these checks stay open because they could not be run in the development environment:
+
+- Opening saved files in Word and Excel, with a corpus of real files (moved to the Phase 5 and 6 exit criteria).
+- Safari, a real 4 GB video, and phone throughput and memory (moved to Phase 8).
+
+They also add three requirements: the service worker caps open-ended ranges and can get the content key again after a browser restart; listing decrypts lazily in a worker and pages by id; and a spreadsheet edit also rewrites dependent cached values and `calcChain.xml`, and appends shared strings rather than changing them.
+
 ### Phase 1: Security core (L)
 
 - `docs/CRYPTO.md` and test vectors, `docs/SECURITY.md`
@@ -577,7 +583,7 @@ triggers the warning. **Release 0.2.**
 - `.docx` and `.odt` round trip, `.rtf`, `.md`, `.txt`; best-effort `.doc` import
 - Print and export; "someone else is editing" warning; separate copies on conflict
 
-**Exit:** the test set round trips with unedited content byte-identical, verified automatically and by opening results in Word. **Release 0.4.**
+**Exit:** the test set round trips with unedited content byte-identical, verified automatically and by opening results in Word, on a corpus of real files. **Release 0.4.**
 
 ### Phase 6: Spreadsheets (L)
 
@@ -585,7 +591,7 @@ triggers the warning. **Release 0.2.**
 - Virtualised grid, formula bar, sheet tabs, formatting, sort, filter
 - `.xlsx` and `.ods` round trip, CSV and TSV; best-effort `.xls` import
 
-**Exit:** the same round trip standard as documents. Supported functions match Excel's results on a test set. A 100,000-cell sheet scrolls smoothly and recalculates without blocking the UI. **Release 0.5.**
+**Exit:** the same round trip standard as documents. Results open in Excel, on a corpus of real files. Supported functions match Excel's results on a test set. A 100,000-cell sheet scrolls smoothly and recalculates without blocking the UI. **Release 0.5.**
 
 ### Phase 7: Notes (M)
 
@@ -599,6 +605,7 @@ triggers the warning. **Release 0.2.**
 - Independent security review of the crypto and the sharing flows, if you can arrange one
 - Accessibility pass (the boards are thorough here, so the implementation should match), performance budgets, phone layouts
 - Reproducible builds, signed images, published hashes of the web assets
+- Safari, a real 4 GB video, and phone throughput and memory, left open by Phase 0
 - Upgrade tests across schema versions, backup and restore drills
 - Operator and API docs
 
