@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Angelmmiguel/yondrive/internal/server"
+	"github.com/Angelmmiguel/yondrive/web"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -113,6 +114,7 @@ func serve(args []string) error {
 		Version:        version,
 		Secure:         cfg.secure,
 		TrustedProxies: cfg.proxies,
+		UI:             web.Handler(),
 		Logger:         log,
 	})
 

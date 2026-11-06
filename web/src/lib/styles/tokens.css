@@ -1,0 +1,206 @@
+/*
+ * Design tokens, consolidated from the design boards.
+ *
+ * Two layers. Primitives are the palette: raw values with no meaning, never
+ * used in a component. Semantic tokens say what a value is for (surface, text,
+ * border, accent, a state, an app) and are the only colours components read.
+ *
+ * Each semantic colour is written once as light-dark(light, dark). The scheme
+ * follows the browser by default and `data-theme="light|dark"` on the document
+ * overrides it, so a theme never needs a second copy of the tokens.
+ *
+ * App accents: Drive blue, Sheets green, Notes amber.
+ */
+:root {
+	color-scheme: light dark;
+
+	/* Primitives: neutrals for the light theme. */
+	--n-0: #ffffff;
+	--n-1: #fbfbfa;
+	--n-2: #f6f6f3;
+	--n-3: #f4f4f2;
+	--n-4: #f1f1ee;
+	--n-5: #efefec;
+	--n-6: #e8e8e5;
+	--n-7: #e4e4e0;
+	--n-8: #b4b4ba;
+	--n-9: #8e8e94;
+	--n-10: #626268;
+	--n-11: #55555b;
+	--n-12: #46464c;
+	--n-13: #2a2a2e;
+	--n-14: #18181b;
+
+	/* Primitives: neutrals for the dark theme. */
+	--d-0: #0a0a0c;
+	--d-1: #111214;
+	--d-2: #16171a;
+	--d-3: #1a1b1f;
+	--d-4: #202126;
+	--d-5: #24252b;
+	--d-6: #2a2b30;
+	--d-7: #2e2f35;
+	--d-8: #75767e;
+	--d-9: #9c9da6;
+	--d-10: #a3a4ad;
+	--d-11: #c9cad1;
+	--d-12: #dadadf;
+	--d-13: #ededef;
+
+	/* Primitives: hues. 50 to 200 are tints, 600 to 800 are inks for light
+	   surfaces, 300 and 900 are the inks and tints for dark ones. */
+	--blue-50: #eef1ff;
+	--blue-100: #dce3ff;
+	--blue-200: #c3ceff;
+	--blue-300: #8fa3ff;
+	--blue-600: #2e4fe0;
+	--blue-700: #2440b8;
+	--blue-800: #1d36b0;
+	--blue-850: #26305c;
+	--blue-900: #1d2340;
+	--blue-950: #0e1330;
+
+	--green-50: #eaf6ee;
+	--green-100: #e3f5ea;
+	--green-200: #7fdca6;
+	--green-300: #5fcb8f;
+	--green-600: #1f8a4c;
+	--green-800: #17643a;
+	--green-900: #15291e;
+
+	--amber-50: #fff4d6;
+	--amber-200: #ebcb7a;
+	--amber-300: #f5c451;
+	--amber-600: #a86f00;
+	--amber-700: #7a4f00;
+	--amber-800: #6b5420;
+	--amber-900: #33280f;
+
+	--red-50: #fdecec;
+	--red-300: #f08080;
+	--red-600: #c93b3b;
+	--red-900: #36191a;
+
+	--pink-50: #fdeaf0;
+	--pink-300: #f08bae;
+	--pink-600: #c2416b;
+	--pink-900: #341a25;
+
+	--violet-50: #f1ecfd;
+	--violet-300: #b39bff;
+	--violet-600: #6d4bd8;
+	--violet-900: #261d40;
+
+	--stone-50: #f1f0ec;
+	--stone-600: #57534e;
+	--stone-900: #25262c;
+
+	--gold-300: #f5b83d;
+	--gold-700: #c98a12;
+
+	/* Semantic: surfaces. */
+	--surface-page: light-dark(var(--n-1), var(--d-1));
+	--surface-side: light-dark(var(--n-3), var(--d-2));
+	--surface: light-dark(var(--n-0), var(--d-3));
+	--surface-sunken: light-dark(var(--n-2), var(--d-4));
+	--surface-hover: light-dark(var(--n-5), var(--d-5));
+	--surface-selected: light-dark(var(--blue-50), var(--blue-900));
+	--surface-paper: light-dark(var(--n-0), #1c1d21);
+	--surface-canvas: light-dark(var(--n-4), var(--d-1));
+	--surface-rail: light-dark(var(--n-14), var(--d-0));
+
+	/* Semantic: text and icons. */
+	--text-strong: light-dark(var(--n-14), var(--d-13));
+	--text-body: light-dark(var(--n-13), var(--d-12));
+	--text-soft: light-dark(var(--n-12), var(--d-11));
+	--text-muted: light-dark(var(--n-10), var(--d-9));
+	--icon: light-dark(var(--n-11), var(--d-10));
+	--on-rail: light-dark(var(--n-8), var(--d-9));
+
+	/* Semantic: borders. */
+	--border: light-dark(var(--n-6), var(--d-6));
+	--border-strong: light-dark(var(--n-7), var(--d-7));
+	--divider: light-dark(var(--n-5), #222328);
+
+	/* Semantic: the accent and the primary action. */
+	--accent: light-dark(var(--blue-600), var(--blue-300));
+	--accent-hover: light-dark(var(--blue-800), var(--blue-200));
+	--accent-ink: light-dark(var(--blue-700), var(--blue-200));
+	--accent-soft: light-dark(var(--blue-50), var(--blue-900));
+	--accent-ring: light-dark(var(--blue-100), var(--blue-850));
+	--primary: light-dark(var(--n-14), var(--blue-300));
+	--on-primary: light-dark(var(--n-0), var(--blue-950));
+
+	/* Semantic: states. */
+	--ok: light-dark(var(--green-600), var(--green-300));
+	--ok-ink: light-dark(var(--green-800), var(--green-200));
+	--ok-soft: light-dark(var(--green-100), var(--green-900));
+	--danger: light-dark(var(--red-600), var(--red-300));
+	--danger-soft: light-dark(var(--red-50), var(--red-900));
+	--warn: light-dark(var(--amber-600), var(--amber-300));
+	--warn-ink: light-dark(var(--amber-700), var(--amber-300));
+	--warn-soft: light-dark(var(--amber-50), var(--amber-900));
+	--warn-line: light-dark(var(--amber-200), var(--amber-800));
+
+	/* Semantic: the apps. Each has an ink and a tint. */
+	--drive: light-dark(var(--blue-600), var(--blue-300));
+	--drive-soft: light-dark(var(--blue-50), var(--blue-900));
+	--sheets: light-dark(var(--green-600), var(--green-300));
+	--sheets-soft: light-dark(var(--green-50), var(--green-900));
+	--notes: light-dark(var(--amber-600), var(--amber-300));
+	--notes-soft: light-dark(var(--amber-50), var(--amber-900));
+
+	/* Semantic: kinds of file. */
+	--file-image: light-dark(var(--pink-600), var(--pink-300));
+	--file-image-soft: light-dark(var(--pink-50), var(--pink-900));
+	--file-pdf: light-dark(var(--red-600), var(--red-300));
+	--file-pdf-soft: light-dark(var(--red-50), var(--red-900));
+	--file-video: light-dark(var(--violet-600), var(--violet-300));
+	--file-video-soft: light-dark(var(--violet-50), var(--violet-900));
+	--file-folder: light-dark(var(--stone-600), var(--d-11));
+	--file-folder-soft: light-dark(var(--stone-50), var(--stone-900));
+
+	--star: light-dark(var(--gold-300), var(--amber-300));
+	--star-line: light-dark(var(--gold-700), var(--amber-300));
+	--selection: var(--accent-ring);
+
+	/* Effects. */
+	--shadow-ink: light-dark(rgb(24 24 27 / 0.25), rgb(0 0 0 / 0.55));
+	--shadow-sm: 0 1px 2px var(--shadow-ink), 0 0 0 1px var(--border);
+	--shadow-lg: 0 8px 20px -12px var(--shadow-ink);
+	--focus-ring: 0 0 0 3px var(--accent-ring);
+
+	/* Type. Fonts are self-hosted by app.css. */
+	--font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
+	--font-mono: 'Geist Mono', ui-monospace, monospace;
+	--font-serif: 'Source Serif 4', ui-serif, Georgia, serif;
+	--text-xs: 0.6875rem;
+	--text-sm: 0.75rem;
+	--text-md: 0.8125rem;
+	--text-lg: 1rem;
+	--text-xl: 1.0625rem;
+	--text-display: 1.875rem;
+	--leading-body: 1.5;
+
+	/* Radii and spacing. */
+	--radius-xs: 2px;
+	--radius-sm: 6px;
+	--radius-md: 10px;
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--radius-pill: 999px;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-6: 1.5rem;
+	--space-8: 2rem;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
