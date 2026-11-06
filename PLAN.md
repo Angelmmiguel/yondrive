@@ -209,10 +209,11 @@ master key (32 random bytes, per user)
   └─ wraps the user's root node key
 
 node key (32 random bytes, per file or folder)
-  ├─ wrapped under the parent's node key; sealed to a user's X25519 key for a grant
-  ├─ HKDF "yondrive/meta/v1"     ─► seals name, type, dates, tags
-  ├─ HKDF "yondrive/name/v1"     ─► name HMAC (duplicate detection in a folder)
-  └─ HKDF "yondrive/content/v1"  ─► per-version content key
+  ├─ wrapped under the parent's node-wrap subkey; sealed to a user's X25519 key for a grant
+  ├─ HKDF "yondrive/node-wrap/v1" ─► wraps the node keys of its children
+  ├─ HKDF "yondrive/meta/v1"      ─► seals name, type, dates, tags
+  ├─ HKDF "yondrive/name/v1"      ─► name HMAC (duplicate detection in a folder)
+  └─ HKDF "yondrive/content/v1"   ─► per-version content key
 ```
 
 - **Local accounts** derive both the KEK and the auth key from one passphrase. HKDF is one-way, so
