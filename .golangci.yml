@@ -1,0 +1,16 @@
+# Defaults (errcheck, govet, ineffassign, staticcheck, unused) plus the checks
+# that matter for a server holding other people's ciphertext.
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - errorlint
+    - gosec
+  exclusions:
+    rules:
+      # G304 flags reads whose path comes from a variable. Every such path here
+      # is built from the operator's YONDRIVE_DATA directory, never from a request; ids
+      # coming from the network are validated before they reach the filesystem.
+      - linters: [gosec]
+        text: "G304"

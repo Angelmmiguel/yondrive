@@ -31,3 +31,32 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Nix / direnv
+result
+.direnv/
+
+# Go (project-local caches set by the flake shellHook)
+.go/
+/bin/
+
+# Local data directory written by `just serve`
+/data/
+
+# Node
+web/node_modules/
+web/.svelte-kit/
+web/build/*
+!web/build/.gitkeep
+web/vite.config.ts.timestamp-*
+
+# Env
+.env.local
+*.local
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Playwright
+web/test-results/
+web/playwright-report/
