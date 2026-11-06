@@ -1,6 +1,6 @@
 # YonDrive plan
 
-Status: **final draft for review. Nothing is implemented and nothing is committed.**
+Status: **approved plan. Nothing is implemented yet.**
 
 This document covers what we build, the decisions that shape it, and the order
 of work. The [README](README.md) is the product description.
@@ -12,10 +12,6 @@ Inputs:
   easy management, OpenAPI, Nix environment.
 - The design canvas: seven interactive boards (Home, Document editor, Sheets,
   Notes list, Note editor, Media, First-run setup).
-- `../mailarchive`: reference for the security architecture, embedding, crypto
-  code and container setup.
-- `../mailarchive/flake.nix` and `../endor/flake.nix`: reference for the Nix
-  environment.
 
 ## 1. Decisions
 
@@ -31,23 +27,21 @@ All made in review. No questions remain open.
 | D6 | Media app | **Skipped for now**, along with its timeline, albums, HEIC support and photo ML. Drive still previews images and video that the browser can display. |
 | D7 | Screens with no board | Derived from the components of the existing boards. |
 | D8 | Order | Security → Drive → Sharing → Search and admin → Docs → Sheets → Notes. |
-| D9 | Office engines | **No LibreOffice and no HyperFormula.** Fewer features, built from scratch and easy to embed. Minimal formula engine. |
+| D9 | Office engines | **Our own, small engines.** Fewer features, built from scratch and easy to embed. Minimal formula engine. |
 | D10 | Scope of the mode | The encryption mode applies to the **whole server** and is fixed at setup. Per-user modes would complicate sharing. |
 | D11 | Storage without encryption | The same shape as encrypted storage: each stored file holds the original bytes under an opaque id. The data directory is **not a browsable folder tree**. |
 | D12 | Passwords without encryption | An admin can reset them, and there is no recovery key, since no key depends on them. |
-| D13 | Formula engine language | **TypeScript in a worker**, not Go compiled to WASM. See [section 6.3](#63-formula-engine). |
-| D14 | Third-party code | Our own code for ZIP, XML, office formats and formulas. Small exceptions: **ProseMirror**, **pdf.js** and the crypto libraries from mailarchive. Their licences are checked in [section 5.10](#510-third-party-licences). |
+| D13 | Formula engine language | **TypeScript in a worker.** See [section 6.3](#63-formula-engine). |
+| D14 | Third-party code | Our own code for ZIP, XML, office formats and formulas. Small exceptions: **ProseMirror**, **pdf.js** and the crypto libraries. Their licences are checked in [section 5.10](#510-third-party-licences). |
 | D15 | Formats left out of v1 | **`.pages` and `.numbers`.** They can be stored, shared and downloaded like any file, but not opened in the editors. |
-| D16 | License | AGPL-3.0. mailarchive code is MIT and can be reused if we keep its notice. |
+| D16 | License | AGPL-3.0. |
 
 Smaller assumptions, which I will follow unless you object:
 
-- Recovery codes are one 256-bit recovery key shown as 24 BIP39 words, as in
-  mailarchive, and not the design's `XXXX-XXXX…` format.
+- Recovery codes are one 256-bit recovery key shown as 24 BIP39 words, and not the design's `XXXX-XXXX…` format.
 - Interface in English first, with i18n in place from day one. The design's other
   languages (Spanish, Portuguese, German, French) follow later.
-- Metadata is stored in SQLite through a pure Go driver, which is a departure from
-  mailarchive's standard-library-only rule. See [section 5.1](#51-server).
+- Metadata is stored in SQLite through a pure Go driver. See [section 5.1](#51-server).
 - The image is `ghcr.io/angelmmiguel/yondrive` and the module is
   `github.com/Angelmmiguel/yondrive`.
 
@@ -76,8 +70,8 @@ The boards were mocked up before these decisions. Each row below is a required c
 
 | Board | Design says | Problem | Plan |
 | --- | --- | --- | --- |
-| All | Burrow, `burrow-theme`, `BRRW-…`, `burrow-admins`, `/srv/burrow/data` | Old project name | Rename everything to YonDrive. |
-| All | Fonts from Google Fonts | A third-party request on each load, and blocked by a strict CSP | Self-host Geist, Geist Mono and Source Serif 4 through `@fontsource`. |
+| All | An earlier project name in text, identifiers, paths and the recovery key prefix | Outdated | Use YonDrive everywhere. |
+| All | Fonts from a third-party CDN | A third-party request on each load, and blocked by a strict CSP | Self-host Geist, Geist Mono and Source Serif 4 through `@fontsource`. |
 | All | Slightly different token values per board (`--surface-2`, `--hover`, `--accent-ring`, `--bg`) | Drift between boards | One `tokens.css` with primitives and a semantic layer. App accents stay: Drive blue, Sheets green, Notes amber. |
 | Setup | "No encryption": "Faster, with server-side search and previews", "so the server can index, preview and thumbnail" | The server does neither in this design (D1) | Keep the option and rewrite the copy: same features, all still on the device, files readable by anyone with server or disk access. |
 | Setup | Public URL must start with `https://` | Blocks valid plain HTTP setups (D5) | Accept `http://` too, with a warning. |
@@ -85,7 +79,7 @@ The boards were mocked up before these decisions. Each row below is a required c
 | Setup | Separate Password and passphrase | D2 | One passphrase on the admin step for local accounts. |
 | Setup | Recovery key confirmed with one checkbox | Too easy to click through, and the failure is unrecoverable | Copy, download, then type back a few requested words. |
 | Setup | Data directory editable in the browser, with a free-space check | Lets a web form point the server at arbitrary paths | Show it read-only. It is set through the environment. |
-| Setup | Wizard opens to whoever reaches it first | Acceptable for mailarchive's loopback default, but not for a multi-user container on a network | One-time setup token printed to the logs, required by every wizard call. |
+| Setup | Wizard opens to whoever reaches it first | Not safe for a multi-user container on a network | One-time setup token printed to the logs, required by every wizard call. |
 | Setup | "Test connection" for OIDC | The server fetches an admin-supplied URL | Keep it, restricted to the setup token or an admin session. |
 | Setup | Match SSO users by email | Takeover risk if the provider does not verify addresses | Link only when `email_verified` is true. |
 | Home | "New doc: Write together" | No co-editing (D4) | Change the hint to "Write and format". |
@@ -122,7 +116,7 @@ encryption modes, multi-user, TOTP, OIDC, admin, OpenAPI, container and Unraid t
 **Not planned:**
 
 - Real-time co-editing
-- LibreOffice or any other full office engine
+- A full office engine
 - Server-side search, thumbnails, transcoding, WebDAV or SMB, in either mode
 - Admin reset of passwords or keys in end-to-end mode
 - Emailed recovery material
@@ -156,8 +150,7 @@ stay few and deliberate. The expected list is a pure Go SQLite driver (`modernc.
 and the runtime that generated OpenAPI code needs. TOTP and OIDC verification can likely be
 done with the standard library.
 
-**Why SQLite when mailarchive uses plain files.** mailarchive has one user and one write-once
-manifest. YonDrive needs users, invitations, a mutable tree, grants, versions, quotas, a journal
+**Why SQLite.** YonDrive needs users, invitations, a mutable tree, grants, versions, quotas, a journal
 and transactions spanning them. Hand-rolling that on files would be riskier than a dependency. The
 pure Go driver keeps `CGO_ENABLED=0` and a `scratch` image. There is no support for an external
 database, so there is nothing to configure.
@@ -197,8 +190,7 @@ decrypt any data.
 
 ### 5.2 Cryptography (end-to-end mode)
 
-Inherits mailarchive's construction and primitives, and adds what multiple users and sharing
-require. `docs/CRYPTO.md` will be the normative, language-independent spec, with test vectors that
+`docs/CRYPTO.md` will be the normative, language-independent spec, with test vectors that
 any future client must pass.
 
 ```
@@ -237,7 +229,7 @@ node key (32 random bytes, per file or folder)
   encrypt, so the viewer and editor roles are enforced by the server, and clients verify the signature
   against an author who holds edit rights.
 
-**Keeping mailarchive's guarantees**
+**Guarantees**
 
 - Split session key for surviving a reload; usable keys only in memory, zeroed on lock; lock is broadcast
   across tabs.
@@ -255,7 +247,7 @@ node key (32 random bytes, per file or folder)
 | **Username probing** through the KDF endpoint. | Unknown usernames get stable fake parameters derived from a server secret. |
 | **SSO compromise** gives access to a user's wrapped key, which can be attacked offline. | Enforce a minimum passphrase strength. Argon2id sets the price of each guess. |
 | **Removing someone from a shared folder.** They may have kept the keys. | Rotate the node key on revoke for future content. Say plainly that earlier content may have been copied. |
-| **A stolen session can delete files.** mailarchive avoids this by having no delete API. | Trash, version history and a server-enforced grace period before anything is purged. |
+| **A stolen session can delete files.** | Trash, version history and a server-enforced grace period before anything is purged. |
 | **Malicious documents from other users** run in the same origin as the keys. | Our parsers run in workers and output a typed model, never HTML. Sanitise with DOMPurify, keep CSP strict, and download SVG and HTML instead of rendering them inline. |
 
 ### 5.3 Encryption modes
@@ -304,13 +296,11 @@ interface, which is the only place the modes differ.
 
 | Feature | Approach |
 | --- | --- |
-| Search | Adapts mailarchive's inverted index. Mutable, so it is stored as per-user segments with compaction, cached in IndexedDB and searched in memory. Text is extracted on save. Recipients index what is shared with them. |
+| Search | An inverted index, stored as per-user segments with compaction, cached in IndexedDB and searched in memory. Text is extracted on save. Recipients index what is shared with them. |
 | Thumbnails | Generated by the uploader in a worker and stored like any other blob. Formats the browser cannot decode, such as HEIC in most browsers, get a generic icon and can be downloaded. Video uses a `<video>` frame capture, so it depends on browser codecs. |
 | Large downloads and video | Service worker decrypts frames as a stream, with range requests mapped to frames. Spike B validates this. Without a secure context, service workers are unavailable, so content is decrypted into a Blob up to a size limit. |
 | PDF | `pdf.js` in a worker, lazily loaded. |
 | Notes | Files of type Markdown in a hidden root, so they get versioning, sharing and quota at no extra cost. An index holds backlinks and tags. |
-
-v1 has no WASM, so the CSP never needs `wasm-unsafe-eval`.
 
 **Insecure contexts (D5).** The banner depends on `window.isSecureContext`, so it never shows behind an HTTPS proxy.
 Over plain HTTP we also provide alternatives to the Clipboard API (the recovery key can be downloaded), and to
@@ -345,7 +335,7 @@ service worker streaming.
 
 ### 5.7 Frontend
 
-Conventions from mailarchive: Svelte 5 runes only, no `svelte/store`, shared state in `.svelte.ts` files, an API client
+Conventions: Svelte 5 runes only, no `svelte/store`, shared state in `.svelte.ts` files, an API client
 that knows nothing about crypto, routes as thin glue, components that own their interactions.
 
 The first step is a shared component library extracted from the boards: app rail, sidebar and nav, buttons, segmented
@@ -379,8 +369,8 @@ internal/
 docs/                    ARCHITECTURE, CRYPTO + vectors, SECURITY, API, ADMIN
 unraid/yondrive.xml
 web/
-  embed.go               from mailarchive
-  src/lib/crypto/        from mailarchive, then extended, with the Sealer
+  embed.go               embeds the built app
+  src/lib/crypto/        primitives, keys and the Sealer
   src/lib/formats/       zip, xml, ooxml, odf, rtf, cfb, markdown
   src/lib/formula/       parser, dependency graph, functions
   src/lib/{api,account,drive,sharing,search,docs,sheets,notes,state,components,styles}
@@ -388,16 +378,9 @@ web/
   tests/{e2e,fixtures}
 ```
 
-### 5.9 Reuse from mailarchive
+### 5.9 Outbound connections
 
-| Reuse with small changes | Extend substantially | New |
-| --- | --- | --- |
-| `crypto/` primitives, KDF worker, recovery, session persistence | `account/` flows: per-user, SSO, both modes | Key pinning and grants |
-| `web/embed.go`, CSP setup | `auth/`: multi-user, DB-backed sessions | Node tree and framed encryption |
-| Rate limiter, hardening middleware | Search index: mutable segments | Resumable uploads, service worker |
-| CI, justfile, Unraid template | `Dockerfile`: CA bundle (OIDC needs to reach the provider), `go.sum` | File formats, formula engine, editors, grid, notes, admin |
-
-mailarchive's server "never dials out". YonDrive's does so only for OIDC and, if configured, SMTP for invitation emails.
+The server makes outbound connections only for OIDC and, if configured, SMTP for invitation emails, so the image carries a CA bundle.
 Invitation links can always be copied by hand, so SMTP stays optional.
 
 ### 5.10 Third-party licences
@@ -416,7 +399,7 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 
 ## 6. Documents and spreadsheets
 
-Everything here is our own code, running in workers, with no WASM and no large dependencies (D9). The target is what the
+Everything here is our own code, running in workers, with no large dependencies (D9). The target is what the
 design's toolbars show, with nothing beyond it.
 
 ### 6.1 Shared format layer
@@ -442,16 +425,7 @@ design's promise at a fraction of the complexity.
 
 ### 6.3 Formula engine
 
-**TypeScript in a worker, not Go compiled to WASM (D13):**
-
-| | TypeScript | Go to WASM |
-| --- | --- | --- |
-| Size | Tens of KB, embedded | At least a couple of MB with standard Go, plus a runtime |
-| CSP | None needed | Needs `wasm-unsafe-eval` in its worker |
-| Boundary | Direct objects | Every cell crosses a JS and WASM boundary |
-| Numbers | IEEE 754 doubles, same as Excel | Same |
-| Reuse | Web only | Mobile via gomobile, which is speculative |
-| Tooling | Same tests and build as the rest of the client | A second build pipeline |
+**TypeScript in a worker (D13).** It is tens of KB, is embedded with the rest of the client, and shares its tests and build. Numbers are IEEE 754 doubles, the same as Excel.
 
 Scope, kept deliberately minimal:
 
@@ -498,9 +472,7 @@ Scope, kept deliberately minimal:
 
 ## 7. Nix environment
 
-Based on `mailarchive/flake.nix`: one locked `nixos-unstable`, since Go 1.26 needs a current channel, rather than endor's
-stable-plus-pinned-unstable. The Playwright variables from both are retained. I confirmed that all of the tools below exist in the
-nixpkgs revision locked by mailarchive (Go 1.26.7, Node 22.23.2, pnpm 11.25.0, Playwright 1.61.1, oapi-codegen 2.8.0, Redocly 2.17.0,
+One locked `nixos-unstable`, since Go 1.26 needs a current channel. All of the tools below are available in nixpkgs (Go 1.26.7, Node 22.23.2, pnpm 11.25.0, Playwright 1.61.1, oapi-codegen 2.8.0, Redocly 2.17.0,
 sqlite 3.53.3, just 1.58.0).
 
 ```nix
@@ -605,7 +577,7 @@ triggers the warning. **Release 0.2.**
 - `.docx` and `.odt` round trip, `.rtf`, `.md`, `.txt`; best-effort `.doc` import
 - Print and export; "someone else is editing" warning; separate copies on conflict
 
-**Exit:** the test set round trips with unedited content byte-identical, verified automatically and by opening results in Word and LibreOffice as external checks. **Release 0.4.**
+**Exit:** the test set round trips with unedited content byte-identical, verified automatically and by opening results in Word. **Release 0.4.**
 
 ### Phase 6: Spreadsheets (L)
 
@@ -634,7 +606,7 @@ triggers the warning. **Release 0.2.**
 
 ## 9. Testing
 
-- **Go:** `go test -race` on every route and store operation; hardening tests carried over from mailarchive.
+- **Go:** `go test -race` on every route and store operation; hardening tests for limits, ids and headers.
 - **Web:** vitest for logic; RFC known-answer tests for each primitive.
 - **E2E:** Playwright against throwaway servers, in both encryption modes. Fixtures are synthetic.
 - **Security:** the canary test; cross-language crypto vectors; tamper tests where the server swaps, reorders or truncates frames and swaps keys; downgrade tests.
@@ -654,7 +626,7 @@ triggers the warning. **Release 0.2.**
 | Modes drift apart over time | Medium | Medium | One `Sealer`, and the whole e2e suite running in both modes. |
 | A server claims no-encryption mode to obtain plaintext | Low | High | Account and device pins. Documented limit against a server that also replaces the app. |
 | Users assume no-encryption mode is private | Medium | Medium | Clear choice at setup and a permanent indicator. |
-| Pure JS crypto is too slow for large video on phones | Medium | Medium | Spike B measures it. A WASM implementation in workers remains an option. |
+| Pure JS crypto is too slow for large video on phones | Medium | Medium | Spike B measures it. Frame size and worker count can be tuned. |
 | Client-side search and listing degrade with very large libraries | Medium | Medium | Spike C. Segments with compaction, lazy loading. |
 | Users lose both passphrase and recovery key | Medium | High for them | Forced confirmation at setup. A reminder and a way to generate a new key in Settings. Clear language. |
 | Compromised server serves a malicious app | Low | High | Cannot be eliminated on the web. Documented, with reproducible builds and published hashes to allow checking. Native clients later. |
@@ -662,6 +634,4 @@ triggers the warning. **Release 0.2.**
 
 ## 11. What happens next
 
-1. You do a final review of this plan and the README.
-2. Once you say so, I commit both documents.
-3. Phase 0 starts with the flake and scaffolding, then the three spikes. I bring the findings back to you before Phase 1.
+Phase 0 starts with the flake and scaffolding, then the three spikes. Their findings are reviewed before Phase 1.

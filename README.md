@@ -14,7 +14,7 @@ it, holds only ciphertext. It runs as one container with one data directory.
 
 - **Private by construction.** In end-to-end mode, file contents, names, tags,
   thumbnails, notes and search indexes never reach the server in the clear.
-- **Easy to run.** No database server, no Redis, no office server and no sidecar
+- **Easy to run.** No separate database, office server or sidecar
   containers. Start one container, open the URL and follow the setup wizard.
 - **Self-contained.** Your content never goes to an external service. Everything
   that works on it runs on your device, from code your own server delivers.
