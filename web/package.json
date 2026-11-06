@@ -41,6 +41,11 @@
 	"dependencies": {
 		"@fontsource/geist": "5.3.0",
 		"@fontsource/geist-mono": "5.3.0",
-		"@fontsource/source-serif-4": "5.3.1"
+		"@fontsource/source-serif-4": "5.3.1",
+		"@noble/ciphers": "2.4.0",
+		"@noble/curves": "2.4.0",
+		"@noble/hashes": "2.4.0",
+		"@scure/base": "2.4.0",
+		"@scure/bip39": "2.4.0"
 	}
 }
