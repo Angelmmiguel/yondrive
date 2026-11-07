@@ -599,6 +599,9 @@ function rowInfoOf(attrs: Record<string, string>, style: (s: number) => number):
 	return Object.keys(info).length > 0 ? info : null;
 }
 
+/** The attributes of <col> the model holds; the writer keeps the rest from the file. */
+const COL_MODEL_ATTRS = new Set(['min', 'max', 'width', 'customWidth', 'hidden', 'style']);
+
 function colInfoOf(attrs: Record<string, string>): ColInfo | null {
 	const min = Number(attrs.min) - 1;
 	const max = Number(attrs.max) - 1;
@@ -1136,11 +1139,25 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 		)
 	) {
 		const p = ctx.prefix;
+		// What the model does not hold (bestFit, outlineLevel, collapsed) comes from
+		// the file's column that held these columns.
+		const held = scan.colEls.flatMap((attrs) => {
+			const ci = colInfoOf(attrs);
+			const lo = ci && currentOf(steps, 0, ci.min)?.col;
+			const hi = ci && currentOf(steps, 0, ci.max)?.col;
+			if (lo === null || lo === undefined || hi === null || hi === undefined) return [];
+			const rest = Object.entries(attrs)
+				.filter(([k]) => !COL_MODEL_ATTRS.has(k))
+				.map(([k, v]) => ` ${k}="${escapeAttr(v)}"`)
+				.join('');
+			return rest ? [{ lo, hi, rest }] : [];
+		});
+		const restOf = (c: ColInfo) => held.find((h) => c.min >= h.lo && c.max <= h.hi)?.rest ?? '';
 		const cols = info.cols
-			.filter((c) => c.width !== undefined || c.hidden || c.style !== undefined)
+			.filter((c) => c.width !== undefined || c.hidden || c.style !== undefined || restOf(c))
 			.map((c) => {
 				const s = c.style === undefined ? 0 : ctx.xfOf(c.style);
-				return `<${p}col min="${c.min + 1}" max="${c.max + 1}" width="${c.width ?? info.defaultColWidth}"${c.width !== undefined ? ' customWidth="1"' : ''}${c.hidden ? ' hidden="1"' : ''}${s ? ` style="${s}"` : ''}/>`;
+				return `<${p}col min="${c.min + 1}" max="${c.max + 1}" width="${c.width ?? info.defaultColWidth}"${c.width !== undefined ? ' customWidth="1"' : ''}${c.hidden ? ' hidden="1"' : ''}${s ? ` style="${s}"` : ''}${restOf(c)}/>`;
 			})
 			.join('');
 		const el = cols ? `<${p}cols>${cols}</${p}cols>` : '';
@@ -1357,6 +1374,7 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		}
 		relsText.removeIds.add(el.rid);
 	}
+	if (remove.size > 0) await dropOrphans(zip, remove);
 
 	// Each sheet, patched into its part or written new.
 	const sheetEls: string[] = [];
@@ -1524,6 +1542,47 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		base,
 		changes.filter((c) => !remove.has(c.name))
 	);
+}
+
+/**
+ * Adds to `remove` the parts only removed parts reached, such as a deleted
+ * sheet's drawings, comments and tables, and their relationships; a part that
+ * anything kept still points at stays.
+ */
+async function dropOrphans(zip: ZipArchive, remove: Set<string>): Promise<void> {
+	const targets = async (part: string) => {
+		const text = await partText(zip, relsPathOf(part));
+		if (text === null) return [];
+		return new Rels('', text).list
+			.filter((r) => !r.external)
+			.map((r) => resolveTarget(part, r.target))
+			.filter((t) => zip.get(t) !== undefined);
+	};
+	const reach = async (from: string[], skip: Set<string>) => {
+		const seen = new Set<string>();
+		const stack = [...from];
+		while (stack.length > 0) {
+			for (const t of await targets(stack.pop() as string)) {
+				if (seen.has(t) || skip.has(t)) continue;
+				seen.add(t);
+				stack.push(t);
+			}
+		}
+		return seen;
+	};
+	const gone = await reach([...remove], remove);
+	if (gone.size === 0) return;
+	// Every part with relationships that is not going, the package itself included.
+	const kept = zip.entries
+		.map((e) => /^(.*?)_rels\/([^/]*)\.rels$/.exec(e.name))
+		.filter((m): m is RegExpExecArray => m !== null)
+		.map((m) => m[1] + m[2])
+		.filter((part) => !remove.has(part) && !gone.has(part));
+	for (const part of await reach(kept, remove)) gone.delete(part);
+	for (const part of gone) {
+		remove.add(part);
+		remove.add(relsPathOf(part));
+	}
 }
 
 function spanOfSheets(pkg: Package): [number, number] {

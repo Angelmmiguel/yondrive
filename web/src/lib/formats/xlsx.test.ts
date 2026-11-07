@@ -386,6 +386,74 @@ describe('writing .xlsx back', () => {
 		await expect(writeXlsx(book, bytes)).rejects.toThrow(/cell formats/);
 	});
 
+	it('keeps what the model does not hold of columns when a width changes', async () => {
+		const bytes = await xlsxOf([
+			'<cols><col min="1" max="1" width="10" customWidth="1" outlineLevel="1"/><col min="2" max="3" width="12" customWidth="1" bestFit="1"/></cols>' +
+				'<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData>'
+		]);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		book.setColWidth(s, 2, 2, 20);
+		const sheet = (await part(await writeXlsx(book, bytes), 'xl/worksheets/sheet1.xml'))!;
+		expect(sheet).toContain(
+			'<cols><col min="1" max="1" width="10" customWidth="1" outlineLevel="1"/><col min="2" max="2" width="12" customWidth="1" bestFit="1"/><col min="3" max="3" width="20" customWidth="1" bestFit="1"/></cols>'
+		);
+	});
+
+	it('removes what only a deleted sheet used', async () => {
+		const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+		const PR = 'http://schemas.openxmlformats.org/package/2006/relationships';
+		const rels = (items: [string, string][]) =>
+			`<Relationships xmlns="${PR}">${items.map(([t, target], i) => `<Relationship Id="rId${i + 1}" Type="${R}/${t}" Target="${target}"/>`).join('')}</Relationships>`;
+		const ov = (part: string, type: string) =>
+			`<Override PartName="/${part}" ContentType="application/vnd.openxmlformats-officedocument.${type}"/>`;
+		const sheetXml = '<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><drawing r:id="rId1"/>';
+		const bytes = await xlsxOf([sheetXml, sheetXml], {
+			'[Content_Types].xml':
+				'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>' +
+				ov('xl/workbook.xml', 'spreadsheetml.sheet.main+xml') +
+				ov('xl/worksheets/sheet1.xml', 'spreadsheetml.worksheet+xml') +
+				ov('xl/worksheets/sheet2.xml', 'spreadsheetml.worksheet+xml') +
+				ov('xl/drawings/drawing1.xml', 'drawing+xml') +
+				ov('xl/drawings/drawing2.xml', 'drawing+xml') +
+				ov('xl/comments2.xml', 'spreadsheetml.comments+xml') +
+				ov('xl/charts/chart2.xml', 'drawingml.chart+xml') +
+				'</Types>',
+			'xl/worksheets/_rels/sheet1.xml.rels': rels([['drawing', '../drawings/drawing1.xml']]),
+			'xl/worksheets/_rels/sheet2.xml.rels': rels([
+				['drawing', '../drawings/drawing2.xml'],
+				['comments', '../comments2.xml']
+			]),
+			'xl/drawings/drawing1.xml': '<xdr:wsDr xmlns:xdr="x"/>',
+			'xl/drawings/drawing2.xml': '<xdr:wsDr xmlns:xdr="x"/>',
+			'xl/drawings/_rels/drawing1.xml.rels': rels([['image', '../media/image1.png']]),
+			'xl/drawings/_rels/drawing2.xml.rels': rels([
+				['image', '../media/image1.png'],
+				['chart', '../charts/chart2.xml']
+			]),
+			'xl/media/image1.png': 'png',
+			'xl/comments2.xml': '<comments/>',
+			'xl/charts/chart2.xml': '<c:chartSpace xmlns:c="c"/>'
+		});
+		const { book } = await readXlsx(bytes);
+		book.removeSheet(book.engine.sheets[1].id);
+		const out = await writeXlsx(book, bytes);
+		const names = readZip(out).entries.map((e) => e.name);
+		for (const gone of [
+			'xl/worksheets/sheet2.xml',
+			'xl/drawings/drawing2.xml',
+			'xl/drawings/_rels/drawing2.xml.rels',
+			'xl/comments2.xml',
+			'xl/charts/chart2.xml'
+		])
+			expect(names).not.toContain(gone);
+		for (const kept of ['xl/drawings/drawing1.xml', 'xl/media/image1.png'])
+			expect(names).toContain(kept);
+		const ct = (await part(out, '[Content_Types].xml'))!;
+		expect(ct).not.toMatch(/drawing2|comments2|chart2|sheet2/);
+		expect(ct).toContain('/xl/drawings/drawing1.xml');
+	});
+
 	it('writes a workbook from nothing that reads back the same', async () => {
 		const { book } = await readXlsx(fixture('book.xlsx'));
 		book.source = { format: 'csv', styles: 0, sheets: 0 };
