@@ -1056,23 +1056,26 @@
 		{@const d = lookOf(m.top, m.left, m.left)}
 		{@const box = rect(m)}
 		{@const flag = flagsOf(d.view)}
-		<div
-			id={cid(m.top, m.left)}
-			role="gridcell"
-			aria-rowindex={m.top + 1}
-			aria-colindex={m.left + 1}
-			aria-rowspan={m.bottom - m.top + 1}
-			aria-colspan={m.right - m.left + 1}
-			aria-selected={inArea(area, m.top, m.left)}
-			class="cell merge {d.align}"
-			class:wrap={d.wrap}
-			class:ro={d.view?.readOnly}
-			class:stale={d.view?.stale}
-			style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;{d.css}"
-			title={flag || undefined}
-		>
-			{#if d.border}<span class="bd" style={d.border}></span>{/if}
-			<span class="txt">{d.text}</span>
+		<!-- A cell belongs in a row for assistive technology; this one adds no box of its own. -->
+		<div role="row" aria-rowindex={m.top + 1}>
+			<div
+				id={cid(m.top, m.left)}
+				role="gridcell"
+				aria-rowindex={m.top + 1}
+				aria-colindex={m.left + 1}
+				aria-rowspan={m.bottom - m.top + 1}
+				aria-colspan={m.right - m.left + 1}
+				aria-selected={inArea(area, m.top, m.left)}
+				class="cell merge {d.align}"
+				class:wrap={d.wrap}
+				class:ro={d.view?.readOnly}
+				class:stale={d.view?.stale}
+				style="left:{box.left}px;top:{box.top}px;width:{box.width}px;height:{box.height}px;{d.css}"
+				title={flag || undefined}
+			>
+				{#if d.border}<span class="bd" style={d.border}></span>{/if}
+				<span class="txt">{d.text}</span>
+			</div>
 		</div>
 	{/each}
 {/snippet}
