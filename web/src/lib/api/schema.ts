@@ -1076,6 +1076,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{id}/editing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List who else has this file open in an editor
+         * @description The other people whose heartbeat on this node is recent and who can
+         *     still read it. A warning for the person about to edit, never a lock.
+         *     Anyone who can read the node may ask.
+         */
+        get: operations["getEditing"];
+        /**
+         * Say that the caller has this file open in an editor
+         * @description A heartbeat. It holds for `ttl_seconds`, so an editor sends it again
+         *     well before then and simply stops when it closes. Needs write access.
+         *     Answers with who else is editing, as `getEditing` does.
+         */
+        put: operations["putEditing"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/uploads": {
         parameters: {
             query?: never;
@@ -2545,6 +2576,21 @@ export interface components {
              *     checked.
              */
             expected_version?: string;
+        };
+        Editing: {
+            /** @description Other people with a recent heartbeat, the caller left out. */
+            editors: components["schemas"]["Editor"][];
+            /** @description How long a heartbeat holds. */
+            ttl_seconds: number;
+        };
+        Editor: {
+            user_id: string;
+            username: string;
+            /**
+             * Format: date-time
+             * @description When their current run of heartbeats began.
+             */
+            since: string;
         };
         CreateUploadRequest: {
             node_id: string;
@@ -4534,6 +4580,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getEditing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who else is editing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Editing"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putEditing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Who else is editing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Editing"];
                 };
             };
             default: components["responses"]["Error"];

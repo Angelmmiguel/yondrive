@@ -65,6 +65,9 @@ func (s *Server) Sweep(ctx context.Context) error {
 	if err := s.store.RemoveStaleLinkDownloads(ctx, now.Add(-linkSessionLifetime)); err != nil {
 		return err
 	}
+	if err := s.store.RemoveExpiredEditing(ctx, now); err != nil {
+		return err
+	}
 	if err := s.trimHistory(ctx, settings, now); err != nil {
 		return err
 	}

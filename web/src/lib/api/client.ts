@@ -10,6 +10,7 @@ import {
 	type Account,
 	type AdminHealth,
 	type AuditPage,
+	type Editing,
 	type AuthMethods,
 	type ChangePage,
 	type CommitUploadRequest,
@@ -240,6 +241,8 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 			json<Version>('DELETE', `/nodes/${id(nodeId)}/versions/${id(versionId)}`),
 		restoreVersion: (nodeId: string, versionId: string, body: RestoreVersionRequest) =>
 			json<Version>('POST', `/nodes/${id(nodeId)}/versions/${id(versionId)}/restore`, { body }),
+		getEditing: (nodeId: string) => json<Editing>('GET', `/nodes/${id(nodeId)}/editing`),
+		putEditing: (nodeId: string) => json<Editing>('PUT', `/nodes/${id(nodeId)}/editing`),
 
 		listUploads: (page: PageOptions = {}) =>
 			json<UploadPage>('GET', `/uploads${query({ ...page })}`),

@@ -63,6 +63,7 @@ lock              advisory lock against a second process
 | `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. |
 | `changes` | The journal: sequence, the user whose journal it is, node, operation, time. `users.journal_floor` is the highest sequence trimmed from each. |
 | `file_removals` | Files whose rows have gone, waiting to be unlinked. |
+| `edit_status` | Who has a file open in an editor: node, user, when the run of heartbeats began and when the last one lapses. The sweep drops lapsed rows. |
 
 Session keys are not in this list. They are memory only.
 
@@ -132,6 +133,8 @@ GET    /nodes/{id}/versions?cursor=     newest first
 GET    /nodes/{id}/versions/{vid}       with frame hashes, signature, manifest
 DELETE /nodes/{id}/versions/{vid}       not the current one; marks
 POST   /nodes/{id}/versions/{vid}/restore
+GET    /nodes/{id}/editing              read: who else is editing, still able to write
+PUT    /nodes/{id}/editing              write: heartbeat, 45 s; answers as GET
 POST   /uploads
 GET    /uploads/{id}
 DELETE /uploads/{id}

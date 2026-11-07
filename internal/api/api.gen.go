@@ -679,6 +679,23 @@ type DisableTOTPRequest struct {
 	RecoveryCode   *string `json:"recovery_code,omitempty"`
 }
 
+// Editing defines model for Editing.
+type Editing struct {
+	// Editors Other people with a recent heartbeat, the caller left out.
+	Editors []Editor `json:"editors"`
+
+	// TtlSeconds How long a heartbeat holds.
+	TtlSeconds int `json:"ttl_seconds"`
+}
+
+// Editor defines model for Editor.
+type Editor struct {
+	// Since When their current run of heartbeats began.
+	Since    time.Time `json:"since"`
+	UserId   string    `json:"user_id"`
+	Username string    `json:"username"`
+}
+
 // EmptiedTrash defines model for EmptiedTrash.
 type EmptiedTrash struct {
 	Marked int `json:"marked"`
@@ -2292,6 +2309,12 @@ type ServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(w http.ResponseWriter, r *http.Request, id ID, params ListChildrenParams)
+	// GetEditing List who else has this file open in an editor
+	// (GET /api/v1/nodes/{id}/editing)
+	GetEditing(w http.ResponseWriter, r *http.Request, id ID)
+	// PutEditing Say that the caller has this file open in an editor
+	// (PUT /api/v1/nodes/{id}/editing)
+	PutEditing(w http.ResponseWriter, r *http.Request, id ID)
 	// ListNodeAccess List who can reach a node through a grant
 	// (GET /api/v1/nodes/{id}/grants)
 	ListNodeAccess(w http.ResponseWriter, r *http.Request, id ID)
@@ -3648,6 +3671,58 @@ func (siw *ServerInterfaceWrapper) ListChildren(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListChildren(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEditing operation middleware
+func (siw *ServerInterfaceWrapper) GetEditing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEditing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutEditing operation middleware
+func (siw *ServerInterfaceWrapper) PutEditing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutEditing(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5077,6 +5152,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.DeleteVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.GetVersion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}/restore", wrapper.RestoreVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/editing", wrapper.GetEditing)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/nodes/{id}/editing", wrapper.PutEditing)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads", wrapper.ListUploads)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads", wrapper.CreateUpload)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.AbortUpload)
@@ -7154,6 +7231,84 @@ func (response ListChildrendefaultJSONResponse) VisitListChildrenResponse(w http
 	return err
 }
 
+type GetEditingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type GetEditingResponseObject interface {
+	VisitGetEditingResponse(w http.ResponseWriter) error
+}
+
+type GetEditing200JSONResponse Editing
+
+func (response GetEditing200JSONResponse) VisitGetEditingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetEditingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetEditingdefaultJSONResponse) VisitGetEditingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEditingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type PutEditingResponseObject interface {
+	VisitPutEditingResponse(w http.ResponseWriter) error
+}
+
+type PutEditing200JSONResponse Editing
+
+func (response PutEditing200JSONResponse) VisitPutEditingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutEditingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutEditingdefaultJSONResponse) VisitPutEditingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListNodeAccessRequestObject struct {
 	Id ID `json:"id"`
 }
@@ -8809,6 +8964,12 @@ type StrictServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(ctx context.Context, request ListChildrenRequestObject) (ListChildrenResponseObject, error)
+	// GetEditing List who else has this file open in an editor
+	// (GET /api/v1/nodes/{id}/editing)
+	GetEditing(ctx context.Context, request GetEditingRequestObject) (GetEditingResponseObject, error)
+	// PutEditing Say that the caller has this file open in an editor
+	// (PUT /api/v1/nodes/{id}/editing)
+	PutEditing(ctx context.Context, request PutEditingRequestObject) (PutEditingResponseObject, error)
 	// ListNodeAccess List who can reach a node through a grant
 	// (GET /api/v1/nodes/{id}/grants)
 	ListNodeAccess(ctx context.Context, request ListNodeAccessRequestObject) (ListNodeAccessResponseObject, error)
@@ -10383,6 +10544,58 @@ func (sh *strictHandler) ListChildren(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListChildrenResponseObject); ok {
 		if err := validResponse.VisitListChildrenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetEditing operation middleware
+func (sh *strictHandler) GetEditing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request GetEditingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetEditing(ctx, request.(GetEditingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetEditing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetEditingResponseObject); ok {
+		if err := validResponse.VisitGetEditingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutEditing operation middleware
+func (sh *strictHandler) PutEditing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request PutEditingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutEditing(ctx, request.(PutEditingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutEditing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutEditingResponseObject); ok {
+		if err := validResponse.VisitPutEditingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

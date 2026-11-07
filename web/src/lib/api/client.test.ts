@@ -77,6 +77,8 @@ const routes: [string, string, (api: Api) => Promise<unknown>, boolean][] = [
 	['GET', '/nodes/n1/versions/v1', (a) => a.getVersion('n1', 'v1'), true],
 	['DELETE', '/nodes/n1/versions/v1', (a) => a.deleteVersion('n1', 'v1'), true],
 	['POST', '/nodes/n1/versions/v1/restore', (a) => a.restoreVersion('n1', 'v1', body), true],
+	['GET', '/nodes/n1/editing', (a) => a.getEditing('n1'), true],
+	['PUT', '/nodes/n1/editing', (a) => a.putEditing('n1'), true],
 	['POST', '/uploads', (a) => a.createUpload(body), true],
 	['GET', '/uploads/u1', (a) => a.getUpload('u1'), true],
 	['DELETE', '/uploads/u1', (a) => a.abortUpload('u1'), false],
