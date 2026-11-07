@@ -561,7 +561,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 	const fonts: Font[] = [];
 	const formats = new Map<number, string>();
 	const xfs: number[][] = [];
-	const sheets: { name: string; at: number; hidden: boolean }[] = [];
+	/** Every BOUNDSHEET in order, charts and macro sheets too: EXTERNSHEET counts them all. */
+	const bound: { name: string; at: number; hidden: boolean; type: number }[] = [];
 	let sst: string[] = [];
 	let date1904 = false;
 	const externSheets: { book: number; first: number; last: number }[] = [];
@@ -589,8 +590,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 					const hidden = rd.u8() !== 0;
 					const type = rd.u8();
 					const name = rd.string(1);
-					if (type === 0) sheets.push({ name, at, hidden });
-					else tally.add(type === 2 ? 'Chart sheet' : 'Macro or module sheet', 'lost');
+					bound.push({ name, at, hidden, type });
+					if (type !== 0) tally.add(type === 2 ? 'Chart sheet' : 'Macro or module sheet', 'lost');
 					break;
 				}
 				case 0x00fc: {
@@ -732,6 +733,17 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 		return style;
 	});
 
+	const sheets = bound.filter((b) => b.type === 0);
+	// The names the sheets get here, where the file's clash or are empty.
+	const sheetNames = new Map<(typeof bound)[number], string>();
+	const taken = new Set<string>();
+	for (const [origin, s] of sheets.entries()) {
+		let name = s.name || `Sheet${origin + 1}`;
+		for (let k = 2; taken.has(name.toLowerCase()); k++) name = `${s.name} (${k})`;
+		taken.add(name.toLowerCase());
+		sheetNames.set(s, name);
+	}
+
 	const engine = new Engine({ date1904 });
 	const book = new Book(engine, styles, {
 		format: 'xls',
@@ -742,7 +754,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 	const sheetOf = (ixti: number) => {
 		const x = externSheets[ixti];
 		if (!x || x.book !== selfBook || x.first !== x.last) return undefined;
-		return sheets[x.first]?.name;
+		const b = bound[x.first];
+		return b ? sheetNames.get(b) : undefined;
 	};
 	const byOffset = new Map(recs.map((r, k) => [r.at, k]));
 	let budget = XLS_LIMITS.cells;
@@ -752,9 +765,7 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 	const count = (label: string) => counts.set(label, (counts.get(label) ?? 0) + 1);
 
 	for (const [origin, s] of sheets.entries()) {
-		let name = s.name || `Sheet${origin + 1}`;
-		for (let k = 2; engine.sheetByName(name); k++) name = `${s.name} (${k})`;
-		const info = book.addSheet(name, undefined, origin);
+		const info = book.addSheet(sheetNames.get(s) as string, undefined, origin);
 		if (s.hidden) info.hidden = true;
 		const start = byOffset.get(s.at);
 		if (start === undefined || recs[start].type !== 0x0809) continue;

@@ -6,6 +6,7 @@ import {
 	EOF,
 	f64,
 	rec,
+	REL,
 	sampleXls,
 	u16,
 	u32,
@@ -98,5 +99,37 @@ describe('damaged .xls', () => {
 		expect(e.cell(s, 1, 0)!.value).toBe(7);
 		expect(e.cell(s, 1, 0)!.formula).toBeUndefined();
 		expect(e.cell(s, 2, 0)!.value).toBe(3);
+	});
+});
+
+describe('references to other sheets in .xls', () => {
+	it('counts chart sheets when it reads which sheet a reference names', () => {
+		const self = rec(0x01ae, [...u16(3), 0x01, 0x04]);
+		// EXTERNSHEET: one entry, this workbook, BOUNDSHEET 1 (Data, after the chart).
+		const extern = rec(0x0017, [...u16(1), ...u16(0), ...u16(1), ...u16(1)]);
+		const ref3d = rec(0x0006, [
+			...cell(0, 0, 15),
+			...f64(5),
+			...u16(0),
+			...u32(0),
+			...u16(7),
+			0x3a,
+			...u16(0),
+			...u16(0),
+			...u16(0 | REL)
+		]);
+		const { book } = readXls(
+			xlsOf(
+				[
+					{ name: 'Chart1', type: 2 },
+					{ name: 'Data', body: rec(0x0203, [...cell(0, 0, 15), ...f64(5)]) },
+					{ name: 'Other', body: ref3d }
+				],
+				[...self, ...extern]
+			)
+		);
+		const e = book.engine;
+		expect(e.sheets.map((s) => s.name)).toEqual(['Data', 'Other']);
+		expect(e.cell(e.sheets[1].id, 0, 0)!.formula!.text).toBe('Data!A1');
 	});
 });
