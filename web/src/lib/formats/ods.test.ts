@@ -187,7 +187,8 @@ describe('hostile .ods', () => {
 		const cells = ODS_LIMITS.cells;
 		ODS_LIMITS.cells = 1000;
 		try {
-			const styled = '<table:table-cell table:style-name="ce1" table:number-columns-repeated="10"/>';
+			const styled =
+				'<table:table-cell table:style-name="ce1" table:number-columns-repeated="10"/>';
 			const bytes = await odsOf(
 				`<table:table table:name="T"><table:table-row table:number-rows-repeated="60">${styled}${styled}</table:table-row></table:table>`,
 				'<style:style style:name="ce1" style:family="table-cell"><style:text-properties fo:font-weight="bold"/></style:style>'
@@ -269,7 +270,7 @@ describe('.ods attributes written back', () => {
 		const bytes = await odsOf(
 			"<table:table table:name='T'><table:table-column/>" +
 				'<table:table-row table:style-name="r&amp;1"><table:table-cell office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell></table:table-row>' +
-				"<table:table-row table:number-rows-repeated='3'><table:table-cell office:value-type=\"float\" office:value=\"2\"><text:p>2</text:p></table:table-cell></table:table-row>" +
+				'<table:table-row table:number-rows-repeated=\'3\'><table:table-cell office:value-type="float" office:value="2"><text:p>2</text:p></table:table-cell></table:table-row>' +
 				'</table:table>',
 			'<style:style style:name="r&amp;1" style:family="table-row"><style:table-row-properties style:row-height="1cm"/></style:style>'
 		);

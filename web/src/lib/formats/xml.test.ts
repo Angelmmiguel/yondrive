@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { decodeXml, escapeAttr, escapeXml, findSpans, splice, tokenize, unescapeXml, XmlError } from './xml';
+import {
+	decodeXml,
+	escapeAttr,
+	escapeXml,
+	findSpans,
+	splice,
+	tokenize,
+	unescapeXml,
+	XmlError
+} from './xml';
 
 describe('xml', () => {
 	const src =

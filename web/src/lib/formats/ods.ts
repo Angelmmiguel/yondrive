@@ -1397,7 +1397,9 @@ function patchTable(
 			while (c + run < total && info.cols.find((x) => c + run >= x.min && c + run <= x.max) === ci)
 				run++;
 			const styleAttr =
-				ci?.width !== undefined ? ` table:style-name="${escapeAttr(ctx.styles.column(ci.width))}"` : '';
+				ci?.width !== undefined
+					? ` table:style-name="${escapeAttr(ctx.styles.column(ci.width))}"`
+					: '';
 			const def = ci?.style ? ctx.styles.cell(ci.style) : undefined;
 			cols += `<table:table-column${styleAttr}${run > 1 ? ` table:number-columns-repeated="${Math.min(run, MAX_COLS - c)}"` : ''}${ci?.hidden ? ' table:visibility="collapse"' : ''} table:default-cell-style-name="${escapeAttr(def ?? 'Default')}"/>`;
 			c += run;

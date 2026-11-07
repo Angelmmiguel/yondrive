@@ -269,7 +269,7 @@ describe('writing .xlsx back', () => {
 		book.insertRows(s, 0, 1);
 		const out = await writeXlsx(book, bytes);
 		const wb = (await part(out, 'xl/workbook.xml'))!;
-		expect(wb).toContain('<sheet name="Data" sheetId=\'1\' r:id=\'rId1\'/>');
+		expect(wb).toContain("<sheet name=\"Data\" sheetId='1' r:id='rId1'/>");
 		const sheet = (await part(out, 'xl/worksheets/sheet1.xml'))!;
 		expect(sheet).not.toMatch(/\sr\s*=\s*'/);
 		const again = (await readXlsx(out)).book.engine;
@@ -341,7 +341,9 @@ describe('writing .xlsx back', () => {
 		expect(sheet).not.toContain('*A2');
 		book.insertRows(s, 0, 1);
 		sheet = (await part(await writeXlsx(book, bytes), 'xl/worksheets/sheet1.xml'))!;
-		expect(sheet).toContain('<c r="B2"><f t="shared" ref="B2:B4" si="0">Table1[[#This Row],[x]]*A1</f><v>1</v></c>');
+		expect(sheet).toContain(
+			'<c r="B2"><f t="shared" ref="B2:B4" si="0">Table1[[#This Row],[x]]*A1</f><v>1</v></c>'
+		);
 		expect(sheet).toContain('<c r="B4"><f t="shared" si="0"/><v>3</v></c>');
 	});
 
@@ -362,7 +364,10 @@ describe('writing .xlsx back', () => {
 		const s = book.engine.sheets[0].id;
 		expect(book.styles.length).toBe(2);
 		expect(book.styles[book.engine.cell(s, 0, 0)!.style].font.bold).toBe(true);
-		const italic = book.styleId({ ...book.styles[0], font: { ...book.styles[0].font, italic: true } });
+		const italic = book.styleId({
+			...book.styles[0],
+			font: { ...book.styles[0].font, italic: true }
+		});
 		book.engine.set(s, 0, 1, { value: 2 });
 		book.engine.setStyle(s, 0, 1, italic);
 		const out = await writeXlsx(book, bytes);
@@ -376,11 +381,14 @@ describe('writing .xlsx back', () => {
 	});
 
 	it('refuses to save over cell formats it could not read', async () => {
-		const bytes = await xlsxOf(['<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData>'], {
-			'xl/_rels/workbook.xml.rels':
-				'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
-			'xl/styles.xml': '<styleSheet xmlns="urn:something-else"><cellFormats/></styleSheet>'
-		});
+		const bytes = await xlsxOf(
+			['<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData>'],
+			{
+				'xl/_rels/workbook.xml.rels':
+					'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+				'xl/styles.xml': '<styleSheet xmlns="urn:something-else"><cellFormats/></styleSheet>'
+			}
+		);
 		const { book } = await readXlsx(bytes);
 		book.engine.set(book.engine.sheets[0].id, 1, 0, { value: 2 });
 		await expect(writeXlsx(book, bytes)).rejects.toThrow(/cell formats/);
@@ -407,7 +415,8 @@ describe('writing .xlsx back', () => {
 			`<Relationships xmlns="${PR}">${items.map(([t, target], i) => `<Relationship Id="rId${i + 1}" Type="${R}/${t}" Target="${target}"/>`).join('')}</Relationships>`;
 		const ov = (part: string, type: string) =>
 			`<Override PartName="/${part}" ContentType="application/vnd.openxmlformats-officedocument.${type}"/>`;
-		const sheetXml = '<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><drawing r:id="rId1"/>';
+		const sheetXml =
+			'<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData><drawing r:id="rId1"/>';
 		const bytes = await xlsxOf([sheetXml, sheetXml], {
 			'[Content_Types].xml':
 				'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>' +

@@ -182,7 +182,9 @@ describe('arguments from the page', () => {
 		const s = sheets[0].id;
 		const before = [...svc.window(s, 0, 0, 20, 20)];
 		const refused = (f: () => unknown) =>
-			expect(f).toThrow(expect.objectContaining({ name: 'FormulaInputError', problem: 'argument' }));
+			expect(f).toThrow(
+				expect.objectContaining({ name: 'FormulaInputError', problem: 'argument' })
+			);
 		refused(() => svc.insertRows(s, 0, NaN));
 		refused(() => svc.insertRows(s, 0, -2));
 		refused(() => svc.deleteRows(s, 1.5, 1));
@@ -215,14 +217,20 @@ describe('sorting whole columns', () => {
 		const { sheets } = await svc.load(fixture(), 'xlsx');
 		const s = sheets[0].id;
 		const t = performance.now();
-		const r = svc.sort(s, { top: 0, left: 0, bottom: 1048575, right: 1 }, [{ col: 1, desc: true }], true);
+		const r = svc.sort(
+			s,
+			{ top: 0, left: 0, bottom: 1048575, right: 1 },
+			[{ col: 1, desc: true }],
+			true
+		);
 		expect(performance.now() - t).toBeLessThan(1000);
 		expect(r.changed.length).toBeLessThan(50);
 		const used = new SheetService();
 		await used.load(fixture(), 'xlsx');
 		const rows = used.sheets()[0].rows;
 		used.sort(s, { top: 0, left: 0, bottom: rows - 1, right: 1 }, [{ col: 1, desc: true }], true);
-		const values = (x: SheetService) => x.window(s, 0, 0, 20, 5).map((v) => [v.row, v.col, v.value]);
+		const values = (x: SheetService) =>
+			x.window(s, 0, 0, 20, 5).map((v) => [v.row, v.col, v.value]);
 		expect(values(svc)).toEqual(values(used));
 	});
 });
@@ -238,7 +246,11 @@ describe('formatting large areas', () => {
 		// Hide D:F as a file would.
 		for (const c of info) if (c.min === 3) c.hidden = true;
 		const t = performance.now();
-		const r = svc.setStyle(s, { top: 0, left: 0, bottom: 1048575, right: 16383 }, { fill: '#ff0000' });
+		const r = svc.setStyle(
+			s,
+			{ top: 0, left: 0, bottom: 1048575, right: 16383 },
+			{ fill: '#ff0000' }
+		);
 		expect(performance.now() - t).toBeLessThan(1000);
 		expect(r.partial).toBeUndefined();
 		const cols = svc.sheets()[0].colInfo;
@@ -255,7 +267,9 @@ describe('formatting large areas', () => {
 		const s = sheets[0].id;
 		const r = svc.setStyle(s, { top: 0, left: 0, bottom: 9999, right: 99 }, { fill: '#ff0000' });
 		expect(r.partial).toBe(true);
-		expect(svc.setStyle(s, { top: 0, left: 0, bottom: 9, right: 9 }, { fill: '#00ff00' }).partial).toBeUndefined();
+		expect(
+			svc.setStyle(s, { top: 0, left: 0, bottom: 9, right: 9 }, { fill: '#00ff00' }).partial
+		).toBeUndefined();
 	});
 });
 

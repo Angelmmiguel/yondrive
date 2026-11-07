@@ -1403,7 +1403,11 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		elText = setAttr(
 			elText,
 			'state',
-			info.hidden ? (/\sstate\s*=\s*["']veryHidden["']/.test(elText) ? 'veryHidden' : 'hidden') : null
+			info.hidden
+				? /\sstate\s*=\s*["']veryHidden["']/.test(elText)
+					? 'veryHidden'
+					: 'hidden'
+				: null
 		);
 		sheetEls.push(elText);
 		const scan = scanSheet(source, strings.base, engine.date1904, { cells: SHEET_LIMITS.cells });

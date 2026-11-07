@@ -516,8 +516,7 @@ describe('the engine', () => {
 		e.loaded();
 		const t = performance.now();
 		let readOnly = 0;
-		for (let r = 0; r < 100; r++)
-			for (let c = 0; c < 20; c++) if (e.readOnly(s, r, c)) readOnly++;
+		for (let r = 0; r < 100; r++) for (let c = 0; c < 20; c++) if (e.readOnly(s, r, c)) readOnly++;
 		expect(readOnly).toBe(100);
 		expect(performance.now() - t).toBeLessThan(500);
 	});
@@ -527,8 +526,7 @@ describe('the engine', () => {
 		const s = e.addSheet('S');
 		const whole = { top: 0, left: 0, bottom: 1048575, right: 1 };
 		expect(() => {
-			for (let k = 0; k <= 1001; k++)
-				e.load(s, k, 0, { formula: 'B1', value: 0, array: whole });
+			for (let k = 0; k <= 1001; k++) e.load(s, k, 0, { formula: 'B1', value: 0, array: whole });
 		}).toThrow(/array/);
 	});
 
