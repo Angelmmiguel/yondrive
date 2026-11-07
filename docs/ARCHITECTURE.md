@@ -119,6 +119,10 @@ say who has an account. A stranger with several addresses can spend it to refuse
 sign-ins, for one window at a time; open sessions and tokens are not affected. That is
 why the threshold is high and the window short, and why there is no longer lockout.
 
+**Proxies.** Forwarded headers from an address outside `YONDRIVE_TRUSTED_PROXIES` are
+ignored. The admin settings routes report `proxy_untrusted` when a request carries them,
+so the admin area can warn about the most likely misconfiguration.
+
 At 65,536 tracked keys a limiter forgets the window closest to ending, so a spray of
 addresses cannot clear the limits on anyone else.
 

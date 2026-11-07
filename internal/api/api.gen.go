@@ -415,9 +415,14 @@ type ServerSettings struct {
 	Name string `json:"name"`
 
 	// OpenSignup Whether anyone can register without an invite.
-	OpenSignup bool   `json:"open_signup"`
-	PublicUrl  string `json:"public_url"`
-	TimeZone   string `json:"time_zone"`
+	OpenSignup bool `json:"open_signup"`
+
+	// ProxyUntrusted This request carried forwarded headers from an address not in
+	// `YONDRIVE_TRUSTED_PROXIES`. They were ignored, so client addresses and
+	// HTTPS detection are wrong: the most likely misconfiguration.
+	ProxyUntrusted bool   `json:"proxy_untrusted"`
+	PublicUrl      string `json:"public_url"`
+	TimeZone       string `json:"time_zone"`
 }
 
 // ServerSettingsInput defines model for ServerSettingsInput.

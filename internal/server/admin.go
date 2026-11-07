@@ -193,7 +193,7 @@ func (s *Server) GetSettings(ctx context.Context, _ oapi.GetSettingsRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	return oapi.GetSettings200JSONResponse(settingsView(settings)), nil
+	return oapi.GetSettings200JSONResponse(s.settingsView(ctx, settings)), nil
 }
 
 // UpdateSettings changes the settings it is given. The request type has no
@@ -226,10 +226,10 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 		return nil, err
 	}
 	s.audit(ctx, auditSettingsChanged, principalFrom(ctx).user.ID, "")
-	return oapi.UpdateSettings200JSONResponse(settingsView(settings)), nil
+	return oapi.UpdateSettings200JSONResponse(s.settingsView(ctx, settings)), nil
 }
 
-func settingsView(in store.Settings) oapi.ServerSettings {
+func (s *Server) settingsView(ctx context.Context, in store.Settings) oapi.ServerSettings {
 	return oapi.ServerSettings{
 		Name:              in.Name,
 		PublicUrl:         in.PublicURL,
@@ -238,5 +238,6 @@ func settingsView(in store.Settings) oapi.ServerSettings {
 		TimeZone:          in.TimeZone,
 		Mode:              oapi.Mode(in.Mode),
 		OpenSignup:        in.OpenSignup,
+		ProxyUntrusted:    s.proxyUntrusted(requestFrom(ctx)),
 	}
 }

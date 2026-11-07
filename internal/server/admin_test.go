@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/netip"
 	"reflect"
 	"strings"
 	"sync"
@@ -304,7 +305,7 @@ func TestSettingsRoutes(t *testing.T) {
 	resp.decode(t, &got)
 	data, _ := json.Marshal(obj{
 		"name": "Home", "public_url": "https://drive.example.com", "default_quota_bytes": 1000,
-		"language": "en", "time_zone": "Europe/Madrid", "mode": "e2e", "open_signup": false,
+		"language": "en", "time_zone": "Europe/Madrid", "mode": "e2e", "open_signup": false, "proxy_untrusted": false,
 	})
 	_ = json.Unmarshal(data, &want)
 	if !reflect.DeepEqual(got, want) {
@@ -343,6 +344,37 @@ func TestSettingsRoutes(t *testing.T) {
 		{obj{"public_url": "ftp://x"}, "invalid_public_url"},
 	} {
 		root.call(http.MethodPatch, settingsPath, bad.body).wantError(t, http.StatusBadRequest, bad.code)
+	}
+}
+
+func TestSettingsWarnAboutAnUntrustedProxy(t *testing.T) {
+	check := func(t *testing.T, e *env, want bool, header ...string) {
+		t.Helper()
+		c := e.login("root")
+		var got struct {
+			ProxyUntrusted bool `json:"proxy_untrusted"`
+		}
+		resp := e.call(http.MethodGet, settingsPath, nil, append([]string{"Cookie", c.cookie}, header...)...)
+		resp.wantStatus(t, http.StatusOK)
+		resp.decode(t, &got)
+		if got.ProxyUntrusted != want {
+			t.Errorf("headers %v: proxy_untrusted = %v", header, got.ProxyUntrusted)
+		}
+	}
+	e := configured(t, "none", server.Config{})
+	check(t, e, false)
+	check(t, e, true, "X-Forwarded-For", "1.1.1.1")
+	check(t, e, true, "X-Forwarded-Proto", "https")
+	check(t, e, true, "Forwarded", "for=1.1.1.1")
+
+	trusted := configured(t, "none", server.Config{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	check(t, trusted, false, "X-Forwarded-For", "1.1.1.1", "X-Forwarded-Proto", "https")
+
+	c := e.login("root")
+	resp := e.call(http.MethodPatch, settingsPath, obj{"name": "x"}, "Cookie", c.cookie, "X-Forwarded-For", "1.1.1.1")
+	resp.wantStatus(t, http.StatusOK)
+	if !strings.Contains(string(resp.body), `"proxy_untrusted":true`) {
+		t.Errorf("patch = %s", resp.body)
 	}
 }
 

@@ -922,6 +922,12 @@ export interface components {
             mode: components["schemas"]["Mode"];
             /** @description Whether anyone can register without an invite. */
             open_signup: boolean;
+            /**
+             * @description This request carried forwarded headers from an address not in
+             *     `YONDRIVE_TRUSTED_PROXIES`. They were ignored, so client addresses and
+             *     HTTPS detection are wrong: the most likely misconfiguration.
+             */
+            proxy_untrusted: boolean;
         };
         /** @description Fields left out stay as they are. There is no field for the mode. */
         UpdateSettingsRequest: {

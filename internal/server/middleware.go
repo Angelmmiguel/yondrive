@@ -256,6 +256,20 @@ func (s *Server) requestSecure(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
+// proxyUntrusted reports whether a request looks proxied by something not in
+// Config.TrustedProxies, whose forwarded headers are therefore ignored.
+func (s *Server) proxyUntrusted(r *http.Request) bool {
+	if _, peer, ok := peerAddr(r); ok && s.trustedProxy(peer) {
+		return false
+	}
+	for _, h := range []string{"X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "Forwarded"} {
+		if r.Header.Get(h) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) trustedProxy(addr netip.Addr) bool {
 	for _, p := range s.cfg.TrustedProxies {
 		if p.Contains(addr) {

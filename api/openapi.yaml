@@ -1152,7 +1152,7 @@ components:
           $ref: "#/components/schemas/KDF"
     ServerSettings:
       type: object
-      required: [name, public_url, default_quota_bytes, language, time_zone, mode, open_signup]
+      required: [name, public_url, default_quota_bytes, language, time_zone, mode, open_signup, proxy_untrusted]
       properties:
         name:
           type: string
@@ -1170,6 +1170,12 @@ components:
         open_signup:
           type: boolean
           description: Whether anyone can register without an invite.
+        proxy_untrusted:
+          type: boolean
+          description: |
+            This request carried forwarded headers from an address not in
+            `YONDRIVE_TRUSTED_PROXIES`. They were ignored, so client addresses and
+            HTTPS detection are wrong: the most likely misconfiguration.
     UpdateSettingsRequest:
       type: object
       description: Fields left out stay as they are. There is no field for the mode.
