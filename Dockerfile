@@ -11,7 +11,8 @@ ARG SOURCE_DATE_EPOCH=0
 
 # The web app, compiled into web/build for the Go binary to embed, once for
 # every platform since its output does not depend on one. Corepack
-# picks the pnpm version pinned in package.json. Install scripts are disabled
+# fetches the pnpm version pinned in package.json and checks it against the
+# SHA-512 pinned beside it. Install scripts are disabled
 # by web/.npmrc, and the lockfile is not allowed to change.
 FROM --platform=$BUILDPLATFORM node:22.23.4-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
@@ -32,7 +33,7 @@ RUN YONDRIVE_COMMIT=${COMMIT} SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} pnpm build
 FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS server
 RUN apk add --no-cache ca-certificates
 WORKDIR /src
-COPY go.mod go.sum* ./
+COPY go.mod go.sum ./
 RUN go mod download
 COPY api/ api/
 COPY cmd/ cmd/
