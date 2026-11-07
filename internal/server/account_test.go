@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -225,6 +226,18 @@ func TestRateLimitFollowsTrustedProxiesOnly(t *testing.T) {
 	}
 	if got := limited(e, "2.2.2.2"); got != http.StatusTooManyRequests {
 		t.Errorf("an untrusted forwarded address dodged the limit: %d", got)
+	}
+
+	e = configured(t, "none", server.Config{LoginAttempts: 1, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	if got := limited(e, "1.1.1.1"); got != http.StatusUnauthorized {
+		t.Errorf("first client = %d", got)
+	}
+	if got := limited(e, "2.2.2.2"); got != http.StatusUnauthorized {
+		t.Errorf("second client behind the proxy = %d", got)
+	}
+	// Only the entry the proxy appended counts, not what the client sent before it.
+	if got := limited(e, "9.9.9.9, 1.1.1.1"); got != http.StatusTooManyRequests {
+		t.Errorf("a spoofed chain dodged the limit: %d", got)
 	}
 }
 

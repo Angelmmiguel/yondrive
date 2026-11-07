@@ -53,7 +53,7 @@ func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupReques
 	if err != nil {
 		return nil, badRequest(codeInvalidPublicURL)
 	}
-	if !validServerName(in.Name) || in.DefaultQuotaBytes < 0 ||
+	if !validName(in.Name) || in.DefaultQuotaBytes < 0 ||
 		!languagePattern.MatchString(in.Language) || !timeZonePattern.MatchString(in.TimeZone) {
 		return nil, badRequest(codeInvalidSettings)
 	}

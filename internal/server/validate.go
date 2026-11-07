@@ -68,7 +68,7 @@ func validEmail(email string) bool {
 	return err == nil && addr.Address == email
 }
 
-func validServerName(name string) bool {
+func validName(name string) bool {
 	n := utf8.RuneCountInString(name)
 	if n == 0 || n > maxNameRunes || strings.TrimSpace(name) == "" {
 		return false

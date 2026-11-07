@@ -194,7 +194,7 @@ func (s *Server) GetSettings(ctx context.Context, _ oapi.GetSettingsRequestObjec
 // field for the mode, so one sent anyway goes nowhere.
 func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequestObject) (oapi.UpdateSettingsResponseObject, error) {
 	in := req.Body
-	if (in.Name != nil && !validServerName(*in.Name)) ||
+	if (in.Name != nil && !validName(*in.Name)) ||
 		(in.DefaultQuotaBytes != nil && *in.DefaultQuotaBytes < 0) ||
 		(in.Language != nil && !languagePattern.MatchString(*in.Language)) ||
 		(in.TimeZone != nil && !timeZonePattern.MatchString(*in.TimeZone)) {

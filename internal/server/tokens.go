@@ -16,7 +16,7 @@ const (
 
 // CreateToken issues a named bearer token for a device. Only its hash is kept.
 func (s *Server) CreateToken(ctx context.Context, req oapi.CreateTokenRequestObject) (oapi.CreateTokenResponseObject, error) {
-	if !validServerName(req.Body.Name) {
+	if !validName(req.Body.Name) {
 		return nil, badRequest(codeInvalidTokenName)
 	}
 	s.accountMu.Lock()
