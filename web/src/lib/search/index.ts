@@ -460,10 +460,9 @@ export class SearchIndex {
 		const entries = [...this.#entries.values()].filter(
 			(entry) => entry.origin !== null && ids.has(entry.origin)
 		);
-		const oldest = Math.min(...[...this.#segments.values()].map((meta) => meta.seq));
-		const reachesOldest = run.some((meta) => meta.seq === oldest);
-		// With nothing older left, nothing is there for a removal to hide.
-		const gone = reachesOldest
+		const outside = [...this.#segments.values()].some((meta) => !ids.has(meta.id));
+		// With nothing outside the run, nothing is there for a removal to hide.
+		const gone = !outside
 			? []
 			: [...new Set(run.flatMap((meta) => meta.gone))].filter((id) => !this.#entries.has(id));
 		const add = this.#write(entries, gone, Math.max(...run.map((meta) => meta.seq)));

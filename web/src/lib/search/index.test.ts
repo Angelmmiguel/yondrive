@@ -286,6 +286,34 @@ describe('segments', () => {
 		expect(() => fresh.flush()).not.toThrow();
 	});
 
+	it('keeps removals while a segment outside the merge may still hold the doc', () => {
+		const source = new SearchIndex();
+		source.upsert(doc('t', 'trashed.txt'));
+		const big = source.flush()!.add[0].body;
+		source.upsert(doc('s', 'small.txt'));
+		const small = source.flush()!.add[0].body;
+		source.remove('t');
+		const removal = source.flush()!.add[0].body;
+		source.upsert(doc('u', 'u.txt'));
+		const last = source.flush()!.add[0].body;
+		// One split flush: the big chunk and a small one share a seq.
+		big.seq = 1;
+		small.seq = 1;
+		removal.seq = 2;
+		last.seq = 3;
+		const index = new SearchIndex();
+		index.load('big', big, 5 * 1024 * 1024);
+		index.load('small', small, 10);
+		index.load('removal', removal, 10);
+		index.load('last', last, 10);
+		const write = index.compact(2)!;
+		expect(write.remove).not.toContain('big');
+		const merged = write.add.flatMap((one) => one.body.gone);
+		expect(merged).toContain('t');
+		const fresh = reload([{ body: big }, ...write.add]);
+		expect(names(fresh, 'trashed')).toEqual([]);
+	});
+
 	it('refuses bytes of the wrong shape', () => {
 		const good = encodeSegment({ v: 1, seq: 1, docs: [], gone: [], terms: {} });
 		expect(decodeSegment(good).seq).toBe(1);
