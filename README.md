@@ -210,8 +210,9 @@ It does not hide everything, and we would rather say so:
 - **The server delivers the web app.** Someone who takes control of the running
   server could serve a modified app that captures your passphrase the next time
   you unlock. The same is true of every browser-based end-to-end encrypted
-  service. Native clients and reproducible builds reduce this risk but do not
-  remove it for the web app.
+  service. Reproducible builds and published hashes of the app let you check
+  what a server serves ([docs/RELEASE.md](docs/RELEASE.md)), and native clients
+  will reduce the risk, but nothing removes it for the web app.
 - **Revoking a share is not retroactive.** Revocation stops future access, but
   it cannot erase what someone already downloaded.
 - **Your device is trusted.** Malware on an unlocked device can read what you
@@ -255,8 +256,8 @@ Anyone on that network could read your traffic or tamper with the app, which
 defeats end-to-end encryption, and browsers disable some features there, such as
 streaming large files.
 
-**Unraid.** A Docker template will ship in `unraid/yondrive.xml`, in the same
-form as other Community Applications templates.
+**Unraid.** A Docker template is in `unraid/yondrive.xml`, in the same form as
+other Community Applications templates.
 
 **Backups.** In end-to-end mode the data directory holds only ciphertext and
 non-secret metadata, so it can be copied to any backup destination without
@@ -282,7 +283,10 @@ set in the environment:
 | `YONDRIVE_TRUSTED_PROXIES` | Empty | Proxy addresses or CIDRs whose forwarded headers are trusted |
 | `YONDRIVE_CA_FILE` | Empty | PEM file of certificate authorities to trust as well as the image's bundle, for an internal identity provider |
 
-Guides: [reverse proxies](docs/PROXY.md) and [identity providers](docs/OIDC.md).
+Guides: [running a server](docs/OPERATIONS.md) (installing, backups and
+restore, upgrades, monitoring, recovery), [reverse proxies](docs/PROXY.md),
+[identity providers](docs/OIDC.md), [verifying a release](docs/RELEASE.md) and
+[the API](docs/API.md).
 
 ## Development
 

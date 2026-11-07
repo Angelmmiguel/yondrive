@@ -52,7 +52,9 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 - **The server delivers the web app.** Someone who takes control of the running server can
   serve a modified app that captures the passphrase at the next unlock. This holds for every
   browser-based end-to-end encrypted service. Reproducible builds and published hashes allow
-  checking, and native clients reduce the risk, but none of them remove it for the web app.
+  checking ([RELEASE.md](RELEASE.md#checking-the-app-your-browser-runs)), which detects a
+  modified app and cannot prevent one; native clients reduce the risk, but none of them
+  remove it for the web app.
   The CSP catches mistakes and injected content. It does not stop a server that writes the CSP.
 - **Revoking a share is not retroactive.** It stops future access at once, by the server. The
   client then rotates the node key and those under it, for future content. The rotation seals

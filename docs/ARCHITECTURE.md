@@ -15,7 +15,8 @@ the threat model in [SECURITY.md](SECURITY.md). The contract is
 | `internal/auth` | Hashing, tokens, fake KDF salts, session keys, rate limits, TOTP. No database and no HTTP. |
 | `internal/api` | Generated from the spec. Never edited. |
 | `internal/server` | Handlers, middleware, and what each route is allowed to do. |
-| `cmd/yondrive` | `serve`, `backup` and `admin`. |
+| `cmd/yondrive` | `serve`, `backup`, `restore`, `migrate`, `admin`, `version` and `assets`. |
+| `web` | The built app, embedded, its handler, and the hashes of its files (`EmbeddedBundle`). |
 
 ## Storage
 
@@ -40,7 +41,9 @@ lock              advisory lock against a second process
   5 s busy timeout. The files are mode 0600 in a 0700 directory.
 - **Migrations.** `internal/store/migrations/NNNN_*.sql`, embedded and applied in
   order, each in a transaction with the bump of `PRAGMA user_version`. A database
-  newer than the binary is refused.
+  newer than the binary is refused. `yondrive migrate --check` reads the version
+  without the lock. `upgrade_test.go` builds a database at every earlier version, with
+  data written at each, and migrates it; each migration needs a seed there.
 - **Times** are Unix seconds. **Ids** are 32 hex characters.
 
 | Table | Holds |
@@ -367,8 +370,14 @@ missing file means the server removed it after the snapshot, and the backup star
 one, up to five times. The database takes its final name last: a directory without `yondrive.db`
 is an unfinished backup. The time goes in the settings, and `GET /admin/health` shows it.
 
-To restore, stop the server and use the directory as the data directory. Uploads in progress are not
-in a backup; the server forgets them on startup, and clients start them again.
+`yondrive restore [--data dir] <backup>` copies a finished backup into a data directory that is empty
+or missing, and never over one with anything in it. It refuses a backup whose schema is newer than its
+own before writing anything, links or copies the files, and writes the database last through
+`VACUUM INTO`, after a quick check, so the backup is only read and a directory without `yondrive.db`
+is again an unfinished restore. An older backup is migrated when the server starts. Using a backup
+directly as the data directory also works, at the cost of the backup. Uploads in progress are not in a
+backup; the server forgets them on startup, and clients start them again. `drill_test.go` backs up a
+live server in each mode, restores it and checks a server on the result.
 
 ## Account flows
 

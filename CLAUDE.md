@@ -59,6 +59,9 @@ just api        # lint the spec, regenerate Go and TypeScript code
 just api-check  # fail if generated code is out of date (CI)
 just web-e2e    # Playwright specs against throwaway servers
 just image      # container image
+just dist       # release binaries for linux and darwin, and the web app's hashes
+just api-docs   # render the API reference into docs/api/
+just verify-reproducible  # build twice from scratch and compare (docker=true: and the Dockerfile)
 ```
 
 `just test` and `just lint` must be clean, and `just fmt` must print nothing,

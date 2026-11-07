@@ -369,14 +369,14 @@ sidebars collapse below a breakpoint.
 ```
 flake.nix  flake.lock  .envrc  justfile  Dockerfile  CLAUDE.md
 api/openapi.yaml
-cmd/yondrive/            serve, backup, admin subcommands
+cmd/yondrive/            serve, backup, restore, migrate, admin, version, assets
 internal/
   api/                   generated types and server interface
   auth/  oidc/           sessions, rate limits, TOTP, OIDC
   server/                handlers and middleware
   store/                 SQLite and migrations
   blobs/                 stored files
-docs/                    ARCHITECTURE, CRYPTO + vectors, SECURITY, API, ADMIN
+docs/                    ARCHITECTURE, CRYPTO + vectors, SECURITY, API, OPERATIONS, RELEASE, PROXY, OIDC
 unraid/yondrive.xml
 web/
   embed.go               embeds the built app
@@ -521,8 +521,8 @@ shellHook = ''
 '';
 ```
 
-`.gitignore` gains `.go/`, `.direnv/`, `bin/`, `data/`, `.env.local` and `web/build/*`. CI runs each job inside `nix develop`, so it uses the
-same pinned toolchain.
+`.gitignore` gains `.go/`, `.direnv/`, `bin/`, `dist/`, `data/`, `docs/api/`, `.env.local` and `web/build/*`. CI runs each job inside `nix develop`, so it uses the
+same pinned toolchain. A second shell, `nix develop .#release`, adds cosign and syft for the release workflow.
 
 ## 8. Delivery phases
 
@@ -641,6 +641,16 @@ in other Markdown editors, and reminders that come due while no tab is open, whi
 - Safari, a real 4 GB video, and phone throughput and memory, left open by Phase 0
 - Upgrade tests across schema versions, backup and restore drills
 - Operator and API docs
+
+Built for release engineering: reproducible builds (the same commit gives the same binary and web app
+from `just build` and the Dockerfile, checked by `just verify-reproducible`), release builds with the
+official Go release rather than the patched one in nixpkgs, `yondrive version` and `yondrive assets`
+with the web app's root hash in health and the admin area, a release workflow on `v*` tags with
+binaries, SHA256SUMS, SBOMs, keyless signatures and provenance ([docs/RELEASE.md](docs/RELEASE.md)),
+[CHANGELOG.md](CHANGELOG.md), upgrade tests from every schema version, `yondrive migrate` and
+`yondrive restore` with a backup and restore drill in Go and in the browser, operator commands to get
+back in, [docs/OPERATIONS.md](docs/OPERATIONS.md) and [docs/API.md](docs/API.md). Open: the first
+tagged release, which is the only way to exercise the signing, provenance and publishing steps.
 
 **Exit: Release 1.0.**
 
