@@ -122,7 +122,7 @@
 		width: 200px;
 		max-width: 60vw;
 		padding: 0 10px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 8px;
 		background: var(--surface);
 		color: var(--text-strong);

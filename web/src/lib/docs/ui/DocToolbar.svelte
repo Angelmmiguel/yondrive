@@ -530,7 +530,7 @@
 		height: 34px;
 		max-width: 150px;
 		padding: 0 8px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 8px;
 		background: var(--surface);
 		color: var(--text-strong);

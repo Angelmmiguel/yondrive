@@ -247,7 +247,7 @@
 	textarea {
 		width: 100%;
 		padding: 10px 12px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 10px;
 		background: var(--surface);
 		color: var(--text-strong);

@@ -9,6 +9,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { openDrive, row } from '../drive';
 import { startServer, type Server } from '../server';
+import { openNotes } from '../notes';
 import { tour, tourEnrol } from '../tour';
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
@@ -46,6 +47,71 @@ async function audit(page: Page, screen: string): Promise<Finding[]> {
 		else document.documentElement.dataset.theme = t;
 	}, before);
 	return found;
+}
+
+/**
+ * The edge of every text field, select and text area on screen against what is behind it. A
+ * field that draws no border of its own is judged by the box around it.
+ */
+async function lowEdges(p: Page): Promise<string[]> {
+	return p.evaluate(() => {
+		const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 4).map(Number);
+		const lum = ([r, g, b]: number[]) => {
+			const f = (v: number) => {
+				const s = v / 255;
+				return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+			};
+			return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+		};
+		const ratio = (a: number[], b: number[]) => {
+			const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+			return (x + 0.05) / (y + 0.05);
+		};
+		const behind = (el: Element | null): number[] => {
+			for (let q = el; q; q = q.parentElement) {
+				const c = rgb(getComputedStyle(q).backgroundColor);
+				if (c.length === 3 || c[3] === 1) return c.slice(0, 3);
+			}
+			return [255, 255, 255];
+		};
+		const sides = ['Top', 'Right', 'Bottom', 'Left'] as const;
+		const drawn = (e: Element) => {
+			const s = getComputedStyle(e);
+			return sides.find((d) => s[`border${d}Style`] !== 'none' && s[`border${d}Width`] !== '0px');
+		};
+		const out: string[] = [];
+		const fields = document.querySelectorAll(
+			'input:not([type=file],[type=checkbox],[type=radio],[type=hidden]), select, textarea'
+		);
+		for (const field of fields) {
+			if (field.getBoundingClientRect().width === 0) continue;
+			let edge: Element | null = field;
+			for (let i = 0; i < 3 && edge && !drawn(edge); i++) edge = edge.parentElement;
+			const side = edge && drawn(edge);
+			if (!edge || !side) continue;
+			const r = ratio(
+				rgb(getComputedStyle(edge)[`border${side}Color`]),
+				behind(edge.parentElement)
+			);
+			const name = field.getAttribute('aria-label') ?? (field.id || field.tagName);
+			if (r < 3) out.push(`edge of ${name} ${r.toFixed(2)}:1`);
+		}
+		return out;
+	});
+}
+
+/** In both themes, so that a field that stands out in one and not the other is found. */
+async function expectEdges(p: Page): Promise<void> {
+	const before = await p.evaluate(() => document.documentElement.dataset.theme ?? null);
+	for (const theme of ['light', 'dark']) {
+		await p.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
+		await p.waitForTimeout(50);
+		expect(await lowEdges(p), theme).toEqual([]);
+	}
+	await p.evaluate((t) => {
+		if (t === null) delete document.documentElement.dataset.theme;
+		else document.documentElement.dataset.theme = t;
+	}, before);
 }
 
 const report = (found: Finding[]) =>
@@ -227,6 +293,10 @@ test.describe.serial('from the keyboard', () => {
 		await page.keyboard.press('Control+s');
 		await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 30_000 });
 		await expect(doc.locator('strong')).toHaveText(' Bold.');
+		await page.keyboard.press('Control+f');
+		await expect(page.getByRole('textbox', { name: 'Replace with' })).toBeVisible();
+		await expectEdges(page);
+		await page.keyboard.press('Escape');
 		await page.goBack();
 		await expect(page.getByTestId('storage')).toBeVisible();
 	});
@@ -246,6 +316,7 @@ test.describe.serial('from the keyboard', () => {
 		await page.keyboard.press('ArrowUp');
 		await expect(page.getByLabel('Selected cell')).toHaveValue('A3');
 		await expect(page.getByLabel('Cell contents')).toHaveValue('=A1*A2');
+		await expectEdges(page);
 		const a3 = grid.locator('[role=row][aria-rowindex="3"] > [role=gridcell][aria-colindex="1"]');
 		await expect(a3).toHaveText('6');
 		await page.keyboard.press('ArrowRight');
@@ -306,6 +377,13 @@ test.describe.serial('from the keyboard', () => {
 			expect([...new Set(low)], theme).toEqual([]);
 		}
 		await page.evaluate(() => delete document.documentElement.dataset.theme);
+	});
+
+	test('the edges of the fields of the notes list stand out 3:1', async () => {
+		await page.goto(server.url);
+		await expect(page.getByTestId('storage')).toBeVisible();
+		await openNotes(page);
+		await expectEdges(page);
 	});
 
 	test('motion stops when the system asks for less of it', async () => {

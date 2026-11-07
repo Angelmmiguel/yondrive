@@ -529,7 +529,7 @@
 		box-sizing: border-box;
 		height: 42px;
 		padding: 0 14px 0 38px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 12px;
 		background: var(--surface);
 		color: var(--text-strong);
@@ -603,7 +603,7 @@
 		align-items: center;
 		gap: 8px;
 		padding: 8px 8px 8px 16px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 16px;
 		background: var(--surface);
 		box-shadow: var(--shadow-lg);

@@ -688,6 +688,11 @@
 		else sel = single(at);
 	}
 
+	/** The mouse events that follow a tap would take the focus back from an editor just opened. */
+	function onmousedown(e: MouseEvent) {
+		if (draft && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+	}
+
 	function onpointerdown(e: PointerEvent) {
 		if (e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).closest('.hbtn'))
 			return;
@@ -1157,6 +1162,7 @@
 	{onscroll}
 	{onkeydown}
 	{onpointerdown}
+	{onmousedown}
 	{onpointermove}
 	{onpointerup}
 	onpointercancel={() => ((drag = null), (touch = null))}

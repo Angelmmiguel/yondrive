@@ -1144,7 +1144,7 @@
 		box-sizing: border-box;
 		height: 38px;
 		padding: 0 12px 0 32px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 10px;
 		background: var(--surface);
 		color: var(--text-strong);
@@ -1429,7 +1429,7 @@
 		width: 110px;
 		box-sizing: border-box;
 		padding: 0 8px;
-		border: 1px solid var(--notes-line);
+		border: 1px solid var(--border-field);
 		border-radius: 8px;
 		background: var(--surface);
 		color: var(--text-strong);

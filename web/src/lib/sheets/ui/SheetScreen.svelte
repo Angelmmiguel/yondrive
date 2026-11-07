@@ -1831,7 +1831,7 @@
 	.fbar {
 		display: flex;
 		align-items: center;
-		border-top: 1px solid var(--divider);
+		border-top: 1px solid var(--border-field);
 		background: var(--surface-paper);
 	}
 
@@ -1840,7 +1840,7 @@
 		height: 38px;
 		box-sizing: border-box;
 		border: 0;
-		border-right: 1px solid var(--divider);
+		border-right: 1px solid var(--border-field);
 		text-align: center;
 		font-family: var(--font-mono);
 		font-size: 13px;
@@ -2014,7 +2014,7 @@
 	.form select {
 		height: 40px;
 		padding: 0 10px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 10px;
 		background: var(--surface);
 		color: var(--text-strong);
@@ -2073,6 +2073,8 @@
 		.star {
 			min-width: 26px;
 			height: 26px;
+			/* The touch floor makes it 44px; the negative margin keeps the title two short lines. */
+			margin-block: -9px;
 		}
 
 		.scrim {
