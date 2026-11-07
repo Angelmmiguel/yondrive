@@ -190,7 +190,7 @@ decrypt any data.
 
 ### 5.2 Cryptography (end-to-end mode)
 
-`docs/CRYPTO.md` will be the normative, language-independent spec, with test vectors that
+[`docs/CRYPTO.md`](docs/CRYPTO.md) is the normative, language-independent spec, with test vectors that
 any future client must pass.
 
 ```
