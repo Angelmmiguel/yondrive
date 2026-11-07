@@ -17,6 +17,7 @@ import {
 	type VersionRef
 } from './content';
 import { encodeFields, utf8, type Bytes } from './encoding';
+import { expandRoot } from './kdf';
 import {
 	generateIdentity,
 	generateMasterKey,
@@ -53,6 +54,7 @@ import {
 	type SessionKeyApi
 } from './persist';
 import { constantTimeEqual, zero } from './random';
+import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from './recovery';
 
 export const SUITE_E2E = 'xchacha20poly1305-v1';
 export const SUITE_NONE = 'none';
@@ -102,6 +104,15 @@ export interface Sealer {
 	wrapMaster(masterKey: Uint8Array, kek: Uint8Array, purpose: WrapPurpose): Bytes;
 	unwrapMaster(wrapped: Uint8Array, kek: Uint8Array, purpose: WrapPurpose): Bytes;
 	openUser(record: UserKeyRecord, masterKey: Bytes): UserKeys;
+
+	/** A fresh recovery key; empty in suite `none`, which has none. */
+	newRecoveryKey(): Bytes;
+	/** The 24 words to show for a recovery key; none in suite `none`. */
+	recoveryWords(recoveryKey: Uint8Array): string[];
+	/** Decodes words typed by a person, or throws `InvalidRecoveryPhraseError`. */
+	parseRecoveryPhrase(phrase: string): Bytes;
+	/** The wrapping key and auth key of a recovery key; empty in suite `none`. */
+	expandRecoveryKey(recoveryKey: Uint8Array): { kek: Bytes; authKey: Bytes };
 
 	persistSession(masterKey: Uint8Array, api: SessionKeyApi): Promise<void>;
 	/** The master key after a reload, or null when the user has to unlock again. */
@@ -162,6 +173,11 @@ const e2eSealer: Sealer = {
 	openUser(record, masterKey) {
 		return { masterKey, identity: openIdentity(record, masterKey) };
 	},
+
+	newRecoveryKey: generateRecoveryKey,
+	recoveryWords: (recoveryKey) => formatRecoveryKey(recoveryKey).split(' '),
+	parseRecoveryPhrase: parseRecoveryKey,
+	expandRecoveryKey: expandRoot,
 
 	persistSession: persistMasterKey,
 	resumeSession: resumeMasterKey,
@@ -231,6 +247,11 @@ const noneSealer: Sealer = {
 	wrapMaster: empty,
 	unwrapMaster: empty,
 	openUser: emptyUserKeys,
+
+	newRecoveryKey: empty,
+	recoveryWords: () => [],
+	parseRecoveryPhrase: empty,
+	expandRecoveryKey: () => ({ kek: empty(), authKey: empty() }),
 
 	persistSession: async () => {},
 	resumeSession: async () => empty(),

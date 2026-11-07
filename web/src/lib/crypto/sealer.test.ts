@@ -33,6 +33,22 @@ describe.each([
 		expect(sealer.openUser(record, master)).toEqual(keys);
 	});
 
+	it('wraps the master key under a recovery key and opens it from its words', () => {
+		const recoveryKey = sealer.newRecoveryKey();
+		const wrapped = sealer.wrapMaster(
+			keys.masterKey,
+			sealer.expandRecoveryKey(recoveryKey).kek,
+			'recovery'
+		);
+
+		const parsed = sealer.parseRecoveryPhrase(sealer.recoveryWords(recoveryKey).join(' '));
+
+		expect(parsed).toEqual(recoveryKey);
+		expect(sealer.unwrapMaster(wrapped, sealer.expandRecoveryKey(parsed).kek, 'recovery')).toEqual(
+			keys.masterKey
+		);
+	});
+
 	it('walks a tree of node keys', () => {
 		const root = sealer.newNodeKey();
 		const child = sealer.newNodeKey();
@@ -265,5 +281,28 @@ describe('decideMode', () => {
 		[undefined, false, SUITE_E2E, { accept: false, reason: 'unknown-suite' }]
 	] as const)('claim %s, keys %s, pin %s', (claimed, accountHasWrappedKeys, pinned, expected) => {
 		expect(decideMode({ claimed, accountHasWrappedKeys, pinned })).toEqual(expected);
+	});
+});
+
+describe('recovery keys per suite', () => {
+	it('are 24 words and two distinct keys end to end', () => {
+		const recoveryKey = e2e.newRecoveryKey();
+		const { kek: k, authKey } = e2e.expandRecoveryKey(recoveryKey);
+		expect(recoveryKey).toHaveLength(32);
+		expect(e2e.recoveryWords(recoveryKey)).toHaveLength(24);
+		expect(k).toHaveLength(32);
+		expect(authKey).toHaveLength(32);
+		expect(k).not.toEqual(authKey);
+	});
+
+	it('are empty without encryption', () => {
+		const recoveryKey = none.newRecoveryKey();
+		expect(recoveryKey).toHaveLength(0);
+		expect(none.recoveryWords(recoveryKey)).toEqual([]);
+		expect(none.parseRecoveryPhrase('anything')).toHaveLength(0);
+		expect(none.expandRecoveryKey(recoveryKey)).toEqual({
+			kek: new Uint8Array(0),
+			authKey: new Uint8Array(0)
+		});
 	});
 });
