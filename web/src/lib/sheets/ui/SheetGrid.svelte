@@ -39,6 +39,7 @@
 	import ContextMenu from './ContextMenu.svelte';
 	import { Axis, colPx, colSizes, rowPx, rowSizes } from './geometry';
 	import { textOf } from './history';
+	import { inputOf as cellInput } from '../input';
 	import { editorKey, gridKey, type EditHow } from './keys';
 	import {
 		areaOf,
@@ -532,16 +533,7 @@
 
 	/** What the formula bar and F2 show for a cell: what would be typed to get it. */
 	export function inputOf(v: CellView | null | undefined): string {
-		if (!v) return '';
-		if (v.formula) return v.formula;
-		const x = v.value;
-		if (typeof x === 'number') {
-			const code = styles[v.style]?.numFmt ?? 'General';
-			if (/%/.test(code) || /[dmyhs]/i.test(code.replace(/"[^"]*"|\[[^\]]*\]/g, ''))) return v.text;
-			return String(x);
-		}
-		if (typeof x === 'string') return /^[\s\d.,$%+-]+$|^=|^'|^(true|false)$/i.test(x) ? `'${x}` : x;
-		return textOf(v);
+		return v ? cellInput(v, styles[v.style]?.numFmt) : '';
 	}
 
 	export async function startEdit(how: EditHow, typed?: string) {
@@ -579,7 +571,12 @@
 					if (!covered(r, c) || mergeAt(meta.merges, r, c)?.top === r)
 						targets.push({ row: r, col: c });
 		} else targets.push(sel.active);
-		const ok = await onedit(targets.map((p) => ({ ...p, text: d.text })));
+		// An edit left as it was, such as the formula bar focused and left, changes nothing.
+		const same =
+			d.how === 'edit' &&
+			targets.length === 1 &&
+			d.text === inputOf(cache.get(sel.active.row, sel.active.col));
+		const ok = same || (await onedit(targets.map((p) => ({ ...p, text: d.text }))));
 		if (!ok) {
 			editor?.focus({ preventScroll: true });
 			return false;
