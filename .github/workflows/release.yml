@@ -80,6 +80,10 @@ jobs:
             --source-name yondrive-web --source-version "$YONDRIVE_VERSION" \
             -o spdx-json=dist/yondrive-web.spdx.json
 
+      # The API reference rendered from the spec of this release.
+      - name: API reference
+        run: nix develop --command just api-docs dist/yondrive-api-reference.html
+
       - name: Checksums
         working-directory: dist
         run: sha256sum yondrive-* web-bundle.sha256 > SHA256SUMS && cat SHA256SUMS

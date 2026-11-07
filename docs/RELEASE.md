@@ -17,6 +17,7 @@ push to `main` runs) and builds nothing unless that passes. Then it publishes:
 | `web-bundle.sha256` | The SHA-256 of every file of the embedded web app, as `yondrive assets` prints it. Its own SHA-256 is the web app's **root hash** |
 | `yondrive-go.spdx.json` | SBOM of the Go modules linked into the binary, read from its build information |
 | `yondrive-web.spdx.json` | SBOM of every package in `web/pnpm-lock.yaml`. The lockfile does not tell build-time tools from what ships, so it lists both; only the runtime dependencies in [PLAN.md 5.10](../PLAN.md#510-third-party-licences) end up in the app |
+| `yondrive-api-reference.html` | The API reference rendered from the release's spec ([API.md](API.md)) |
 | `SHA256SUMS` | Hashes of all of the above |
 | `SHA256SUMS.sigstore.json` | Keyless signature over `SHA256SUMS` |
 | `ghcr.io/angelmmiguel/yondrive:X.Y.Z` (also `X.Y`, `X`, `latest`) | The image, for `linux/amd64` and `linux/arm64`, signed by digest |

@@ -40,6 +40,7 @@ result
 .go/
 /bin/
 /dist/
+/docs/api/
 
 # Local data directory written by `just serve`
 /data/

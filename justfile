@@ -142,6 +142,12 @@ api-check: api
     git diff --exit-code -- internal/api web/src/lib/api
     [ -z "$(git ls-files --others --exclude-standard internal/api web/src/lib/api)" ]
 
+# Render the API reference from the spec into one HTML page (docs/API.md). It
+# is built, not committed: CI builds it so a spec that does not render fails,
+# and every release attaches it.
+api-docs out="docs/api/index.html":
+    redocly build-docs api/openapi.yaml --disableGoogleFont --title "YonDrive API" -o {{out}}
+
 # Web
 
 # Install the web app's dependencies exactly as the lockfile pins them.

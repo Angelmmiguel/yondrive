@@ -79,6 +79,11 @@ jobs:
       - name: Generated code is up to date
         run: nix develop --command just api-check
 
+      # The rendered reference (docs/API.md), so a spec that lints but does not
+      # render fails here rather than at a release.
+      - name: API reference renders
+        run: nix develop --command just api-docs
+
   web:
     name: Web
     runs-on: ubuntu-latest
