@@ -7,7 +7,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { open, seal } from './aead';
+import { open, seal, SealError } from './aead';
 import { decryptFrame, deriveVersionKey, encryptFrame, frameCountFor } from './content';
 import { encodeBase64, encodeFields } from './encoding';
 import { deriveRoot, expand, expandRoot, type KdfParams } from './kdf';
@@ -18,18 +18,33 @@ import {
 	wrapMasterKey,
 	type WrapPurpose
 } from './keys';
+import { grantMessage, signGrant, verifyGrant } from './grant';
+import {
+	decodeLinkFragment,
+	encodeLinkFragment,
+	linkAuthKey,
+	linkKek,
+	openLinkNodeKey,
+	openLinkOwnerCopy,
+	sealLinkNodeKey,
+	sealLinkOwnerCopy,
+	unwrapLinkKey,
+	wrapLinkKey
+} from './link';
 import { signVersion, verifyVersion, versionMessage } from './manifest';
 import { nameHmac, normalizeName, openMetadata, sealMetadata } from './metadata';
 import {
 	deriveNodeSubkeys,
 	openNodeKeyFrom,
+	openPreviousKey,
 	sealNodeKeyTo,
+	sealPreviousKey,
 	unwrapNodeKey,
 	unwrapRootNodeKey,
 	wrapNodeKey,
 	wrapRootNodeKey
 } from './node';
-import { checkPin, fingerprint, safetyNumber } from './pinning';
+import { checkPin, fingerprint, openPins, safetyNumber, sealPins } from './pinning';
 import { formatRecoveryKey, parseRecoveryKey } from './recovery';
 import { openIndexSegment, openThumbnail, sealIndexSegment, sealThumbnail } from './small-blob';
 import { sealerFor, SUITE_E2E, SUITE_NONE } from './sealer';
@@ -380,5 +395,113 @@ describe('pinning', () => {
 	it('computes the safety number in either order', () => {
 		expect(safetyNumber(print(alice), print(bob))).toBe(expected);
 		expect(safetyNumber(print(bob), print(alice))).toBe(expected);
+	});
+});
+
+describe('grant signature', () => {
+	const g = v.grantSignature;
+	const grant = {
+		nodeId: g.nodeId,
+		granterId: g.granterId,
+		granteeId: g.granteeId,
+		role: g.role,
+		generation: g.generation,
+		sealedKey: h(g.grant)
+	};
+
+	it('signs the documented message', () => {
+		expect(bytesToHex(grantMessage(grant))).toBe(g.message);
+		expect(bytesToHex(signGrant(grant, h(g.ed25519Private)))).toBe(g.signature);
+	});
+
+	it('verifies, and refuses a change to anything signed', () => {
+		expect(() => verifyGrant(grant, h(g.signature), h(g.ed25519Public))).not.toThrow();
+		expect(() =>
+			verifyGrant({ ...grant, role: 'viewer' }, h(g.signature), h(g.ed25519Public))
+		).toThrow(SealError);
+		expect(() =>
+			verifyGrant({ ...grant, generation: 4 }, h(g.signature), h(g.ed25519Public))
+		).toThrow(SealError);
+	});
+});
+
+describe('previous key', () => {
+	const p = v.previousKey;
+
+	it('derives the subkey, seals and opens', () => {
+		fixRandom(p.nonce);
+
+		expect(bytesToHex(expand(h(p.newKey), 'yondrive/node-previous/v1'))).toBe(p.subkey);
+		expect(bytesToHex(sealPreviousKey(h(p.newKey), h(p.plaintext), p.nodeId, p.generation))).toBe(
+			p.sealed
+		);
+		expect(bytesToHex(openPreviousKey(h(p.sealed), h(p.newKey), p.nodeId, p.generation))).toBe(
+			p.plaintext
+		);
+		expect(() => openPreviousKey(h(p.sealed), h(p.newKey), p.nodeId, p.generation + 1)).toThrow(
+			SealError
+		);
+	});
+});
+
+describe('public link', () => {
+	const l = v.link;
+
+	it('seals and opens the node key under the link key', () => {
+		fixRandom(l.nodeKey.nonce);
+
+		expect(
+			bytesToHex(sealLinkNodeKey(h(l.nodeKey.plaintext), h(l.linkKey), l.linkId, l.nodeId))
+		).toBe(l.nodeKey.sealed);
+		expect(bytesToHex(openLinkNodeKey(h(l.nodeKey.sealed), h(l.linkKey), l.linkId, l.nodeId))).toBe(
+			l.nodeKey.plaintext
+		);
+	});
+
+	it('seals and opens the owner copy', () => {
+		fixRandom(l.owner.nonce);
+
+		expect(bytesToHex(sealLinkOwnerCopy(h(l.linkKey), h(l.owner.masterKey), l.linkId))).toBe(
+			l.owner.sealed
+		);
+		expect(bytesToHex(openLinkOwnerCopy(h(l.owner.sealed), h(l.owner.masterKey), l.linkId))).toBe(
+			l.linkKey
+		);
+	});
+
+	it('splits a password root and wraps the link key', () => {
+		const { root, authKey, kek, nonce, sealed } = l.password;
+		fixRandom(nonce);
+
+		expect(bytesToHex(linkAuthKey(h(root)))).toBe(authKey);
+		expect(bytesToHex(linkKek(h(root)))).toBe(kek);
+		expect(bytesToHex(wrapLinkKey(h(l.linkKey), h(kek), l.linkId))).toBe(sealed);
+		expect(bytesToHex(unwrapLinkKey(h(sealed), h(kek), l.linkId))).toBe(l.linkKey);
+	});
+
+	it('gives the same auth key in suite none, and no key at all', () => {
+		const none = sealerFor(SUITE_NONE);
+
+		expect(bytesToHex(none.linkPasswordKeys(h(l.password.root)).authKey)).toBe(l.password.authKey);
+		expect(none.linkPasswordKeys(h(l.password.root)).kek).toHaveLength(0);
+		expect(none.linkFragment(h(l.linkKey))).toBe('');
+	});
+
+	it('carries the key as unpadded base64url', () => {
+		expect(encodeLinkFragment(h(l.linkKey))).toBe(l.fragment);
+		expect(bytesToHex(decodeLinkFragment(l.fragment))).toBe(l.linkKey);
+		expect(decodeLinkFragment('not a key')).toHaveLength(0);
+	});
+});
+
+describe('pins', () => {
+	const p = v.pins;
+
+	it('seals and opens under a key from the master key', () => {
+		fixRandom(p.nonce);
+
+		expect(bytesToHex(sealPins(h(p.plaintext), h(p.masterKey), p.userId))).toBe(p.sealed);
+		expect(bytesToHex(openPins(h(p.sealed), h(p.masterKey), p.userId))).toBe(p.plaintext);
+		expect(() => openPins(h(p.sealed), h(p.masterKey), 'someone-else')).toThrow(SealError);
 	});
 });

@@ -4,7 +4,7 @@
  * that is terminated as soon as it answers.
  */
 import type { Bytes } from './encoding';
-import { deriveRoot, type KdfParams } from './kdf';
+import { deriveLinkRoot, deriveRoot, type KdfParams } from './kdf';
 import { KEY_LENGTH } from './random';
 import type { KdfRequest } from './kdf.worker';
 
@@ -13,9 +13,13 @@ import type { KdfRequest } from './kdf.worker';
  * it derives synchronously instead: the result is identical, only the thread
  * differs, and every test uses parameters small enough not to matter.
  */
-export async function deriveRootInWorker(passphrase: string, params: KdfParams): Promise<Bytes> {
+export async function deriveRootInWorker(
+	passphrase: string,
+	params: KdfParams,
+	link = false
+): Promise<Bytes> {
 	if (typeof Worker === 'undefined') {
-		return deriveRoot(passphrase, params);
+		return link ? deriveLinkRoot(passphrase, params) : deriveRoot(passphrase, params);
 	}
 	const worker = new Worker(new URL('./kdf.worker.ts', import.meta.url), { type: 'module' });
 	try {
@@ -32,7 +36,7 @@ export async function deriveRootInWorker(passphrase: string, params: KdfParams):
 			};
 			// A plain copy: parameters read off reactive state are proxies, which
 			// the structured clone refuses.
-			const request: KdfRequest = { passphrase, params: { ...params } };
+			const request: KdfRequest = { passphrase, params: { ...params }, link };
 			worker.postMessage(request);
 		});
 	} finally {

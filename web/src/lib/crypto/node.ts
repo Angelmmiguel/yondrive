@@ -6,7 +6,7 @@
  */
 import { x25519 } from '@noble/curves/ed25519.js';
 import { open, seal, SealError } from './aead';
-import { encodeFields, idBytes, type Bytes } from './encoding';
+import { encodeFields, idBytes, u32, type Bytes } from './encoding';
 import { expand } from './kdf';
 import type { KeyPair } from './keys';
 import { assertKey, constantTimeEqual, KEY_LENGTH, randomBytes, zero } from './random';
@@ -121,6 +121,40 @@ export function openNodeKeyFrom(sealed: Uint8Array, recipient: KeyPair, nodeId: 
 	}
 }
 
+/**
+ * The key a rotation replaced, sealed under its successor, so that a key opens every
+ * older one and no newer one. The node id and the old generation are bound.
+ */
+export function sealPreviousKey(
+	newKey: Uint8Array,
+	oldKey: Uint8Array,
+	nodeId: string,
+	oldGeneration: number
+): Bytes {
+	assertKey(oldKey);
+	const wrapKey = expand(newKey, 'yondrive/node-previous/v1');
+	try {
+		return seal(wrapKey, oldKey, previousAad(nodeId, oldGeneration));
+	} finally {
+		zero(wrapKey);
+	}
+}
+
+/** One link of a version's key chain: the key of `oldGeneration`, from the one after it. */
+export function openPreviousKey(
+	stored: Uint8Array,
+	newKey: Uint8Array,
+	nodeId: string,
+	oldGeneration: number
+): Bytes {
+	const wrapKey = expand(newKey, 'yondrive/node-previous/v1');
+	try {
+		return exactKey(open(wrapKey, stored, previousAad(nodeId, oldGeneration)));
+	} finally {
+		zero(wrapKey);
+	}
+}
+
 /** Refuses low-order peer keys, which would make the shared secret all zeros. */
 function grantKey(
 	privateKey: Uint8Array,
@@ -139,6 +173,10 @@ function grantKey(
 	} finally {
 		zero(shared);
 	}
+}
+
+function previousAad(nodeId: string, generation: number): Bytes {
+	return encodeFields('yondrive/node/previous/v1', idBytes(nodeId), u32(generation));
 }
 
 function rootAad(nodeId: string): Bytes {

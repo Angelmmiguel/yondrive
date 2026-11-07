@@ -306,3 +306,58 @@ describe('recovery keys per suite', () => {
 		});
 	});
 });
+
+describe('what sharing asks of a sealer', () => {
+	const e2e = sealerFor(SUITE_E2E);
+	const none = sealerFor(SUITE_NONE);
+	const grant = {
+		nodeId: 'n1',
+		granterId: 'u1',
+		granteeId: 'u2',
+		role: 'viewer',
+		generation: 1,
+		sealedKey: new Uint8Array(105).fill(7)
+	};
+
+	it('has nothing to seal, sign or verify in suite none', () => {
+		const keys = none.createUser(new Uint8Array(0), new Uint8Array(0)).keys;
+		const empty = new Uint8Array(0);
+
+		expect(none.signGrant(grant, keys)).toHaveLength(0);
+		expect(() =>
+			none.verifyGrant(grant, empty, { x25519: empty, ed25519: empty })
+		).not.toThrow();
+		expect(none.newLinkKey()).toHaveLength(0);
+		expect(none.sealLinkNodeKey(empty, empty, 'l', 'n')).toHaveLength(0);
+		expect(none.openLinkNodeKey(empty, empty, 'l', 'n')).toHaveLength(0);
+		expect(none.sealPreviousKey(empty, empty, 'n', 1)).toHaveLength(0);
+		expect(none.fingerprint({ x25519: empty, ed25519: empty })).toHaveLength(0);
+		expect(none.safetyNumber(empty, empty)).toBe('');
+		expect(none.parseLinkFragment('anything')).toHaveLength(0);
+	});
+
+	it('signs a grant that only its signer verifies', () => {
+		const signer = e2e.createUser(new Uint8Array(32).fill(1), new Uint8Array(32).fill(2));
+		const other = e2e.createUser(new Uint8Array(32).fill(3), new Uint8Array(32).fill(4));
+		const signature = e2e.signGrant(grant, signer.keys);
+
+		expect(() => e2e.verifyGrant(grant, signature, signer.record.publicKeys)).not.toThrow();
+		expect(() => e2e.verifyGrant(grant, signature, other.record.publicKeys)).toThrow(SealError);
+		expect(() =>
+			e2e.verifyGrant(grant, signature, {
+				x25519: new Uint8Array(0),
+				ed25519: new Uint8Array(0)
+			})
+		).toThrow(SealError);
+	});
+
+	it('refuses a link key that is missing', () => {
+		const nodeKey = e2e.newNodeKey();
+		const linkKey = e2e.newLinkKey();
+		const sealed = e2e.sealLinkNodeKey(nodeKey, linkKey, 'l', 'n');
+
+		expect(e2e.openLinkNodeKey(sealed, linkKey, 'l', 'n')).toEqual(nodeKey);
+		expect(() => e2e.openLinkNodeKey(sealed, new Uint8Array(0), 'l', 'n')).toThrow();
+		expect(() => e2e.openLinkNodeKey(sealed, linkKey, 'other', 'n')).toThrow(SealError);
+	});
+});

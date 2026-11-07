@@ -29,6 +29,20 @@ import {
 	type PublicKeys,
 	type WrapPurpose
 } from './keys';
+import { signGrant, verifyGrant, type GrantFields } from './grant';
+import {
+	decodeLinkFragment,
+	encodeLinkFragment,
+	generateLinkKey,
+	linkAuthKey,
+	linkKek,
+	openLinkNodeKey,
+	openLinkOwnerCopy,
+	sealLinkNodeKey,
+	sealLinkOwnerCopy,
+	unwrapLinkKey,
+	wrapLinkKey
+} from './link';
 import { signVersion, verifyVersion, type VersionManifest } from './manifest';
 import {
 	decodeMetadata,
@@ -41,7 +55,9 @@ import {
 import {
 	generateNodeKey,
 	openNodeKeyFrom,
+	openPreviousKey,
 	sealNodeKeyTo,
+	sealPreviousKey,
 	unwrapNodeKey,
 	unwrapRootNodeKey,
 	wrapNodeKey,
@@ -53,9 +69,12 @@ import {
 	resumeMasterKey,
 	type SessionKeyApi
 } from './persist';
+import { fingerprint, openPins, safetyNumber, sealPins } from './pinning';
 import { constantTimeEqual, zero } from './random';
 import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from './recovery';
 import { openIndexSegment, openThumbnail, sealIndexSegment, sealThumbnail } from './small-blob';
+
+export type { GrantFields };
 
 export const SUITE_E2E = 'xchacha20poly1305-v1';
 export const SUITE_NONE = 'none';
@@ -132,6 +151,54 @@ export interface Sealer {
 	): Bytes;
 	sealNodeKeyTo(nodeKey: Uint8Array, recipient: PublicKeys, nodeId: string): Bytes;
 	openNodeKeyFrom(sealed: Uint8Array, keys: UserKeys, nodeId: string): Bytes;
+	/** The key a rotation replaced, sealed under its successor. */
+	sealPreviousKey(
+		newKey: Uint8Array,
+		oldKey: Uint8Array,
+		nodeId: string,
+		oldGeneration: number
+	): Bytes;
+	openPreviousKey(
+		stored: Uint8Array,
+		newKey: Uint8Array,
+		nodeId: string,
+		oldGeneration: number
+	): Bytes;
+
+	signGrant(grant: GrantFields, keys: UserKeys): Bytes;
+	/** Throws `SealError('signature')` unless the granter's key signed this grant. */
+	verifyGrant(grant: GrantFields, signature: Uint8Array, granter: PublicKeys): void;
+
+	/** A fresh link key; empty in suite `none`, whose URLs carry none. */
+	newLinkKey(): Bytes;
+	sealLinkNodeKey(
+		nodeKey: Uint8Array,
+		linkKey: Uint8Array,
+		linkId: string,
+		nodeId: string
+	): Bytes;
+	openLinkNodeKey(
+		stored: Uint8Array,
+		linkKey: Uint8Array,
+		linkId: string,
+		nodeId: string
+	): Bytes;
+	sealLinkOwnerCopy(linkKey: Uint8Array, masterKey: Uint8Array, linkId: string): Bytes;
+	openLinkOwnerCopy(stored: Uint8Array, masterKey: Uint8Array, linkId: string): Bytes;
+	/** What a password's root gives: the same auth key in both modes, and a KEK only with keys. */
+	linkPasswordKeys(root: Uint8Array): { authKey: Bytes; kek: Bytes };
+	wrapLinkKey(linkKey: Uint8Array, kek: Uint8Array, linkId: string): Bytes;
+	unwrapLinkKey(stored: Uint8Array, kek: Uint8Array, linkId: string): Bytes;
+	/** A URL's fragment for a link key; empty when there is no key to carry. */
+	linkFragment(linkKey: Uint8Array): string;
+	/** The link key in a fragment; empty if there is none, which a key that is needed then refuses. */
+	parseLinkFragment(fragment: string): Bytes;
+
+	/** What a contact's keys are pinned as; empty in suite `none`, which pins nothing. */
+	fingerprint(keys: PublicKeys): Bytes;
+	safetyNumber(a: Uint8Array, b: Uint8Array): string;
+	sealPins(pins: Uint8Array, masterKey: Uint8Array, userId: string): Bytes;
+	openPins(stored: Uint8Array, masterKey: Uint8Array, userId: string): Bytes;
 
 	sealMetadata(nodeKey: Uint8Array, nodeId: string, value: unknown): Bytes;
 	openMetadata(nodeKey: Uint8Array, nodeId: string, stored: Uint8Array): unknown;
@@ -219,6 +286,27 @@ const e2eSealer: Sealer = {
 	unwrapNodeKey,
 	sealNodeKeyTo: (nodeKey, recipient, nodeId) => sealNodeKeyTo(nodeKey, recipient.x25519, nodeId),
 	openNodeKeyFrom: (sealed, keys, nodeId) => openNodeKeyFrom(sealed, keys.identity.x25519, nodeId),
+	sealPreviousKey,
+	openPreviousKey,
+
+	signGrant: (grant, keys) => signGrant(grant, keys.identity.ed25519.privateKey),
+	verifyGrant: (grant, signature, granter) => verifyGrant(grant, signature, granter.ed25519),
+
+	newLinkKey: generateLinkKey,
+	sealLinkNodeKey,
+	openLinkNodeKey,
+	sealLinkOwnerCopy,
+	openLinkOwnerCopy,
+	linkPasswordKeys: (root) => ({ authKey: linkAuthKey(root), kek: linkKek(root) }),
+	wrapLinkKey,
+	unwrapLinkKey,
+	linkFragment: encodeLinkFragment,
+	parseLinkFragment: decodeLinkFragment,
+
+	fingerprint,
+	safetyNumber,
+	sealPins,
+	openPins,
 
 	sealMetadata,
 	openMetadata,
@@ -301,6 +389,27 @@ const noneSealer: Sealer = {
 	unwrapNodeKey: empty,
 	sealNodeKeyTo: empty,
 	openNodeKeyFrom: empty,
+	sealPreviousKey: empty,
+	openPreviousKey: empty,
+
+	signGrant: empty,
+	verifyGrant: () => {},
+
+	newLinkKey: empty,
+	sealLinkNodeKey: empty,
+	openLinkNodeKey: empty,
+	sealLinkOwnerCopy: empty,
+	openLinkOwnerCopy: empty,
+	linkPasswordKeys: (root) => ({ authKey: linkAuthKey(root), kek: empty() }),
+	wrapLinkKey: empty,
+	unwrapLinkKey: empty,
+	linkFragment: () => '',
+	parseLinkFragment: empty,
+
+	fingerprint: empty,
+	safetyNumber: () => '',
+	sealPins: (pins) => pins.slice() as Bytes,
+	openPins: (stored) => stored.slice() as Bytes,
 
 	sealMetadata: (_nodeKey, _nodeId, value) => encodeMetadata(value),
 	openMetadata: (_nodeKey, _nodeId, stored) => decodeMetadata(stored),

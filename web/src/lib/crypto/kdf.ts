@@ -131,6 +131,20 @@ export function deriveRoot(passphrase: string, params: KdfParams): Bytes {
 }
 
 /**
+ * Argon2id over a link's password. Section 19 of docs/CRYPTO.md sets no length, as
+ * a link may have been made by another client, so only the parameters are bounded.
+ */
+export function deriveLinkRoot(password: string, params: KdfParams): Bytes {
+	const { m, t, p, salt: encodedSalt } = parseKdfParams(params);
+	const bytes = utf8(password.normalize('NFKC'));
+	try {
+		return argon2id(bytes, decodeBase64(encodedSalt), { m, t, p, dkLen: KEY_LENGTH }) as Bytes;
+	} finally {
+		bytes.fill(0);
+	}
+}
+
+/**
  * The KEK alone, for SSO accounts, where nothing derived from the unlock
  * passphrase may reach the server.
  */

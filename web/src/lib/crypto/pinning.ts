@@ -5,9 +5,11 @@
  * the account layer's business.
  */
 import { sha256, sha512 } from '@noble/hashes/sha2.js';
-import { encodeFields, type Bytes } from './encoding';
+import { open, seal } from './aead';
+import { encodeFields, idBytes, type Bytes } from './encoding';
+import { expand } from './kdf';
 import type { PublicKeys } from './keys';
-import { constantTimeEqual } from './random';
+import { constantTimeEqual, zero } from './random';
 
 const SAFETY_GROUPS = 12;
 const SAFETY_GROUP_BYTES = 5;
@@ -51,4 +53,29 @@ function compareBytes(a: Uint8Array, b: Uint8Array): number {
 		if (a[i] !== b[i]) return a[i] - b[i];
 	}
 	return a.length - b.length;
+}
+
+const pinsAad = (userId: string) => encodeFields('yondrive/pins/seal/v1', idBytes(userId));
+
+/**
+ * The pins as a device keeps them, under a key from the master key. A pin is not
+ * secret from whoever holds this device, but who someone shares with is nobody
+ * else's business, and nothing else may write one.
+ */
+export function sealPins(pins: Uint8Array, master: Uint8Array, userId: string): Bytes {
+	const key = expand(master, 'yondrive/pins/v1');
+	try {
+		return seal(key, pins, pinsAad(userId));
+	} finally {
+		zero(key);
+	}
+}
+
+export function openPins(stored: Uint8Array, master: Uint8Array, userId: string): Bytes {
+	const key = expand(master, 'yondrive/pins/v1');
+	try {
+		return open(key, stored, pinsAad(userId));
+	} finally {
+		zero(key);
+	}
 }

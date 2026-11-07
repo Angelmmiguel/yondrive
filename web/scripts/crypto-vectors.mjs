@@ -401,6 +401,83 @@ function smallBlobVectors() {
 	};
 }
 
+function sharingVectors() {
+	const secret = bytes(80, 32);
+	const grantBytes = bytes(81, 105);
+	const message = fields(
+		'yondrive/grant/v1',
+		utf8('node-1'),
+		utf8('user-granter'),
+		utf8('user-grantee'),
+		utf8('editor'),
+		u32(3),
+		grantBytes
+	);
+	const oldKey = bytes(82, 32);
+	const newKey = bytes(83, 32);
+	const previousSubkey = hkdf(newKey, 'yondrive/node-previous/v1');
+	const linkId = 'link-1';
+	const linkKey = bytes(84, 32);
+	const wrapSubkey = hkdf(linkKey, 'yondrive/link-wrap/v1');
+	const ownerSubkey = hkdf(master, 'yondrive/link-owner/v1');
+	const passwordRoot = bytes(85, 32);
+	const kekOfLink = hkdf(passwordRoot, 'yondrive/link-kek/v1');
+	const pinsKey = hkdf(master, 'yondrive/pins/v1');
+	return {
+		grantSignature: {
+			nodeId: 'node-1',
+			granterId: 'user-granter',
+			granteeId: 'user-grantee',
+			role: 'editor',
+			generation: 3,
+			grant: hex(grantBytes),
+			ed25519Private: hex(secret),
+			ed25519Public: hex(publicOf('ed25519', secret)),
+			message: hex(message),
+			signature: hex(sign(null, message, privateKey('ed25519', secret)))
+		},
+		previousKey: {
+			nodeId: 'node-1',
+			generation: 3,
+			newKey: hex(newKey),
+			subkey: hex(previousSubkey),
+			...wrap(
+				previousSubkey,
+				bytes(86, 24),
+				fields('yondrive/node/previous/v1', utf8('node-1'), u32(3)),
+				oldKey
+			)
+		},
+		link: {
+			linkId,
+			nodeId: 'node-1',
+			linkKey: hex(linkKey),
+			fragment: linkKey.toString('base64url'),
+			nodeKey: wrap(
+				wrapSubkey,
+				bytes(87, 24),
+				fields('yondrive/link/key/v1', utf8(linkId), utf8('node-1')),
+				nodeKey
+			),
+			owner: {
+				masterKey: hex(master),
+				...wrap(ownerSubkey, bytes(88, 24), fields('yondrive/link/owner/v1', utf8(linkId)), linkKey)
+			},
+			password: {
+				root: hex(passwordRoot),
+				authKey: hex(hkdf(passwordRoot, 'yondrive/link-auth/v1')),
+				kek: hex(kekOfLink),
+				...wrap(kekOfLink, bytes(89, 24), fields('yondrive/link/password/v1', utf8(linkId)), linkKey)
+			}
+		},
+		pins: {
+			masterKey: hex(master),
+			userId: 'user-1',
+			...wrap(pinsKey, bytes(90, 24), fields('yondrive/pins/seal/v1', utf8('user-1')), utf8('{}'))
+		}
+	};
+}
+
 const childWrapKey = hkdf(parentKey, 'yondrive/node-wrap/v1');
 
 const content = contentVector();
@@ -460,7 +537,8 @@ const vectors = {
 	contentNone: contentNoneVector(),
 	manifest: manifestVector(content.contentHash),
 	pinning: pinningVector(),
-	smallBlobs: smallBlobVectors()
+	smallBlobs: smallBlobVectors(),
+	...sharingVectors()
 };
 
 process.stdout.write(`${JSON.stringify(vectors, null, '\t')}\n`);

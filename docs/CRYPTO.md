@@ -348,7 +348,8 @@ The same operations with no keys:
 
 | Operation | Result |
 | --- | --- |
-| Master key, node key, link key, identity keys, wraps, grants, signatures, previous keys, sealed link keys | empty byte strings |
+| Master key, node key, link key, identity keys, wraps, grants, signatures, previous keys, sealed link keys, fingerprints | empty byte strings |
+| Pins | none: there is nothing to pin |
 | Link password | section 19 |
 | Metadata | `utf8(json)` |
 | Name tag | `SHA-256(fields("yondrive/name/none/v1", utf8(normalized)))`, `normalized` as in section 10 |
@@ -387,7 +388,16 @@ depend on who computes it. Each of the twelve groups reads the next 5 bytes of `
 an integer, takes it modulo 100000, and prints it as five decimal digits with leading
 zeros. Groups are separated by one space. Bytes 60 to 63 are unused.
 
-A client pins a contact's fingerprint on first use and warns if it changes.
+A client pins a contact's fingerprint on first use and warns if it changes. The pins stay on the
+device, and they are sealed there, so that nothing else can write one and a stolen profile does not
+list whom someone shares with:
+
+```
+pins key = HKDF(master key, "yondrive/pins/v1")
+stored   = Seal(pins key, pins, fields("yondrive/pins/seal/v1", utf8(user id)))
+```
+
+The bytes of `pins` are the device's own business, and no other client reads them.
 
 ## 16. Labels
 
@@ -406,6 +416,7 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/link-kek/v1` | HKDF info, plain |
 | `yondrive/link-auth/v1` | HKDF info, plain |
 | `yondrive/link-owner/v1` | HKDF info, plain |
+| `yondrive/pins/v1` | HKDF info, plain |
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
 | `yondrive/master/passphrase/v1` | AAD |
@@ -420,6 +431,7 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/link/key/v1` | AAD |
 | `yondrive/link/password/v1` | AAD |
 | `yondrive/link/owner/v1` | AAD |
+| `yondrive/pins/seal/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
 | `yondrive/blob/thumb/v1` | AAD |
