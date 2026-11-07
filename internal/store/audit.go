@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"time"
 )
 
 // AuditEntry is one security event. It names what happened, who did it, to
 // whom and from where; it never holds content or secrets.
 type AuditEntry struct {
+	ID       int64
 	At       time.Time
 	Action   string
 	ActorID  string
@@ -30,8 +32,13 @@ func (s *Store) AppendAudit(ctx context.Context, e AuditEntry) error {
 
 // ListAudit returns the most recent events, newest first.
 func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT at, action, coalesce(actor_id, ''), coalesce(target_id, ''), coalesce(remote, '')
-		FROM audit ORDER BY id DESC LIMIT ?`, limit)
+	return s.ListAuditBefore(ctx, math.MaxInt64, limit)
+}
+
+// ListAuditBefore returns the events with an id below before, newest first.
+func (s *Store) ListAuditBefore(ctx context.Context, before int64, limit int) ([]AuditEntry, error) {
+	rows, err := s.read.QueryContext(ctx, `SELECT id, at, action, coalesce(actor_id, ''), coalesce(target_id, ''), coalesce(remote, '')
+		FROM audit WHERE id < ? ORDER BY id DESC LIMIT ?`, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list audit: %w", err)
 	}
@@ -40,7 +47,7 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) 
 	for rows.Next() {
 		var e AuditEntry
 		var at sql.NullInt64
-		if err := rows.Scan(&at, &e.Action, &e.ActorID, &e.TargetID, &e.Remote); err != nil {
+		if err := rows.Scan(&e.ID, &at, &e.Action, &e.ActorID, &e.TargetID, &e.Remote); err != nil {
 			return nil, fmt.Errorf("store: list audit: %w", err)
 		}
 		e.At = time.Unix(at.Int64, 0).UTC()
@@ -50,4 +57,18 @@ func (s *Store) ListAudit(ctx context.Context, limit int) ([]AuditEntry, error) 
 		return nil, fmt.Errorf("store: list audit: %w", err)
 	}
 	return entries, nil
+}
+
+// TrimAudit removes up to limit events older than cutoff and returns how many.
+func (s *Store) TrimAudit(ctx context.Context, cutoff time.Time, limit int) (int, error) {
+	res, err := s.write.ExecContext(ctx,
+		"DELETE FROM audit WHERE id IN (SELECT id FROM audit WHERE at < ? ORDER BY id LIMIT ?)", cutoff.Unix(), limit)
+	if err != nil {
+		return 0, fmt.Errorf("store: trim audit: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: trim audit: %w", err)
+	}
+	return int(n), nil
 }

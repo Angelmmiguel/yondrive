@@ -305,6 +305,39 @@ func frameHashes(ctx context.Context, q querier, u Upload) ([]byte, error) {
 	return all, nil
 }
 
+// UploadSummary is an upload in a list, with how many frames have arrived.
+type UploadSummary struct {
+	Upload
+	FramesReceived int64
+}
+
+// ListUploads returns a page of the uploads a user started and has not finished,
+// in id order, after the id given.
+func (s *Store) ListUploads(ctx context.Context, userID, after string, limit int) ([]UploadSummary, error) {
+	rows, err := s.read.QueryContext(ctx, "SELECT "+uploadColumns+`, (SELECT count(*) FROM upload_frames WHERE upload_id = uploads.id)
+		FROM uploads WHERE user_id = ? AND id > ? ORDER BY id LIMIT ?`, userID, after, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: list uploads: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []UploadSummary
+	for rows.Next() {
+		var u UploadSummary
+		var created, updated int64
+		err := rows.Scan(&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize,
+			&u.StoredSize, &u.KeyGeneration, &created, &updated, &u.FramesReceived)
+		if err != nil {
+			return nil, fmt.Errorf("store: list uploads: %w", err)
+		}
+		u.CreatedAt, u.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
+		out = append(out, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: list uploads: %w", err)
+	}
+	return out, nil
+}
+
 // DeleteUpload forgets an upload and releases its reservation, or fails with
 // ErrNotFound. The file is queued for removal.
 func (s *Store) DeleteUpload(ctx context.Context, id string) error {

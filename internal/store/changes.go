@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -89,4 +90,53 @@ func (s *Store) ListChanges(ctx context.Context, userID string, after int64, lim
 		return nil, fmt.Errorf("store: list changes: %w", err)
 	}
 	return out, nil
+}
+
+// JournalFloor returns the highest sequence number trimmed from a user's journal.
+func (s *Store) JournalFloor(ctx context.Context, userID string) (int64, error) {
+	var floor int64
+	err := s.read.QueryRowContext(ctx, "SELECT journal_floor FROM users WHERE id = ?", userID).Scan(&floor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, fmt.Errorf("store: read journal floor: %w", err)
+	}
+	return floor, nil
+}
+
+// TrimChanges removes up to limit journal entries older than cutoff, raising the
+// floor of each journal they leave, and returns how many it removed. The floor is
+// per user: someone else's old entries must not make a quiet user's cursor expire.
+func (s *Store) TrimChanges(ctx context.Context, cutoff time.Time, limit int) (int, error) {
+	var removed int
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		var upto sql.NullInt64
+		err := tx.QueryRowContext(ctx,
+			"SELECT max(seq) FROM (SELECT seq FROM changes WHERE at < ? ORDER BY seq LIMIT ?)", cutoff.Unix(), limit).Scan(&upto)
+		if err != nil {
+			return fmt.Errorf("store: trim changes: %w", err)
+		}
+		if !upto.Valid {
+			return nil
+		}
+		at := cutoff.Unix()
+		_, err = tx.ExecContext(ctx, `UPDATE users SET journal_floor = max(journal_floor,
+				(SELECT max(seq) FROM changes WHERE user_id = users.id AND seq <= ? AND at < ?))
+			WHERE id IN (SELECT user_id FROM changes WHERE seq <= ? AND at < ?)`, upto.Int64, at, upto.Int64, at)
+		if err != nil {
+			return fmt.Errorf("store: raise journal floor: %w", err)
+		}
+		res, err := tx.ExecContext(ctx, "DELETE FROM changes WHERE seq <= ? AND at < ?", upto.Int64, at)
+		if err != nil {
+			return fmt.Errorf("store: trim changes: %w", err)
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("store: trim changes: %w", err)
+		}
+		removed = int(n)
+		return nil
+	})
+	return removed, err
 }

@@ -566,6 +566,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the audit trail
+         * @description Security events, newest first. An entry names what happened, who did it, to
+         *     what and from where, and never holds content or a secret. The trail keeps
+         *     `audit_retention_days` of history.
+         */
+        get: operations["listAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/storage": {
         parameters: {
             query?: never;
@@ -911,7 +933,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List the signed-in user's uploads in progress
+         * @description Every upload this user started and has not committed or aborted, in id order,
+         *     so that one whose id was lost can be resumed or aborted rather than holding
+         *     its reservation until it is dropped.
+         */
+        get: operations["listUploads"];
         put?: never;
         /**
          * Start uploading a version of a file
@@ -1078,6 +1106,11 @@ export interface paths {
          *     with no cursor, and store each page's `next_cursor`. A client that comes
          *     back with it misses nothing. An operation on a subtree appears once, on its
          *     root.
+         *
+         *     The journal keeps `journal_retention_days` of history. A cursor from before
+         *     what was trimmed of this user's journal answers 410 `cursor_expired`: changes
+         *     have been lost to it, so the client reads the tree again and starts over with
+         *     no cursor. Having no cursor never answers that.
          */
         get: operations["listChanges"];
         put?: never;
@@ -1570,6 +1603,8 @@ export interface components {
              *     - `invalid_blob`: the kind and node of a small blob do not agree
              *     - `blob_in_use`: content goes with its versions
              *     - `invalid_cursor`
+             *     - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
+             *       the tree again, then start over with no cursor
              *     - `forbidden` on a node: the caller can see it, and their role does not allow this
              *     - `key_generation_conflict`: sealed under a key that has been rotated (412)
              *     - `move_refused`: the move leaves the shared subtree or crosses owners
@@ -1919,6 +1954,13 @@ export interface components {
             purge_grace_days: number;
             /** @description How many days the trash keeps a node before purging it; 0 keeps it until someone does. */
             trash_retention_days: number;
+            /** @description How many days the audit trail keeps an entry; 0 keeps it for good. */
+            audit_retention_days?: number;
+            /**
+             * @description How many days the change journal keeps an entry; 0 keeps it for good. A
+             *     client away for longer answers `cursor_expired` and reads the tree again.
+             */
+            journal_retention_days?: number;
             /**
              * @description This request carried forwarded headers from an address not in
              *     `YONDRIVE_TRUSTED_PROXIES`. They were ignored, so client addresses and
@@ -1931,13 +1973,18 @@ export interface components {
             /**
              * Format: byte
              * @description Either current auth key. Required to shorten the grace period, as a
-             *     stolen admin session must not be able to bring removal closer.
+             *     stolen admin session must not be able to bring removal closer, and to
+             *     shorten the audit retention, as it must not be able to erase its tracks.
              */
             current_auth_key?: string;
             /** @description 1 to 3650. Applies to what is purged from now on. */
             purge_grace_days?: number;
             /** @description 0 to 3650. */
             trash_retention_days?: number;
+            /** @description 0 to 3650. */
+            audit_retention_days?: number;
+            /** @description 0 to 3650. */
+            journal_retention_days?: number;
             name?: string;
             public_url?: string;
             /** Format: int64 */
@@ -2234,6 +2281,33 @@ export interface components {
             frames: number[];
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description An upload in a list. `GET /uploads/{id}` says which frames have arrived. */
+        UploadSummary: {
+            id: string;
+            node_id: string;
+            version_id: string;
+            suite: components["schemas"]["Suite"];
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /**
+             * Format: int64
+             * @description What it holds of the owner's quota.
+             */
+            stored_size: number;
+            /** Format: int64 */
+            frames_received: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        UploadPage: {
+            uploads: components["schemas"]["UploadSummary"][];
+            /** @description Absent on the last page. */
+            next_cursor?: string;
         };
         CommitUploadRequest: {
             /**
@@ -2697,6 +2771,38 @@ export interface components {
              * @description When `yondrive backup` last finished, if ever.
              */
             last_backup_at?: string;
+            /**
+             * Format: int64
+             * @description Entries in the audit trail.
+             */
+            audit_entries?: number;
+            /**
+             * Format: int64
+             * @description Entries in the change journal, over all users.
+             */
+            journal_entries?: number;
+        };
+        AuditEntry: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description A stable name for the event, such as `login_failed`.
+             * @example login_succeeded
+             */
+            action: string;
+            /** @description The user who did it, if known. */
+            actor_id?: string;
+            /** @description What it was done to, if anything. */
+            target_id?: string;
+            /** @description The address it came from, if known. */
+            remote?: string;
+        };
+        AuditPage: {
+            entries: components["schemas"]["AuditEntry"][];
+            /** @description Older entries are read from here. Absent on the last page. */
+            next_cursor?: string;
         };
     };
     responses: {
@@ -3478,6 +3584,32 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    listAudit: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     getMyStorage: {
         parameters: {
             query?: never;
@@ -3913,6 +4045,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listUploads: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadPage"];
                 };
             };
             default: components["responses"]["Error"];

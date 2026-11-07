@@ -676,6 +676,31 @@ paths:
                 $ref: "#/components/schemas/AdminHealth"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/admin/audit:
+    get:
+      operationId: listAudit
+      tags: [admin]
+      summary: Read the audit trail
+      description: |
+        Security events, newest first. An entry names what happened, who did it, to
+        what and from where, and never holds content or a secret. The trail keeps
+        `audit_retention_days` of history.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: The `next_cursor` of the previous page.
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/me/storage:
     get:
       operationId: getMyStorage
@@ -1029,6 +1054,26 @@ paths:
         default:
           $ref: "#/components/responses/Error"
   /api/v1/uploads:
+    get:
+      operationId: listUploads
+      tags: [drive]
+      summary: List the signed-in user's uploads in progress
+      description: |
+        Every upload this user started and has not committed or aborted, in id order,
+        so that one whose id was lost can be resumed or aborted rather than holding
+        its reservation until it is dropped.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPage"
+        default:
+          $ref: "#/components/responses/Error"
     post:
       operationId: createUpload
       tags: [drive]
@@ -1290,6 +1335,11 @@ paths:
         with no cursor, and store each page's `next_cursor`. A client that comes
         back with it misses nothing. An operation on a subtree appears once, on its
         root.
+
+        The journal keeps `journal_retention_days` of history. A cursor from before
+        what was trimmed of this user's journal answers 410 `cursor_expired`: changes
+        have been lost to it, so the client reads the tree again and starts over with
+        no cursor. Having no cursor never answers that.
       parameters:
         - name: cursor
           in: query
@@ -1857,6 +1907,8 @@ components:
             - `invalid_blob`: the kind and node of a small blob do not agree
             - `blob_in_use`: content goes with its versions
             - `invalid_cursor`
+            - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
+              the tree again, then start over with no cursor
             - `forbidden` on a node: the caller can see it, and their role does not allow this
             - `key_generation_conflict`: sealed under a key that has been rotated (412)
             - `move_refused`: the move leaves the shared subtree or crosses owners
@@ -2337,6 +2389,14 @@ components:
         trash_retention_days:
           type: integer
           description: How many days the trash keeps a node before purging it; 0 keeps it until someone does.
+        audit_retention_days:
+          type: integer
+          description: How many days the audit trail keeps an entry; 0 keeps it for good.
+        journal_retention_days:
+          type: integer
+          description: |
+            How many days the change journal keeps an entry; 0 keeps it for good. A
+            client away for longer answers `cursor_expired` and reads the tree again.
         proxy_untrusted:
           type: boolean
           description: |
@@ -2352,13 +2412,24 @@ components:
           format: byte
           description: |
             Either current auth key. Required to shorten the grace period, as a
-            stolen admin session must not be able to bring removal closer.
+            stolen admin session must not be able to bring removal closer, and to
+            shorten the audit retention, as it must not be able to erase its tracks.
         purge_grace_days:
           type: integer
           description: 1 to 3650. Applies to what is purged from now on.
           minimum: 1
           maximum: 3650
         trash_retention_days:
+          type: integer
+          description: 0 to 3650.
+          minimum: 0
+          maximum: 3650
+        audit_retention_days:
+          type: integer
+          description: 0 to 3650.
+          minimum: 0
+          maximum: 3650
+        journal_retention_days:
           type: integer
           description: 0 to 3650.
           minimum: 0
@@ -2746,6 +2817,49 @@ components:
         created_at:
           type: string
           format: date-time
+    UploadSummary:
+      type: object
+      description: An upload in a list. `GET /uploads/{id}` says which frames have arrived.
+      required: [id, node_id, version_id, suite, frame_count, frame_size, stored_size, frames_received, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        version_id:
+          type: string
+        suite:
+          $ref: "#/components/schemas/Suite"
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        stored_size:
+          type: integer
+          format: int64
+          description: What it holds of the owner's quota.
+        frames_received:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UploadPage:
+      type: object
+      required: [uploads]
+      properties:
+        uploads:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadSummary"
+        next_cursor:
+          type: string
+          description: Absent on the last page.
     CommitUploadRequest:
       type: object
       required: [signature, manifest]
@@ -3388,6 +3502,48 @@ components:
           type: string
           format: date-time
           description: When `yondrive backup` last finished, if ever.
+        audit_entries:
+          type: integer
+          format: int64
+          description: Entries in the audit trail.
+        journal_entries:
+          type: integer
+          format: int64
+          description: Entries in the change journal, over all users.
+    AuditEntry:
+      type: object
+      required: [id, at, action]
+      properties:
+        id:
+          type: integer
+          format: int64
+        at:
+          type: string
+          format: date-time
+        action:
+          type: string
+          description: A stable name for the event, such as `login_failed`.
+          examples: [login_succeeded]
+        actor_id:
+          type: string
+          description: The user who did it, if known.
+        target_id:
+          type: string
+          description: What it was done to, if anything.
+        remote:
+          type: string
+          description: The address it came from, if known.
+    AuditPage:
+      type: object
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_cursor:
+          type: string
+          description: Older entries are read from here. Absent on the last page.
   parameters:
     ID:
       name: id

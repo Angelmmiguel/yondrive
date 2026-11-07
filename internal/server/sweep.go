@@ -65,7 +65,33 @@ func (s *Server) Sweep(ctx context.Context) error {
 	if err := s.store.RemoveStaleLinkDownloads(ctx, now.Add(-linkSessionLifetime)); err != nil {
 		return err
 	}
+	if err := s.trimHistory(ctx, settings, now); err != nil {
+		return err
+	}
 	return s.drainRemovals(ctx)
+}
+
+// trimHistory drops what has outlived its retention, a batch at a time, as a first
+// trim of a long history can be large and requests go on in between.
+func (s *Server) trimHistory(ctx context.Context, settings store.Settings, now time.Time) error {
+	trim := func(keepDays int, remove func(context.Context, time.Time, int) (int, error)) error {
+		if keepDays <= 0 {
+			return nil
+		}
+		for {
+			n, err := remove(ctx, now.Add(-days(keepDays)), drainBatch)
+			if err != nil {
+				return err
+			}
+			if n < drainBatch {
+				return nil
+			}
+		}
+	}
+	if err := trim(settings.AuditRetentionDays, s.store.TrimAudit); err != nil {
+		return err
+	}
+	return trim(settings.JournalRetentionDays, s.store.TrimChanges)
 }
 
 // RunSweeper sweeps at once and then once per interval, until ctx is done.

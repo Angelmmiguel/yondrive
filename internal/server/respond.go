@@ -81,6 +81,7 @@ const (
 	codeInvalidBlob        = "invalid_blob"
 	codeBlobInUse          = "blob_in_use"
 	codeInvalidCursor      = "invalid_cursor"
+	codeCursorExpired      = "cursor_expired"
 
 	codeMoveRefused           = "move_refused"
 	codeKeyGenerationConflict = "key_generation_conflict"

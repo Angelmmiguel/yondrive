@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
+	"strconv"
 	"time"
 
 	oapi "github.com/Angelmmiguel/yondrive/internal/api"
@@ -224,10 +226,10 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 		(in.Language != nil && !languagePattern.MatchString(*in.Language)) ||
 		(in.TimeZone != nil && !timeZonePattern.MatchString(*in.TimeZone)) ||
 		(in.PurgeGraceDays != nil && (*in.PurgeGraceDays < minPurgeGraceDays || *in.PurgeGraceDays > maxSettingDays)) ||
-		(in.TrashRetentionDays != nil && (*in.TrashRetentionDays < 0 || *in.TrashRetentionDays > maxSettingDays)) {
+		!validRetention(in.TrashRetentionDays) || !validRetention(in.AuditRetentionDays) || !validRetention(in.JournalRetentionDays) {
 		return nil, badRequest(codeInvalidSettings)
 	}
-	if err := s.checkGraceChange(ctx, in); err != nil {
+	if err := s.checkSensitiveSettings(ctx, in); err != nil {
 		return nil, err
 	}
 	publicURL := in.PublicUrl
@@ -239,14 +241,16 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 		publicURL = &u
 	}
 	settings, err := s.store.UpdateSettings(ctx, store.SettingsPatch{
-		Name:               in.Name,
-		PublicURL:          publicURL,
-		DefaultQuotaBytes:  in.DefaultQuotaBytes,
-		Language:           in.Language,
-		TimeZone:           in.TimeZone,
-		OpenSignup:         in.OpenSignup,
-		PurgeGraceDays:     in.PurgeGraceDays,
-		TrashRetentionDays: in.TrashRetentionDays,
+		Name:                 in.Name,
+		PublicURL:            publicURL,
+		DefaultQuotaBytes:    in.DefaultQuotaBytes,
+		Language:             in.Language,
+		TimeZone:             in.TimeZone,
+		OpenSignup:           in.OpenSignup,
+		PurgeGraceDays:       in.PurgeGraceDays,
+		TrashRetentionDays:   in.TrashRetentionDays,
+		AuditRetentionDays:   in.AuditRetentionDays,
+		JournalRetentionDays: in.JournalRetentionDays,
 	})
 	if err != nil {
 		return nil, err
@@ -255,18 +259,27 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 	return oapi.UpdateSettings200JSONResponse(s.settingsView(ctx, settings)), nil
 }
 
-// checkGraceChange asks for a current auth key to shorten the grace period. That
-// period is what stands between a stolen session and the data, so an admin session
-// alone must not be able to wear it down before purging.
-func (s *Server) checkGraceChange(ctx context.Context, in *oapi.UpdateSettingsJSONRequestBody) error {
-	if in.PurgeGraceDays == nil {
-		return nil
+func validRetention(v *int) bool { return v == nil || (*v >= 0 && *v <= maxSettingDays) }
+
+// shortensRetention reports whether a change keeps things for less long. Zero keeps
+// them for good, so it is the longest there is.
+func shortensRetention(to *int, from int) bool {
+	if to == nil || *to == 0 {
+		return false
 	}
+	return from == 0 || *to < from
+}
+
+// checkSensitiveSettings asks for a current auth key for what a stolen admin session
+// must not do alone: shorten the grace period, which is what stands between it and
+// the data, or the audit retention, which would erase its tracks.
+func (s *Server) checkSensitiveSettings(ctx context.Context, in *oapi.UpdateSettingsJSONRequestBody) error {
 	current, err := s.store.Settings(ctx)
 	if err != nil {
 		return err
 	}
-	if *in.PurgeGraceDays >= current.PurgeGraceDays {
+	shorterGrace := in.PurgeGraceDays != nil && *in.PurgeGraceDays < current.PurgeGraceDays
+	if !shorterGrace && !shortensRetention(in.AuditRetentionDays, current.AuditRetentionDays) {
 		return nil
 	}
 	s.accountMu.Lock()
@@ -277,6 +290,45 @@ func (s *Server) checkGraceChange(ctx context.Context, in *oapi.UpdateSettingsJS
 	}
 	_, err = s.verifyCurrentKey(ctx, key)
 	return err
+}
+
+// ListAudit returns a page of the audit trail, newest first.
+func (s *Server) ListAudit(ctx context.Context, req oapi.ListAuditRequestObject) (oapi.ListAuditResponseObject, error) {
+	before := int64(math.MaxInt64)
+	if req.Params.Cursor != nil {
+		var err error
+		if before, err = strconv.ParseInt(*req.Params.Cursor, 10, 64); err != nil || before < 0 {
+			return nil, badRequest(codeInvalidCursor)
+		}
+	}
+	limit, err := pageLimit(req.Params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.store.ListAuditBefore(ctx, before, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	kept, next := page(entries, limit, func(e store.AuditEntry) string { return strconv.FormatInt(e.ID, 10) })
+	out := oapi.AuditPage{Entries: make([]oapi.AuditEntry, 0, len(kept)), NextCursor: next}
+	for _, e := range kept {
+		out.Entries = append(out.Entries, oapi.AuditEntry{
+			Id:       e.ID,
+			At:       e.At,
+			Action:   e.Action,
+			ActorId:  optionalString(e.ActorID),
+			TargetId: optionalString(e.TargetID),
+			Remote:   optionalString(e.Remote),
+		})
+	}
+	return oapi.ListAudit200JSONResponse(out), nil
+}
+
+func optionalString(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }
 
 // GetAdminHealth reports the state of the server's storage and its last backup.
@@ -299,20 +351,24 @@ func (s *Server) GetAdminHealth(ctx context.Context, _ oapi.GetAdminHealthReques
 		PendingRemovals: stats.PendingRemovals,
 		FreeBytes:       freeBytes(s.store.Dir()),
 		LastBackupAt:    optionalTime(settings.LastBackupAt),
+		AuditEntries:    &stats.AuditEntries,
+		JournalEntries:  &stats.JournalEntries,
 	}, nil
 }
 
 func (s *Server) settingsView(ctx context.Context, in store.Settings) oapi.ServerSettings {
 	return oapi.ServerSettings{
-		Name:               in.Name,
-		PublicUrl:          in.PublicURL,
-		DefaultQuotaBytes:  in.DefaultQuotaBytes,
-		Language:           in.Language,
-		TimeZone:           in.TimeZone,
-		Mode:               oapi.Mode(in.Mode),
-		OpenSignup:         in.OpenSignup,
-		ProxyUntrusted:     s.proxyUntrusted(requestFrom(ctx)),
-		PurgeGraceDays:     in.PurgeGraceDays,
-		TrashRetentionDays: in.TrashRetentionDays,
+		Name:                 in.Name,
+		PublicUrl:            in.PublicURL,
+		DefaultQuotaBytes:    in.DefaultQuotaBytes,
+		Language:             in.Language,
+		TimeZone:             in.TimeZone,
+		Mode:                 oapi.Mode(in.Mode),
+		OpenSignup:           in.OpenSignup,
+		ProxyUntrusted:       s.proxyUntrusted(requestFrom(ctx)),
+		PurgeGraceDays:       in.PurgeGraceDays,
+		TrashRetentionDays:   in.TrashRetentionDays,
+		AuditRetentionDays:   &in.AuditRetentionDays,
+		JournalRetentionDays: &in.JournalRetentionDays,
 	}
 }

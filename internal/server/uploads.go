@@ -211,6 +211,41 @@ func (s *Server) CreateUpload(ctx context.Context, req oapi.CreateUploadRequestO
 	return oapi.CreateUpload201JSONResponse(uploadView(u, []int64{})), nil
 }
 
+// ListUploads returns the caller's uploads in progress. It asks nothing about
+// their nodes, for the same reason as AbortUpload: this is how one whose id was lost
+// gets let go of, whatever has happened to the file since.
+func (s *Server) ListUploads(ctx context.Context, req oapi.ListUploadsRequestObject) (oapi.ListUploadsResponseObject, error) {
+	after, err := idCursor(req.Params.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	limit, err := pageLimit(req.Params.Limit)
+	if err != nil {
+		return nil, err
+	}
+	uploads, err := s.store.ListUploads(ctx, principalFrom(ctx).user.ID, after, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	kept, next := page(uploads, limit, func(u store.UploadSummary) string { return u.ID })
+	out := oapi.UploadPage{Uploads: make([]oapi.UploadSummary, 0, len(kept)), NextCursor: next}
+	for _, u := range kept {
+		out.Uploads = append(out.Uploads, oapi.UploadSummary{
+			Id:             u.ID,
+			NodeId:         u.NodeID,
+			VersionId:      u.VersionID,
+			Suite:          oapi.Suite(u.Suite),
+			FrameCount:     u.FrameCount,
+			FrameSize:      u.FrameSize,
+			StoredSize:     u.StoredSize,
+			FramesReceived: u.FramesReceived,
+			CreatedAt:      u.CreatedAt,
+			UpdatedAt:      u.UpdatedAt,
+		})
+	}
+	return oapi.ListUploads200JSONResponse(out), nil
+}
+
 // GetUpload reports which frames have arrived.
 func (s *Server) GetUpload(ctx context.Context, req oapi.GetUploadRequestObject) (oapi.GetUploadResponseObject, error) {
 	u, err := s.authorizeUpload(ctx, req.Id)

@@ -183,6 +183,8 @@ type StorageStats struct {
 	Uploads         int64
 	ReservedBytes   int64
 	PendingRemovals int64
+	AuditEntries    int64
+	JournalEntries  int64
 }
 
 // Stats returns the server-wide storage figures.
@@ -191,8 +193,9 @@ func (s *Store) Stats(ctx context.Context) (StorageStats, error) {
 	err := s.read.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM blobs), (SELECT coalesce(sum(size), 0) FROM blobs),
 		(SELECT count(*) FROM uploads), (SELECT coalesce(sum(stored_size), 0) FROM uploads),
-		(SELECT count(*) FROM file_removals)`).
-		Scan(&st.Blobs, &st.StoredBytes, &st.Uploads, &st.ReservedBytes, &st.PendingRemovals)
+		(SELECT count(*) FROM file_removals),
+		(SELECT count(*) FROM audit), (SELECT count(*) FROM changes)`).
+		Scan(&st.Blobs, &st.StoredBytes, &st.Uploads, &st.ReservedBytes, &st.PendingRemovals, &st.AuditEntries, &st.JournalEntries)
 	if err != nil {
 		return StorageStats{}, fmt.Errorf("store: read stats: %w", err)
 	}

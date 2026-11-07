@@ -306,7 +306,7 @@ func TestSettingsRoutes(t *testing.T) {
 	data, _ := json.Marshal(obj{
 		"name": "Home", "public_url": "https://drive.example.com", "default_quota_bytes": 1000,
 		"language": "en", "time_zone": "Europe/Madrid", "mode": "e2e", "open_signup": false, "proxy_untrusted": false,
-		"purge_grace_days": 30, "trash_retention_days": 30,
+		"purge_grace_days": 30, "trash_retention_days": 30, "audit_retention_days": 365, "journal_retention_days": 90,
 	})
 	_ = json.Unmarshal(data, &want)
 	if !reflect.DeepEqual(got, want) {

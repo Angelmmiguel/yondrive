@@ -1016,8 +1016,11 @@ func TestTheMigrationChargesNodesThatAreThere(t *testing.T) {
 	if _, err := st.write.Exec("UPDATE users SET used_bytes = 7"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.write.Exec("PRAGMA user_version = 3"); err != nil {
-		t.Fatal(err)
+	// And without what later migrations add.
+	for _, stmt := range []string{"DROP INDEX changes_at", "DROP INDEX audit_at", "ALTER TABLE users DROP COLUMN journal_floor", "PRAGMA user_version = 3"} {
+		if _, err := st.write.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_ = st.Close()
 

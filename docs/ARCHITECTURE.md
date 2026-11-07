@@ -44,7 +44,7 @@ lock              advisory lock against a second process
 
 | Table | Holds |
 | --- | --- |
-| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, grace period, trash retention, last backup, the mode and the server secret. Triggers refuse any change to `mode` once written. |
+| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, grace period, trash retention, audit and journal retention, last backup, the mode and the server secret. Triggers refuse any change to `mode` once written. |
 | `users` | Identity, role, quota, KDF parameters, auth key hashes, opaque blobs, TOTP state. The KDF and auth columns are nullable and `oidc_issuer` and `oidc_subject` are present for accounts that will sign in through a provider. |
 | `recovery_codes` | SHA-256 of each unused TOTP recovery code. |
 | `sessions` | SHA-256 of the cookie, user, idle and absolute deadlines. |
@@ -60,7 +60,7 @@ lock              advisory lock against a second process
 | `link_downloads` | What each link's sessions have counted. |
 | `blobs` | Owner, node if any, kind, suite, size, ref count. |
 | `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. |
-| `changes` | The journal: sequence, the user whose journal it is, node, operation, time. |
+| `changes` | The journal: sequence, the user whose journal it is, node, operation, time. `users.journal_floor` is the highest sequence trimmed from each. |
 | `file_removals` | Files whose rows have gone, waiting to be unlinked. |
 
 Session keys are not in this list. They are memory only.
@@ -105,7 +105,8 @@ DELETE /admin/invites/{id}
 GET    /admin/settings
 PATCH  /admin/settings                  everything but the mode; shortening the grace
                                         period needs the current auth key
-GET    /admin/health                    storage, free space, last backup
+GET    /admin/health                    storage, free space, last backup, history sizes
+GET    /admin/audit?cursor=             the audit trail, newest first
 GET    /me/storage                      quota, used, reserved
 GET    /nodes/root
 POST   /nodes/root                      make it, or get the one that exists
@@ -435,6 +436,23 @@ invite with the `admin` role, which mints an admin that outlives the session, a 
 reset link, which takes over an account, and deleting a user, which removes their bytes at
 once, with none of the purge grace. Ordinary invites do not.
 
+## Keeping history bounded
+
+The hourly sweep drops audit entries past `audit_retention_days` (365 by default) and
+journal entries past `journal_retention_days` (90), in batches, and zero keeps either
+for good. Shortening the audit retention needs a current credential, as a stolen admin
+session must not be able to erase its tracks. The journal needs nothing, since losing
+it costs a client a read of the tree.
+
+A trim raises `journal_floor` for each user who lost an entry. A cursor below that
+floor has missed something, and answers 410 `cursor_expired`: the client reads the tree
+again and starts over with no cursor. The floor is per user, so that a quiet user's
+cursor does not expire because of everyone else's activity. The route reads the page
+before the floor, so a trim racing a read shows as an expiry and never as a silent gap.
+
+`GET /uploads` lists a user's uploads in progress, with how many frames have arrived,
+so that one whose id was lost can be resumed or aborted before the sweep drops it.
+
 ## Web app
 
 The layers of the account flows, each knowing only the one below:
@@ -517,9 +535,9 @@ trash list and frees the name.
 
 **Reads.** Before any frame, the signature has to verify against the signer and the frame hashes have to add
 up to the signed content hash. That ties each hash to the signature, so a frame can be checked and opened on
-its own, as seeking needs. Until sharing arrives the only signer accepted is the signed-in owner, whose public
-keys come from the session and not from the server. A restored version reads with `content_version_id` and
-`content_author_id`.
+its own, as seeking needs. The signer has to be the owner or an editor, with their keys checked against the pin;
+see Sharing, below. A restored version reads with `content_version_id` and `content_author_id`, and a version under
+an older generation with the key its chain reaches.
 
 **Streaming.** In a secure context `src/service-worker.ts` answers `/stream/<id>` and passes everything else by.
 A page verifies the version and hands over its one key by transfer. A `Range` maps to frames, each fetched,
@@ -547,6 +565,38 @@ standard fonts, CMaps or wasm decoders embedded, so a PDF relying on those draws
 
 **Journal.** Read on focus and once a minute. It starts at the end, since the first read of the tree has it all. Each
 changed node is read again, and beyond 100 of them the tree is.
+
+### Sharing
+
+`src/lib/sharing` is the client of the sharing routes, pure like the drive, tested against the fake server with
+several people on it, and wired up by `Drive`. `src/lib/state/sharing.svelte.ts` is what the screens see of it.
+
+| Where | Holds |
+| --- | --- |
+| `contacts.ts` | Pins and safety numbers. A different key from the pinned one throws, and the app shows a warning that takes an answer. |
+| `sharing.ts` | Grants, verified before anything of them is used; who may sign what; links; notifications. |
+| `rotation.ts` | The body of a rotation, and walking a subtree from a job written down first. |
+| `links.ts`, `public.ts` | Making a link, and reading under one with no account. |
+| `roles.ts` | What the screens offer. The server decides. |
+
+**In the tree.** A node's key comes from its parent's, or at the top of a share from a verified grant, and the
+tree keeps the generation of each. Writes name it and read again on `key_generation_conflict`. A page whose children
+do not open sends it back for its folder's key first, as that is what a rotation looks like from a device that has
+not heard. An upload the rotation overtakes starts over. What others share stays out of favorites, recent, tags and the
+storage bar, and only the owner can star or tag, since those live in the owner's metadata.
+
+**Revoking** writes a job down in `localStorage`, then deletes the grant, then rotates, parents first, noting the
+generation each node reached. A job left behind goes on at the next unlock, and a node at the noted generation is done.
+A rotation checks the owner's own signature on each grant it seals a new key for. It takes thumbnails away, and the
+client that rotated makes them again where the file is at most 128 MiB. Giving up a grant does not rotate: only the
+owner can, and nothing tells them to.
+
+**The journal.** `granted`, `role_changed`, `revoked` and `rotated` read the shares again. Then each node is read as
+usual, so a `404` drops it and all under it, and a rotated folder reads its children again.
+
+**The public page** runs `bootLink` in place of `boot`: the mode, through the same guard, and no session. It has no
+shell, and reads through the frame workers into memory, since streams from the service worker use the session's route.
+Nothing is read until someone asks, as a read counts against a download limit.
 
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when

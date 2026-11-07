@@ -301,10 +301,15 @@ type AccountKeys struct {
 
 // AdminHealth defines model for AdminHealth.
 type AdminHealth struct {
-	Blobs int64 `json:"blobs"`
+	// AuditEntries Entries in the audit trail.
+	AuditEntries *int64 `json:"audit_entries,omitempty"`
+	Blobs        int64  `json:"blobs"`
 
 	// FreeBytes Free space in the data directory, if it can be told.
 	FreeBytes *int64 `json:"free_bytes,omitempty"`
+
+	// JournalEntries Entries in the change journal, over all users.
+	JournalEntries *int64 `json:"journal_entries,omitempty"`
 
 	// LastBackupAt When `yondrive backup` last finished, if ever.
 	LastBackupAt *time.Time `json:"last_backup_at,omitempty"`
@@ -319,6 +324,33 @@ type AdminHealth struct {
 	StoredBytes     int64  `json:"stored_bytes"`
 	Uploads         int64  `json:"uploads"`
 	Version         string `json:"version"`
+}
+
+// AuditEntry defines model for AuditEntry.
+type AuditEntry struct {
+	// Action A stable name for the event, such as `login_failed`.
+	//
+	// Examples: login_succeeded
+	Action string `json:"action"`
+
+	// ActorId The user who did it, if known.
+	ActorId *string   `json:"actor_id,omitempty"`
+	At      time.Time `json:"at"`
+	Id      int64     `json:"id"`
+
+	// Remote The address it came from, if known.
+	Remote *string `json:"remote,omitempty"`
+
+	// TargetId What it was done to, if anything.
+	TargetId *string `json:"target_id,omitempty"`
+}
+
+// AuditPage defines model for AuditPage.
+type AuditPage struct {
+	Entries []AuditEntry `json:"entries"`
+
+	// NextCursor Older entries are read from here. Absent on the last page.
+	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
 // Change defines model for Change.
@@ -612,6 +644,8 @@ type Error struct {
 	// - `invalid_blob`: the kind and node of a small blob do not agree
 	// - `blob_in_use`: content goes with its versions
 	// - `invalid_cursor`
+	// - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
+	//   the tree again, then start over with no cursor
 	// - `forbidden` on a node: the caller can see it, and their role does not allow this
 	// - `key_generation_conflict`: sealed under a key that has been rotated (412)
 	// - `move_refused`: the move leaves the shared subtree or crosses owners
@@ -1174,8 +1208,14 @@ type RotatedLink struct {
 
 // ServerSettings defines model for ServerSettings.
 type ServerSettings struct {
-	DefaultQuotaBytes int64  `json:"default_quota_bytes"`
-	Language          string `json:"language"`
+	// AuditRetentionDays How many days the audit trail keeps an entry; 0 keeps it for good.
+	AuditRetentionDays *int  `json:"audit_retention_days,omitempty"`
+	DefaultQuotaBytes  int64 `json:"default_quota_bytes"`
+
+	// JournalRetentionDays How many days the change journal keeps an entry; 0 keeps it for good. A
+	// client away for longer answers `cursor_expired` and reads the tree again.
+	JournalRetentionDays *int   `json:"journal_retention_days,omitempty"`
+	Language             string `json:"language"`
 
 	// Mode The encryption mode of the whole server, fixed at setup. Absent from
 	// health until then.
@@ -1328,14 +1368,21 @@ type UpdateNodeRequest struct {
 
 // UpdateSettingsRequest Fields left out stay as they are. There is no field for the mode.
 type UpdateSettingsRequest struct {
+	// AuditRetentionDays 0 to 3650.
+	AuditRetentionDays *int `json:"audit_retention_days,omitempty"`
+
 	// CurrentAuthKey Either current auth key. Required to shorten the grace period, as a
-	// stolen admin session must not be able to bring removal closer.
+	// stolen admin session must not be able to bring removal closer, and to
+	// shorten the audit retention, as it must not be able to erase its tracks.
 	CurrentAuthKey    *[]byte `json:"current_auth_key,omitempty"`
 	DefaultQuotaBytes *int64  `json:"default_quota_bytes,omitempty"`
-	Language          *string `json:"language,omitempty"`
-	Name              *string `json:"name,omitempty"`
-	OpenSignup        *bool   `json:"open_signup,omitempty"`
-	PublicUrl         *string `json:"public_url,omitempty"`
+
+	// JournalRetentionDays 0 to 3650.
+	JournalRetentionDays *int    `json:"journal_retention_days,omitempty"`
+	Language             *string `json:"language,omitempty"`
+	Name                 *string `json:"name,omitempty"`
+	OpenSignup           *bool   `json:"open_signup,omitempty"`
+	PublicUrl            *string `json:"public_url,omitempty"`
 
 	// PurgeGraceDays 1 to 3650. Applies to what is purged from now on.
 	PurgeGraceDays *int    `json:"purge_grace_days,omitempty"`
@@ -1372,6 +1419,32 @@ type Upload struct {
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
 	Suite     Suite  `json:"suite"`
 	VersionId string `json:"version_id"`
+}
+
+// UploadPage defines model for UploadPage.
+type UploadPage struct {
+	// NextCursor Absent on the last page.
+	NextCursor *string         `json:"next_cursor,omitempty"`
+	Uploads    []UploadSummary `json:"uploads"`
+}
+
+// UploadSummary An upload in a list. `GET /uploads/{id}` says which frames have arrived.
+type UploadSummary struct {
+	CreatedAt      time.Time `json:"created_at"`
+	FrameCount     int64     `json:"frame_count"`
+	FrameSize      int64     `json:"frame_size"`
+	FramesReceived int64     `json:"frames_received"`
+	Id             string    `json:"id"`
+	NodeId         string    `json:"node_id"`
+
+	// StoredSize What it holds of the owner's quota.
+	StoredSize int64 `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite     Suite     `json:"suite"`
+	UpdatedAt time.Time `json:"updated_at"`
+	VersionId string    `json:"version_id"`
 }
 
 // UserKeys defines model for UserKeys.
@@ -1507,6 +1580,15 @@ type LinkToken = string
 
 // VersionID defines model for VersionID.
 type VersionID = string
+
+// ListAuditParams defines parameters for ListAudit.
+type ListAuditParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // GetKDFParams defines parameters for GetKDF.
 type GetKDFParams struct {
@@ -1653,6 +1735,15 @@ type ListTrashParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListUploadsParams defines parameters for ListUploads.
+type ListUploadsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // PutFrameParams defines parameters for PutFrame.
 type PutFrameParams struct {
 	// XContentSHA256 The SHA-256 of the body, in padded standard base64.
@@ -1756,6 +1847,9 @@ type ServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(w http.ResponseWriter, r *http.Request)
+	// ListAudit Read the audit trail
+	// (GET /api/v1/admin/audit)
+	ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams)
 	// GetAdminHealth Report the health of the server's storage
 	// (GET /api/v1/admin/health)
 	GetAdminHealth(w http.ResponseWriter, r *http.Request)
@@ -1969,6 +2063,9 @@ type ServerInterface interface {
 	// EmptyTrash Mark everything in the trash for removal
 	// (POST /api/v1/trash/empty)
 	EmptyTrash(w http.ResponseWriter, r *http.Request)
+	// ListUploads List the signed-in user's uploads in progress
+	// (GET /api/v1/uploads)
+	ListUploads(w http.ResponseWriter, r *http.Request, params ListUploadsParams)
 	// CreateUpload Start uploading a version of a file
 	// (POST /api/v1/uploads)
 	CreateUpload(w http.ResponseWriter, r *http.Request)
@@ -2006,6 +2103,52 @@ func (siw *ServerInterfaceWrapper) GetOpenAPISpec(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOpenAPISpec(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListAudit operation middleware
+func (siw *ServerInterfaceWrapper) ListAudit(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAuditParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAudit(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4007,6 +4150,52 @@ func (siw *ServerInterfaceWrapper) EmptyTrash(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListUploads operation middleware
+func (siw *ServerInterfaceWrapper) ListUploads(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUploadsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListUploads(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateUpload operation middleware
 func (siw *ServerInterfaceWrapper) CreateUpload(w http.ResponseWriter, r *http.Request) {
 
@@ -4373,6 +4562,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.GetSettings)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.UpdateSettings)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/health", wrapper.GetAdminHealth)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/audit", wrapper.ListAudit)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/storage", wrapper.GetMyStorage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/root", wrapper.GetRootNode)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/root", wrapper.CreateRootNode)
@@ -4390,6 +4580,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.DeleteVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.GetVersion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}/restore", wrapper.RestoreVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads", wrapper.ListUploads)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads", wrapper.CreateUpload)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.AbortUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.GetUpload)
@@ -4459,6 +4650,45 @@ type GetOpenAPISpecdefaultJSONResponse struct {
 }
 
 func (response GetOpenAPISpecdefaultJSONResponse) VisitGetOpenAPISpecResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditRequestObject struct {
+	Params ListAuditParams
+}
+
+type ListAuditResponseObject interface {
+	VisitListAuditResponse(w http.ResponseWriter) error
+}
+
+type ListAudit200JSONResponse AuditPage
+
+func (response ListAudit200JSONResponse) VisitListAuditResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAuditdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListAuditdefaultJSONResponse) VisitListAuditResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -7338,6 +7568,45 @@ func (response EmptyTrashdefaultJSONResponse) VisitEmptyTrashResponse(w http.Res
 	return err
 }
 
+type ListUploadsRequestObject struct {
+	Params ListUploadsParams
+}
+
+type ListUploadsResponseObject interface {
+	VisitListUploadsResponse(w http.ResponseWriter) error
+}
+
+type ListUploads200JSONResponse UploadPage
+
+func (response ListUploads200JSONResponse) VisitListUploadsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListUploadsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListUploadsdefaultJSONResponse) VisitListUploadsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateUploadRequestObject struct {
 	Body *CreateUploadJSONRequestBody
 }
@@ -7608,6 +7877,9 @@ type StrictServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(ctx context.Context, request GetOpenAPISpecRequestObject) (GetOpenAPISpecResponseObject, error)
+	// ListAudit Read the audit trail
+	// (GET /api/v1/admin/audit)
+	ListAudit(ctx context.Context, request ListAuditRequestObject) (ListAuditResponseObject, error)
 	// GetAdminHealth Report the health of the server's storage
 	// (GET /api/v1/admin/health)
 	GetAdminHealth(ctx context.Context, request GetAdminHealthRequestObject) (GetAdminHealthResponseObject, error)
@@ -7821,6 +8093,9 @@ type StrictServerInterface interface {
 	// EmptyTrash Mark everything in the trash for removal
 	// (POST /api/v1/trash/empty)
 	EmptyTrash(ctx context.Context, request EmptyTrashRequestObject) (EmptyTrashResponseObject, error)
+	// ListUploads List the signed-in user's uploads in progress
+	// (GET /api/v1/uploads)
+	ListUploads(ctx context.Context, request ListUploadsRequestObject) (ListUploadsResponseObject, error)
 	// CreateUpload Start uploading a version of a file
 	// (POST /api/v1/uploads)
 	CreateUpload(ctx context.Context, request CreateUploadRequestObject) (CreateUploadResponseObject, error)
@@ -7900,6 +8175,32 @@ func (sh *strictHandler) GetOpenAPISpec(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetOpenAPISpecResponseObject); ok {
 		if err := validResponse.VisitGetOpenAPISpecResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListAudit operation middleware
+func (sh *strictHandler) ListAudit(w http.ResponseWriter, r *http.Request, params ListAuditParams) {
+	var request ListAuditRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListAudit(ctx, request.(ListAuditRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListAudit")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListAuditResponseObject); ok {
+		if err := validResponse.VisitListAuditResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9887,6 +10188,32 @@ func (sh *strictHandler) EmptyTrash(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(EmptyTrashResponseObject); ok {
 		if err := validResponse.VisitEmptyTrashResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListUploads operation middleware
+func (sh *strictHandler) ListUploads(w http.ResponseWriter, r *http.Request, params ListUploadsParams) {
+	var request ListUploadsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListUploads(ctx, request.(ListUploadsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListUploads")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListUploadsResponseObject); ok {
+		if err := validResponse.VisitListUploadsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -64,6 +64,7 @@ var operationAccess = map[string]access{
 	"GetSettings":           accessAdmin,
 	"UpdateSettings":        accessAdmin,
 	"GetAdminHealth":        accessAdmin,
+	"ListAudit":             accessAdmin,
 }
 
 type (

@@ -24,6 +24,8 @@ const (
 	keyPurgeGrace   = "purge_grace_days"
 	keyTrashKeep    = "trash_retention_days"
 	keyLastBackup   = "last_backup_at"
+	keyAuditKeep    = "audit_retention_days"
+	keyJournalKeep  = "journal_retention_days"
 )
 
 // Defaults of the settings that setup does not ask about.
@@ -33,6 +35,10 @@ const (
 	// DefaultTrashRetentionDays is how long the trash keeps a node before
 	// purging it.
 	DefaultTrashRetentionDays = 30
+	// DefaultAuditRetentionDays is how long the audit trail keeps an entry.
+	DefaultAuditRetentionDays = 365
+	// DefaultJournalRetentionDays is how long the change journal keeps an entry.
+	DefaultJournalRetentionDays = 90
 )
 
 // serverSecretLen is the size in bytes of the persisted server secret.
@@ -52,6 +58,12 @@ type Settings struct {
 	// TrashRetentionDays is how long the trash keeps a node before purging it.
 	// Zero keeps it until someone purges it.
 	TrashRetentionDays int
+	// AuditRetentionDays is how long the audit trail keeps an entry. Zero keeps it
+	// for good.
+	AuditRetentionDays int
+	// JournalRetentionDays is how long the change journal keeps an entry. Zero keeps
+	// it for good.
+	JournalRetentionDays int
 	// LastBackupAt is when `yondrive backup` last finished, if ever.
 	LastBackupAt time.Time
 }
@@ -59,14 +71,16 @@ type Settings struct {
 // SettingsPatch changes the settings whose fields are set. The mode has no
 // field on purpose: it is written once, at setup.
 type SettingsPatch struct {
-	Name               *string
-	PublicURL          *string
-	DefaultQuotaBytes  *int64
-	Language           *string
-	TimeZone           *string
-	OpenSignup         *bool
-	PurgeGraceDays     *int
-	TrashRetentionDays *int
+	Name                 *string
+	PublicURL            *string
+	DefaultQuotaBytes    *int64
+	Language             *string
+	TimeZone             *string
+	OpenSignup           *bool
+	PurgeGraceDays       *int
+	TrashRetentionDays   *int
+	AuditRetentionDays   *int
+	JournalRetentionDays *int
 }
 
 // Settings returns the configuration, or ErrNotConfigured before setup.
@@ -76,7 +90,12 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 		return Settings{}, fmt.Errorf("store: read settings: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	out := Settings{PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays}
+	out := Settings{
+		PurgeGraceDays:       DefaultPurgeGraceDays,
+		TrashRetentionDays:   DefaultTrashRetentionDays,
+		AuditRetentionDays:   DefaultAuditRetentionDays,
+		JournalRetentionDays: DefaultJournalRetentionDays,
+	}
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err != nil {
@@ -105,6 +124,14 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 			}
 		case keyTrashKeep:
 			if out.TrashRetentionDays, err = strconv.Atoi(value); err != nil {
+				return Settings{}, fmt.Errorf("store: read settings: %w", err)
+			}
+		case keyAuditKeep:
+			if out.AuditRetentionDays, err = strconv.Atoi(value); err != nil {
+				return Settings{}, fmt.Errorf("store: read settings: %w", err)
+			}
+		case keyJournalKeep:
+			if out.JournalRetentionDays, err = strconv.Atoi(value); err != nil {
 				return Settings{}, fmt.Errorf("store: read settings: %w", err)
 			}
 		case keyLastBackup:
@@ -163,14 +190,13 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			}
 			return putSetting(ctx, tx, key, *value)
 		}
-		var quota, signup, grace, keep *string
-		if patch.PurgeGraceDays != nil {
-			v := strconv.Itoa(*patch.PurgeGraceDays)
-			grace = &v
-		}
-		if patch.TrashRetentionDays != nil {
-			v := strconv.Itoa(*patch.TrashRetentionDays)
-			keep = &v
+		var quota, signup *string
+		days := func(v *int) *string {
+			if v == nil {
+				return nil
+			}
+			text := strconv.Itoa(*v)
+			return &text
 		}
 		if patch.DefaultQuotaBytes != nil {
 			v := strconv.FormatInt(*patch.DefaultQuotaBytes, 10)
@@ -187,8 +213,10 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			put(keyLanguage, patch.Language),
 			put(keyTimeZone, patch.TimeZone),
 			put(keyOpenSignup, signup),
-			put(keyPurgeGrace, grace),
-			put(keyTrashKeep, keep),
+			put(keyPurgeGrace, days(patch.PurgeGraceDays)),
+			put(keyTrashKeep, days(patch.TrashRetentionDays)),
+			put(keyAuditKeep, days(patch.AuditRetentionDays)),
+			put(keyJournalKeep, days(patch.JournalRetentionDays)),
 		)
 	})
 	if err != nil {

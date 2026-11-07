@@ -71,7 +71,7 @@ func addToken(t *testing.T, st *Store, userID, name string) Token {
 }
 
 func settings() Settings {
-	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC", PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays}
+	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC", PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays, AuditRetentionDays: DefaultAuditRetentionDays, JournalRetentionDays: DefaultJournalRetentionDays}
 }
 
 func TestOpenAppliesPragmasAndPermissions(t *testing.T) {
@@ -674,11 +674,23 @@ func TestAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := st.ListAudit(ctx, 10)
-	if err != nil || len(got) != 2 || got[0].Action != "second" || got[1] != (AuditEntry{At: t0, Action: "first", ActorID: "a", TargetID: "b", Remote: "1.2.3.4"}) {
+	if err != nil || len(got) != 2 || got[0].Action != "second" || got[1] != (AuditEntry{ID: got[1].ID, At: t0, Action: "first", ActorID: "a", TargetID: "b", Remote: "1.2.3.4"}) {
 		t.Fatalf("audit = %+v, %v", got, err)
 	}
 	if got, _ := st.ListAudit(ctx, 1); len(got) != 1 {
 		t.Errorf("limit ignored: %+v", got)
+	}
+	if older, _ := st.ListAuditBefore(ctx, got[0].ID, 10); len(older) != 1 || older[0].Action != "first" {
+		t.Errorf("before: %+v", older)
+	}
+	if n, err := st.TrimAudit(ctx, t0, 10); n != 0 || err != nil {
+		t.Errorf("trimmed what is not older: %d, %v", n, err)
+	}
+	if n, err := st.TrimAudit(ctx, t0.Add(time.Second), 1); n != 1 || err != nil {
+		t.Errorf("trim: %d, %v", n, err)
+	}
+	if left, _ := st.ListAudit(ctx, 10); len(left) != 1 || left[0].Action != "second" {
+		t.Errorf("after the trim: %+v", left)
 	}
 }
 

@@ -606,16 +606,25 @@ func (s *Server) ListChanges(ctx context.Context, req oapi.ListChangesRequestObj
 	if err != nil {
 		return nil, err
 	}
-	changes, err := s.store.ListChanges(ctx, principalFrom(ctx).user.ID, after, limit)
+	userID := principalFrom(ctx).user.ID
+	changes, err := s.store.ListChanges(ctx, userID, after, limit)
 	if err != nil {
 		return nil, err
+	}
+	// After the page: a trim in between must show here, not as a silent gap.
+	floor, err := s.store.JournalFloor(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if req.Params.Cursor != nil && after < floor {
+		return nil, fail(http.StatusGone, codeCursorExpired)
 	}
 	out := oapi.ChangePage{Changes: make([]oapi.Change, 0, len(changes))}
 	for _, c := range changes {
 		out.Changes = append(out.Changes, oapi.Change{Seq: c.Seq, NodeId: c.NodeID, Op: oapi.ChangeOp(c.Op), At: c.At})
 		after = c.Seq
 	}
-	out.NextCursor = strconv.FormatInt(after, 10)
+	out.NextCursor = strconv.FormatInt(max(after, floor), 10)
 	return oapi.ListChanges200JSONResponse(out), nil
 }
 
