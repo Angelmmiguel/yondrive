@@ -52,6 +52,8 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.getByRole('button', { name: /New sheet/ }).click();
 			await expect(grid(page)).toBeVisible({ timeout: 30_000 });
 			await expect(page.getByRole('heading', { name: 'Untitled spreadsheet.xlsx' })).toBeVisible();
+			// Made here, not brought: nothing to say about how the file is kept.
+			await expect(page.getByTestId('sheet-notice')).toHaveCount(0);
 			await typeIn(page, 'A1', '2');
 			await page.keyboard.type('3');
 			await page.keyboard.press('Enter');

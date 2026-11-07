@@ -51,6 +51,7 @@
 	import { ImageStore, redraw } from '../images';
 	import { Presence } from '$lib/editing/presence';
 	import { driveFiles } from '$lib/editing/drive-files';
+	import { takeNew } from '$lib/editing/fresh';
 	import { DocSession, type SaveStatus, type SessionFile } from '../session';
 	import { schema } from '../schema';
 	import FileSide from '$lib/editing/ui/FileSide.svelte';
@@ -135,7 +136,8 @@
 			format = f;
 			saveAs = f === 'doc' ? 'docx' : f;
 			fileName = found.name;
-			notice = noticeOf(f, opened.census);
+			// A file just made here has nothing to say about how it was opened.
+			notice = takeNew(found.id) ? null : noticeOf(f, opened.census);
 			hasLocked = opened.model.blocks.some((b) => b.type === 'locked');
 			mode = canWrite(found) ? 'edit' : 'view';
 			store = new ImageStore(opened.model.images);

@@ -50,6 +50,8 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.getByRole('button', { name: /New doc/ }).click();
 			await expect(editor(page)).toBeVisible({ timeout: 30_000 });
 			await expect(page.getByRole('heading', { name: 'Untitled document.docx' })).toBeVisible();
+			// Made here, not brought: nothing to say about how the file is kept.
+			await expect(page.getByTestId('doc-notice')).toHaveCount(0);
 			await editor(page).click();
 			await page.keyboard.type('First words of a new document.');
 			await expect(saveStatus(page)).toHaveText(/Unsaved changes|Saving…/);

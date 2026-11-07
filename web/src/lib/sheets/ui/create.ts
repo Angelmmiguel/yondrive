@@ -1,5 +1,6 @@
 /** A new, empty spreadsheet: a one-sheet `.xlsx` written by the worker, uploaded like any file. */
 import type { DriveNode } from '$lib/drive/tree';
+import { markNew } from '$lib/editing/fresh';
 import { createWith, type SaveDeps } from '$lib/editing/save';
 import { createSheets } from '../client';
 
@@ -21,5 +22,7 @@ export async function createSpreadsheet(
 	parentId: string,
 	name = NEW_SHEET_NAME
 ): Promise<DriveNode> {
-	return createWith(deps, parentId, name, await emptyWorkbook());
+	const made = await createWith(deps, parentId, name, await emptyWorkbook());
+	markNew(made.id);
+	return made;
 }

@@ -28,6 +28,7 @@
 	import type { DriveNode } from '$lib/drive/tree';
 	import { listVersions, restoreVersion, type VersionEntry } from '$lib/drive/versions';
 	import { driveFiles } from '$lib/editing/drive-files';
+	import { takeNew } from '$lib/editing/fresh';
 	import { Presence } from '$lib/editing/presence';
 	import { EditSession, type SaveStatus, type SessionFile } from '$lib/editing/session';
 	import FileSide from '$lib/editing/ui/FileSide.svelte';
@@ -206,7 +207,8 @@
 			format = f;
 			saveAs = sheetSaveFormatOf(f);
 			fileName = found.name;
-			notice = loaded.notice;
+			// A file just made here has nothing to say about how it was opened.
+			notice = takeNew(found.id) ? null : loaded.notice;
 			fixedRanges = loaded.fixedRanges;
 			warnedFixed = false;
 			styles = loaded.styles;
