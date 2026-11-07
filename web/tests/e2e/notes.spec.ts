@@ -1,10 +1,11 @@
 /**
- * Notes in both modes: quick capture, notebooks, links and backlinks that
- * survive a rename, tags, checklists, pins, reminders on a fake clock,
- * templates, today's note, pictures, a shared notebook, the export, and the
+ * Notes in both modes: quick capture and its toast, cards, notebooks, links and
+ * backlinks that survive a rename, tags, checklists typed as Markdown, pins,
+ * reminders on a fake clock, templates, today's note, pictures that follow their
+ * note and wait out a failed upload, a shared notebook, the export, and the
  * phone layout.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { fileBox, openDrive, row } from '../drive';
 import {
@@ -19,6 +20,7 @@ import {
 	openNotes,
 	png,
 	reopenNotes,
+	saveStatus,
 	saveNow,
 	section,
 	setTitle,
@@ -240,6 +242,22 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(tasks).toContainText('1');
 		});
 
+		test('checkboxes typed as Markdown become the note’s tasks', async () => {
+			await page.getByRole('button', { name: 'New note', exact: true }).click();
+			await expectNew(page);
+			await setTitle(page, 'Schema work');
+			await typeInNote(page, '- [x] Write the schema');
+			await page.keyboard.press('Enter');
+			await page.keyboard.type('- [ ] Benchmark cursor reads');
+			const boxes = noteEditor(page).getByRole('checkbox');
+			await expect(boxes).toHaveCount(2);
+			await expect(boxes.first()).toHaveAttribute('aria-checked', 'true');
+			await expect(noteEditor(page)).not.toContainText('[x]');
+			await saveNow(page);
+			await backToList(page);
+			await expect(card(page, 'Schema work').getByTestId('task-summary')).toHaveText('1 of 2 done');
+		});
+
 		test('a pinned note comes first', async () => {
 			await page.getByRole('button', { name: 'Pin Call the plumber' }).click();
 			await expect(page.getByRole('heading', { name: 'Pinned', level: 2 })).toBeVisible();
@@ -305,6 +323,108 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.getByRole('button', { name: 'Attachments' }).click();
 			await expect(page.getByTestId('note-card')).toHaveCount(1);
 			await page.getByRole('button', { name: 'Attachments' }).click();
+		});
+
+		test('a note’s picture goes with it to another notebook, to the trash and back', async () => {
+			test.setTimeout(120_000);
+			await newNotebook(page, 'Trips');
+			await newNotebook(page, 'Kept');
+			await notebookButton(page, 'Trips').click();
+			await page.getByRole('button', { name: 'New note', exact: true }).click();
+			await expectNew(page);
+			await setTitle(page, 'Porto');
+			await typeInNote(page, 'The river.');
+			await page.keyboard.press('Enter');
+			await page.keyboard.type('/ima');
+			const chooser = page.waitForEvent('filechooser');
+			await page.keyboard.press('Enter');
+			await (await chooser).setFiles({ name: 'harbour.png', mimeType: 'image/png', buffer: png() });
+			const img = noteEditor(page).getByRole('img', { name: 'harbour' });
+			await expect(img).toHaveAttribute('src', /^blob:/);
+			await saveNow(page);
+
+			// To Kept, then the notebook it came from goes to the trash.
+			const pill = page.locator('[aria-haspopup="menu"]').filter({ hasText: 'Trips' });
+			await pill.click();
+			await page
+				.getByRole('menu', { name: 'Notebook' })
+				.getByRole('menuitem', { name: 'Kept' })
+				.click();
+			await expect(
+				page.locator('[aria-haspopup="menu"]').filter({ hasText: 'Kept' })
+			).toBeVisible();
+			await backToList(page);
+			await page.getByRole('button', { name: 'Trips options' }).click();
+			await page.getByRole('menuitem', { name: 'Move to trash' }).click();
+			await page
+				.getByRole('dialog', { name: 'Move this notebook to the trash?' })
+				.getByRole('button', { name: 'Move to trash' })
+				.click();
+			await section(page, 'All notes');
+			await card(page, 'Porto').getByRole('link').click();
+			await expectEditor(page);
+			// Read again from the drive, not from what this tab drew before.
+			await page.reload();
+			await expectEditor(page);
+			await expect(img).toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+			await page.getByRole('tab', { name: 'Info' }).click();
+			await expect(page.getByTestId('note-side')).toContainText(/Attachments\s*1 ·/);
+
+			// The note to the trash and back: its picture follows it both ways.
+			await page.getByRole('button', { name: 'More options' }).click();
+			await page.getByRole('menuitem', { name: 'Move to trash' }).click();
+			await expect(page.getByRole('heading', { name: 'All notes', level: 1 })).toBeVisible();
+			await section(page, 'Trash');
+			await page
+				.getByRole('listitem')
+				.filter({ hasText: 'Porto' })
+				.getByRole('button', { name: 'Restore' })
+				.click();
+			await section(page, 'All notes');
+			await card(page, 'Porto').getByRole('link').click();
+			await expectEditor(page);
+			await expect(img).toHaveAttribute('src', /^blob:/, { timeout: 30_000 });
+			await page.getByRole('tab', { name: 'Info' }).click();
+			await expect(page.getByTestId('note-side')).toContainText(/Attachments\s*1 ·/);
+			await backToList(page);
+		});
+
+		test('a picture that does not go up keeps the note unsaved, and goes up at the next save', async () => {
+			await section(page, 'All notes');
+			await page.getByRole('button', { name: 'New note', exact: true }).click();
+			await expectNew(page);
+			await setTitle(page, 'Boats');
+			await typeInNote(page, 'At the quay.');
+			await saveNow(page);
+			// Making the picture's file fails; saving the note itself still works.
+			const refuse = (route: Route) =>
+				route.request().method() === 'POST'
+					? route.fulfill({
+							status: 500,
+							contentType: 'application/json',
+							body: '{"code":"internal"}'
+						})
+					: route.fallback();
+			await page.route('**/api/v1/nodes', refuse);
+			await page.keyboard.press('Enter');
+			await page.keyboard.type('/ima');
+			const chooser = page.waitForEvent('filechooser');
+			await page.keyboard.press('Enter');
+			await (await chooser).setFiles({ name: 'boat.png', mimeType: 'image/png', buffer: png() });
+			await expect(page.getByText(/tried again when it is next saved/).first()).toBeVisible();
+			await noteEditor(page).press('Control+s');
+			await expect(saveStatus(page)).toHaveText('Not saved', { timeout: 30_000 });
+
+			await page.unroute('**/api/v1/nodes', refuse);
+			await saveNow(page);
+			await page.reload();
+			await expectEditor(page);
+			await expect(noteEditor(page).getByRole('img', { name: 'boat' })).toHaveAttribute(
+				'src',
+				/^blob:/,
+				{ timeout: 30_000 }
+			);
+			await backToList(page);
 		});
 
 		test('a shared notebook shows in the other person’s Shared section', async ({ browser }) => {
