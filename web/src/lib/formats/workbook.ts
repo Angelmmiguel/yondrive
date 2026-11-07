@@ -13,6 +13,7 @@ import { MAX_COLS, MAX_ROWS, type Area } from '$lib/formula/address';
 import { Engine, type Cell, type Changes } from '$lib/formula/engine';
 import { formatValue } from '$lib/formula/numfmt';
 import { shiftArea, shiftSpan } from '$lib/formula/shift';
+import type { Census } from './model';
 
 export interface Font {
 	name?: string;
@@ -93,6 +94,14 @@ export interface SheetInfo {
 }
 
 export type SheetFormat = 'xlsx' | 'ods' | 'csv' | 'tsv' | 'xls';
+
+/** What a reader gives: the model, and what the file holds for the notice. */
+export interface OpenedSheets {
+	book: Book;
+	census: Census;
+	/** What in the file keeps its old ranges when rows or columns are inserted or deleted. */
+	fixedRanges: string[];
+}
 
 /** What a writer needs to tell what came from the file it writes into. */
 export interface Source {

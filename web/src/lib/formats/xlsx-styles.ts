@@ -14,7 +14,7 @@ export const STYLE_LIMITS = { xfs: 65000, parts: 20000 };
 export class StylesError extends Error {}
 
 /** Excel's legacy palette, for `indexed` colours. */
-const PALETTE = [
+export const PALETTE = [
 	'000000',
 	'FFFFFF',
 	'FF0000',

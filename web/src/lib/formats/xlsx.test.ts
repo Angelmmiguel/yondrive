@@ -2,13 +2,13 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { err } from '$lib/formula/values';
 import { readXlsx, writeXlsx } from './xlsx';
-import { entryData, readZip, writeZip } from './zip';
+import { xlsxOf } from '../../../tests/fixtures/sheet-samples';
+import { entryData, readZip } from './zip';
 
 const fixture = (n: string) =>
 	new Uint8Array(readFileSync(new URL(`../../../tests/fixtures/${n}`, import.meta.url)));
 
 const dec = new TextDecoder();
-const enc = new TextEncoder();
 
 async function part(bytes: Uint8Array, name: string): Promise<string | null> {
 	const e = readZip(bytes).get(name);
@@ -25,42 +25,6 @@ function sameEntries(a: Uint8Array, b: Uint8Array): string[] {
 			return o !== undefined && Buffer.from(o.local).equals(Buffer.from(e.local));
 		})
 		.map((e) => e.name);
-}
-
-const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
-const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
-
-/** A small package built here, so every byte of it is known. */
-export async function xlsxOf(
-	sheets: string[],
-	extra: Record<string, string> = {},
-	workbookExtra = ''
-) {
-	const files: Record<string, string> = {
-		'[Content_Types].xml':
-			'<?xml version="1.0" encoding="UTF-8"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-			sheets
-				.map(
-					(_, i) =>
-						`<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
-				)
-				.join('') +
-			'</Types>',
-		'_rels/.rels': `<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
-		'xl/workbook.xml': `<?xml version="1.0" encoding="UTF-8"?>\n<workbook xmlns="${MAIN}" xmlns:r="${R}"><sheets>${sheets.map((_, i) => `<sheet name="S${i + 1}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets>${workbookExtra}</workbook>`,
-		'xl/_rels/workbook.xml.rels': `<?xml version="1.0" encoding="UTF-8"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${R}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}</Relationships>`,
-		...Object.fromEntries(
-			sheets.map((s, i) => [
-				`xl/worksheets/sheet${i + 1}.xml`,
-				`<?xml version="1.0" encoding="UTF-8"?>\n<worksheet xmlns="${MAIN}" xmlns:r="${R}">${s}</worksheet>`
-			])
-		),
-		...extra
-	};
-	return writeZip(
-		null,
-		Object.entries(files).map(([name, text]) => ({ name, data: enc.encode(text) }))
-	);
 }
 
 describe('reading .xlsx', () => {

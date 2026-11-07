@@ -38,7 +38,7 @@ import {
 	type ErrorCode,
 	type Scalar
 } from '$lib/formula/values';
-import { Tally, type Census } from './model';
+import { Tally } from './model';
 import {
 	ContentTypes,
 	partText,
@@ -55,6 +55,7 @@ import {
 	movePos,
 	type AxisStep,
 	type ColInfo,
+	type OpenedSheets,
 	type RowInfo,
 	type SheetInfo
 } from './workbook';
@@ -608,13 +609,6 @@ function colInfoOf(attrs: Record<string, string>): ColInfo | null {
 	if (attrs.hidden === '1' || attrs.hidden === 'true') info.hidden = true;
 	if (attrs.style !== undefined && Number(attrs.style) > 0) info.style = Number(attrs.style);
 	return info;
-}
-
-export interface OpenedSheets {
-	book: Book;
-	census: Census;
-	/** What in the file keeps its old ranges when rows or columns are inserted or deleted. */
-	fixedRanges: string[];
 }
 
 export async function readXlsx(
