@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decodeXml, escapeXml, findSpans, splice, tokenize, unescapeXml, XmlError } from './xml';
+import { decodeXml, escapeAttr, escapeXml, findSpans, splice, tokenize, unescapeXml, XmlError } from './xml';
 
 describe('xml', () => {
 	const src =
@@ -45,6 +45,13 @@ describe('xml', () => {
 	it('escapes and unescapes', () => {
 		expect(unescapeXml('&#65;&#x42;&amp;&unknown;')).toBe('AB&&unknown;');
 		expect(unescapeXml(escapeXml('a<b>&c'))).toBe('a<b>&c');
+	});
+
+	it('never carries characters XML 1.0 cannot hold', () => {
+		expect(unescapeXml('a&#1;b&#x0;c&#xD800;d&#xFFFE;e&#9;f&#x1F600;')).toBe('abcde\tf😀');
+		expect(escapeXml('a\u0001b\u000bc\u001fd￾e￿\t\n\r')).toBe('abcde\t\n\r');
+		expect(escapeXml('x\ud800y\udc00z😀')).toBe('xyz😀');
+		expect(escapeAttr('"\u0002<')).toBe('&quot;&lt;');
 	});
 
 	it('round-trips a byte order mark and non-ascii text through decode and encode', () => {

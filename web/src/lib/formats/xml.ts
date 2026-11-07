@@ -23,18 +23,42 @@ export const decodeXml = (b: Uint8Array) =>
 
 const entities: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'" };
 
+/** Whether XML 1.0 may carry a code point, written as a character or a reference. */
+const xmlChar = (cp: number) =>
+	cp === 0x9 ||
+	cp === 0xa ||
+	cp === 0xd ||
+	(cp >= 0x20 && cp <= 0xd7ff) ||
+	(cp >= 0xe000 && cp <= 0xfffd) ||
+	(cp >= 0x10000 && cp <= 0x10ffff);
+
+/**
+ * Resolves entity and character references. A reference to a character XML
+ * cannot carry (`&#1;`, `&#xD800;`) is dropped, so it never reaches a writer.
+ */
 export function unescapeXml(s: string): string {
 	return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|\w+);/g, (m, e: string) => {
 		if (e[0] === '#') {
 			const cp = e[1] === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-			return Number.isFinite(cp) && cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
+			if (!Number.isFinite(cp) || cp > 0x10ffff) return m;
+			return xmlChar(cp) ? String.fromCodePoint(cp) : '';
 		}
 		return entities[e] ?? m;
 	});
 }
 
+/** Control characters, U+FFFE, U+FFFF and unpaired surrogates: what XML 1.0 cannot carry. */
+const invalidXml =
+	// eslint-disable-next-line no-control-regex
+	/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+/** Escapes text for element content, dropping the characters XML cannot carry. */
 export function escapeXml(s: string): string {
-	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+	return s
+		.replace(invalidXml, '')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;');
 }
 
 const attrRe = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/y;

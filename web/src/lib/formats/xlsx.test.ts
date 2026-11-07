@@ -251,6 +251,24 @@ describe('writing .xlsx back', () => {
 		expect(sheet).toContain('<c r="B2"><f>A2*100</f><v>200</v></c>');
 	});
 
+	it('never writes characters XML cannot carry', async () => {
+		const bytes = await xlsxOf([
+			'<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a&#1;b</t></is></c></row></sheetData>'
+		]);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		expect(book.engine.cell(s, 0, 0)!.value).toBe('ab');
+		book.engine.set(s, 1, 0, { value: 'c\u0002d\ud800' });
+		book.engine.renameSheet(s, 'S\u0003');
+		const out = await writeXlsx(book, bytes);
+		// eslint-disable-next-line no-control-regex
+		const bad = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]|\ud800/;
+		for (const name of ['xl/worksheets/sheet1.xml', 'xl/sharedStrings.xml', 'xl/workbook.xml'])
+			expect(await part(out, name)).not.toMatch(bad);
+		const again = (await readXlsx(out)).book.engine;
+		expect(again.cell(s, 1, 0)!.value).toBe('cd');
+	});
+
 	it('keeps new rows in order after a deleted row', async () => {
 		const bytes = await xlsxOf([
 			'<sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c></row>' +
