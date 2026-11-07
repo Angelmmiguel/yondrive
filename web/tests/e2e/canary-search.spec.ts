@@ -139,6 +139,21 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			}
 		});
 
+		test('forgets the device copy on signing out from the unlock screen', async ({ page }) => {
+			test.setTimeout(60_000);
+			await page.goto(server.url);
+			await page.getByLabel(/^Username/).fill('admin');
+			await page.getByLabel(/^Passphrase/).fill('correct horse battery staple');
+			await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+			await expectDriveReady(page);
+			await expect.poll(async () => (await cachedSegments(page)).length).toBeGreaterThan(0);
+			await accountMenu(page, 'Lock');
+			await expectLocked(page);
+			await expect.poll(async () => (await cachedSegments(page)).length).toBeGreaterThan(0);
+			await page.getByRole('button', { name: 'Sign out' }).click();
+			await expect.poll(async () => (await cachedSegments(page)).length).toBe(0);
+		});
+
 		test('forgets the device copy on signing out', async ({ page }) => {
 			test.setTimeout(60_000);
 			await page.goto(server.url);

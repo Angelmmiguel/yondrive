@@ -336,6 +336,7 @@ export function testDeps(server: FakeServer, overrides: Partial<Deps> = {}): Dep
 		channel: memoryTabs().channel(),
 		deriveRoot: async (passphrase, params) => deriveRoot(passphrase, params),
 		newKdfParams: newKdfParamsAtTestCost,
+		forgetSearch: async () => {},
 		leave: (url) => void server.left.push(url),
 		...overrides
 	};

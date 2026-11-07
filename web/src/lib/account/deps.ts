@@ -8,6 +8,7 @@ import type { Bytes } from '$lib/crypto/encoding';
 import { deriveRootInWorker } from '$lib/crypto/kdf-client';
 import { newKdfParams, type KdfParams } from '$lib/crypto/kdf';
 import { parseSuite, type Suite } from '$lib/crypto/sealer';
+import { indexedDbSegmentCache } from '$lib/search/cache';
 import { session, type Session } from '$lib/state/session.svelte';
 
 /** What one tab tells the others. */
@@ -33,6 +34,8 @@ export interface Deps {
 	deriveRoot: (passphrase: string, params: KdfParams) => Promise<Bytes>;
 	/** Parameters, salt included, for a passphrase that is being set. */
 	newKdfParams: () => KdfParams;
+	/** Deletes this device's search cache for a user. Best effort. */
+	forgetSearch: (userId: string) => Promise<void>;
 	/** Leaves the app for another page, as a sign-in through a provider has to. */
 	leave: (url: string) => void;
 }
@@ -91,5 +94,9 @@ export const defaultDeps: Deps = {
 	channel: broadcast,
 	deriveRoot: deriveRootInWorker,
 	newKdfParams,
+	forgetSearch: (userId) =>
+		indexedDbSegmentCache(userId)
+			.clear()
+			.catch(() => {}),
 	leave: (url) => location.assign(url)
 };

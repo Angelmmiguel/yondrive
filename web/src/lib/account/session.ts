@@ -151,7 +151,9 @@ export async function lock(deps: Deps = defaultDeps): Promise<void> {
 
 /** Lock, and the session with it. */
 export async function signOut(deps: Deps = defaultDeps): Promise<void> {
+	const userId = deps.session.account?.user.id;
 	deps.session.signedOut();
+	if (userId !== undefined) void deps.forgetSearch(userId);
 	deps.session.sealer?.clearSession();
 	deps.channel.post('signed-out');
 	await deps.api.logout().catch(() => {});
@@ -166,6 +168,10 @@ export function followOtherTabs(deps: Deps = defaultDeps): () => void {
 	return deps.channel.subscribe((message) => {
 		deps.session.sealer?.clearSession();
 		if (message === 'locked') deps.session.lock();
-		else deps.session.signedOut();
+		else {
+			const userId = deps.session.account?.user.id;
+			deps.session.signedOut();
+			if (userId !== undefined) void deps.forgetSearch(userId);
+		}
 	});
 }

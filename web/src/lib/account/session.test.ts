@@ -124,6 +124,17 @@ describe.each(['e2e', 'none'] as const)('in mode %s', (mode) => {
 		expect(reloaded.session.keys?.masterKey).toEqual(before);
 	});
 
+	it('forgets the search cache when signing out while locked', async () => {
+		const { deps } = await serverWithUser(mode);
+		await signedIn(deps);
+		const id = deps.session.account!.user.id;
+		const forgotten: string[] = [];
+		deps.forgetSearch = async (user) => void forgotten.push(user);
+		await lock(deps);
+		await signOut(deps);
+		expect(forgotten).toEqual([id]);
+	});
+
 	it('signs out, ending the session and the keys', async () => {
 		const { server, deps } = await serverWithUser(mode);
 		await signedIn(deps);
@@ -312,6 +323,17 @@ describe('other tabs', () => {
 		const { one, two } = await twoTabs();
 		await signOut(one);
 		expect(two.session.status).toBe('signed-out');
+	});
+
+	it('forget the search cache of a user signed out while locked', async () => {
+		const { one, two } = await twoTabs();
+		const forgotten: string[] = [];
+		two.forgetSearch = async (id) => void forgotten.push(id);
+		const id = two.session.account!.user.id;
+		await lock(one);
+		await signOut(one);
+		expect(two.session.status).toBe('signed-out');
+		expect(forgotten).toEqual([id]);
 	});
 
 	it('stop following when told', async () => {
