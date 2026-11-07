@@ -44,7 +44,7 @@ image version="latest":
 
 # Report files that gofmt would change.
 fmt:
-    gofmt -l .
+    git ls-files '*.go' | xargs gofmt -l
 
 # Regenerate the Go and TypeScript code from api/openapi.yaml, after linting it.
 api: web-install

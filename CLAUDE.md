@@ -61,7 +61,7 @@ just web-e2e    # Playwright specs against throwaway servers
 just image      # container image
 ```
 
-`just test` and `just lint` must be clean, and `gofmt -l .` must print nothing,
+`just test` and `just lint` must be clean, and `just fmt` must print nothing,
 before work is done. Run `just web-e2e` when a change touches a screen. The
 browser specs run against `web/build`, so `just web-e2e` builds first. Web-only
 variants exist as `web-install`, `web-dev`, `web-check`, `web-test`,

@@ -45,7 +45,7 @@ jobs:
 
       - name: gofmt
         run: |
-          files=$(nix develop --command gofmt -l .)
+          files=$(nix develop --command just fmt)
           [ -z "$files" ] || { echo 'gofmt would rewrite:'; echo "$files"; exit 1; }
 
       - name: Vet and lint
