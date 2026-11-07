@@ -756,6 +756,59 @@ and inflating stops when an entry passes its declared size. XML: 256 levels, and
 RTF: 64 MiB, 512 groups deep. Markdown: 8 MiB and 32 levels. CFB: every sector chain bounded and checked for loops. A
 document opens up to 64 MiB.
 
+### Spreadsheets
+
+The formula engine (`src/lib/formula`) and the spreadsheet formats (`src/lib/formats`) are framework-free and run in
+a worker (`src/lib/sheets`). The grid and editor are built on the worker's API.
+
+| Where | Holds |
+| --- | --- |
+| `formula/parse.ts`, `ast.ts` | The en-US syntax files store: numbers, strings, booleans, errors, `A1`, `$A$1`, ranges, `A:C`, `2:5`, `'Sheet name'!A1`, operators with Excel's precedence (negation before `^`, so `-2^2` is 4). Printing adds `_xlfn.` for files and prints OpenFormula for `.ods`. |
+| `formula/values.ts`, `dates.ts`, `numfmt.ts` | IEEE doubles, coercion, comparison, 15-digit text of numbers; the 1900 date system with its 29 February 1900, and 1904; Excel format codes for display and TEXT. |
+| `formula/functions.ts`, `criteria.ts`, `eval.ts` | The 42 functions of PLAN 6.3 plus CONCATENATE, with Excel's rules for references against typed values, blanks and errors; `*IF` criteria and wildcards. |
+| `formula/engine.ts`, `shift.ts` | Cells by sheet, the dependency graph and recalculation; references moved by inserted and deleted rows and columns, sheets renamed or deleted. |
+| `formats/workbook.ts` | The model: the engine, a style table (number format, font, fill, borders, alignment), and per sheet widths, heights, merges and panes, plus the steps (rows and columns inserted or deleted) since the file was opened. |
+| `formats/xlsx.ts`, `xlsx-styles.ts`, `ods.ts`, `csv.ts`, `xls.ts`, `spreadsheet.ts` | Readers and writers, one entry point, the census and the notice. |
+| `sheets/rpc.ts`, `service.ts`, `sheets.worker.ts`, `client.ts`, `search-text.ts` | A small RPC of our own, the service the editor calls, and text for search. |
+
+**Recalculation.** A reference to one cell is indexed by that cell; a range by each column it spans, or, over 64
+columns, in a list scanned per change, so `A:A` costs one entry. A change marks its dependents transitively; Tarjan's
+algorithm orders them so each is calculated once after what it reads, and a group that reads itself is a cycle whose
+cells show `#REF!` and are flagged. TODAY and NOW are calculated on every recalculation. On opening, cached values are
+used as they are, and only formulas without one are calculated.
+
+**What is not calculated.** A formula with a function outside the 42, a named range, an array constant, a reference to
+another file or an array formula keeps its text and the file's value and is read-only; cells reading it use that value.
+If its inputs change it is flagged stale. A formula that does not parse (structured or 3-D references) is kept as text.
+Typed formulas with any of these are refused with the reason.
+
+**Keeping files intact (PLAN 6.2, cell level).** On save the original is read again, and each cell of the file is
+followed through the sheet's steps to where it is now. In `.xlsx`, an untouched sheet keeps its part; in an edited
+sheet, unchanged rows and cells are copied from the source text, a moved cell gets a new `r`, a formula whose result
+changed gets a new `<v>` in its own markup, and the rest is generated. A shared formula stays shared until one of its
+cells changes or moves, then each cell gets its own. Shared strings and cell formats are appended, never changed.
+Merges, conditional formats, validations, hyperlinks, filters and defined names follow inserts and deletes; charts,
+pivot tables and tables do not (PLAN 6.5's known gap), and the reader lists them in `fixedRanges` so the UI can warn.
+`calcChain.xml` is dropped, with its relationship and content type, when the set of formula cells changed; the workbook
+gets `fullCalcOnLoad` when a formula not calculated here is stale, a cycle exists, or rows moved under one. `.ods`
+splits repeated rows and cells only where something changed and copies every other row and cell element; new styles
+are automatic styles named `yd…`. CSV and TSV copy unchanged records and keep the delimiter, line ending and BOM.
+`.xls` (BIFF8) is read only and saved as `.xlsx`; formulas whose tokens do not map keep their last value.
+
+**The worker.** `createSheets()` returns a proxy whose methods mirror `SheetService`: `load`, `sheets`, `styles`,
+`window`, `cell`, `setCells`, `clear`, `setStyle`, row and column inserts and deletes, sheet add, rename, move, hide and
+remove, widths, heights, panes, `merge`, `sort`, `recalc`, `census`, `lostOnSave`, `save` and `text`. Input errors keep
+their `problem` (`syntax`, `unsupported`, `arity`, `sheet`, `readonly`). A call over 60 seconds ends the worker and the
+open workbook with it.
+
+**Limits.** 2,000,000 cells and shared strings a workbook, strings of 32,767 characters, 1,024 sheets, 100,000 merges,
+65,000 cell formats, formulas of 8,192 characters and 128 levels, the ZIP and XML limits of documents, runs in `.ods`
+never expanded beyond the cell limit, CSV up to 64 MiB, `.xls` up to 4,000,000 records.
+
+**What is not verified.** The formula table follows Excel's documentation; rows marked unsure in the tests were not
+checked against Excel, which is not available here. Saved files have not been opened in Excel or LibreOffice, and no
+corpus of real files was used: fixtures are written by hand to the formats' layouts.
+
 ### Single sign-on
 
 The sign-in page asks `GET /auth/methods`. With local accounts off it keeps a small way to the form, for the

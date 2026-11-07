@@ -262,6 +262,15 @@ is parsed as hostile input, on the device and never on the server.
   they open in a new tab with `noopener noreferrer`. Any other address is shown as text.
 - **Locked content** is copied back from the source as it was. The editor never writes what it
   did not understand.
+- **Spreadsheets** are parsed the same way, in a worker of their own. Readers stream sheet XML
+  and cap cells, shared strings, string length, sheets, merges and cell formats; repeated rows
+  and cells of `.ods` are never expanded past the cell cap; `.xls` records are bounded by the
+  stream and every BIFF8 sector chain by the compound file reader. Formulas are capped at 8,192
+  characters and 128 levels and are only ever evaluated by our engine, which has no function
+  that reads files, the network or other workbooks; references to other files are kept as text
+  and never followed. A CSV field starting with `=` is text, never a formula, and values are
+  written back as values, so a file saved here carries no injected formula it did not have.
+  Seeded fuzz tests feed damaged `.xlsx`, `.ods`, `.xls` and CSV to every reader.
 
 **Who is editing.** The editing heartbeat tells the server which user has which node open in an
 editor, and when. Anyone who can read the node sees the usernames of the others editing it.
