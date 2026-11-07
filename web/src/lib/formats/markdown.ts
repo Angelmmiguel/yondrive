@@ -494,7 +494,9 @@ class InlineParser {
 				}
 			}
 			if (c === '*' || c === '_' || c === '~') {
-				const run = new RegExp(`^\\${c}+`).exec(src.slice(i))![0];
+				let end = i + 1;
+				while (src[end] === c) end++;
+				const run = src.slice(i, end);
 				const before = i === 0 ? ' ' : src[i - 1];
 				const after = src[i + run.length] ?? ' ';
 				const ws = (x: string) => /\s/.test(x);
@@ -534,41 +536,80 @@ class InlineParser {
 
 	/** Pairs delimiter runs, as CommonMark does, and marks the text between them. */
 	#emphasis(items: Item[], delims: Delim[]): void {
-		for (let c = 0; c < delims.length; c++) {
+		// The delimiters still in play, as a linked list, so that those a pair
+		// encloses are dropped once rather than walked again by every later closer.
+		const prev = delims.map((_, i) => i - 1);
+		const next = delims.map((_, i) => (i + 1 < delims.length ? i + 1 : -1));
+		const drop = (i: number) => {
+			if (prev[i] >= 0) next[prev[i]] = next[i];
+			if (next[i] >= 0) prev[next[i]] = prev[i];
+		};
+		const length = delims.map((d) => d.count);
+		// Each pair adds one to its mark over the items between, applied once at the end.
+		const spans = new Map<keyof Marks, Int32Array>();
+		// Where the search for an opener stopped finding one, for each kind of closer.
+		const bottom = new Map<string, number>();
+		for (let c = delims.length > 0 ? 0 : -1; c !== -1;) {
 			const closer = delims[c];
-			if (!closer.close || closer.count === 0) continue;
-			for (let o = c - 1; o >= 0; o--) {
+			if (!closer.close || closer.count === 0) {
+				c = next[c];
+				continue;
+			}
+			const kind = `${closer.char}${closer.open ? 1 : 0}${length[c] % 3}`;
+			const floor = bottom.get(kind) ?? -1;
+			let o = prev[c];
+			for (; o > floor; o = prev[o]) {
 				const opener = delims[o];
 				if (opener.char !== closer.char || !opener.open || opener.count === 0) continue;
 				if (
 					closer.char !== '~' &&
 					(opener.close || closer.open) &&
-					(opener.count + closer.count) % 3 === 0 &&
-					(opener.count % 3 !== 0 || closer.count % 3 !== 0)
+					(length[o] + length[c]) % 3 === 0 &&
+					(length[o] % 3 !== 0 || length[c] % 3 !== 0)
 				) {
 					continue;
 				}
-				const use = closer.char === '~' ? 2 : opener.count >= 2 && closer.count >= 2 ? 2 : 1;
-				const mark: keyof Marks = closer.char === '~' ? 'strike' : use === 2 ? 'bold' : 'italic';
-				for (let k = opener.at + 1; k < closer.at; k++) {
-					const it = items[k];
-					if ('text' in it && !delims.some((d) => d.at === k && d.count > 0)) {
-						(it.marks as Record<string, unknown>)[mark] = true;
-					} else if ('image' in it) continue;
-				}
-				opener.count -= use;
-				closer.count -= use;
-				const oi = items[opener.at] as { text: string };
-				const ci = items[closer.at] as { text: string };
-				oi.text = oi.text.slice(use);
-				ci.text = ci.text.slice(use);
-				// Delimiters between the pair can no longer match.
-				for (let k = o + 1; k < c; k++) delims[k].count = 0;
-				if (closer.count > 0) c--;
 				break;
 			}
+			if (o <= floor) {
+				bottom.set(kind, prev[c]);
+				if (!closer.open) drop(c);
+				c = next[c];
+				continue;
+			}
+			const opener = delims[o];
+			const use = closer.char === '~' ? 2 : opener.count >= 2 && closer.count >= 2 ? 2 : 1;
+			const mark: keyof Marks = closer.char === '~' ? 'strike' : use === 2 ? 'bold' : 'italic';
+			let span = spans.get(mark);
+			if (span === undefined) spans.set(mark, (span = new Int32Array(items.length + 1)));
+			span[opener.at + 1]++;
+			span[closer.at]--;
+			opener.count -= use;
+			closer.count -= use;
+			const oi = items[opener.at] as { text: string };
+			const ci = items[closer.at] as { text: string };
+			oi.text = oi.text.slice(use);
+			ci.text = ci.text.slice(use);
+			// Delimiters between the pair can no longer match.
+			for (let k = next[o]; k !== c; k = next[k]) {
+				delims[k].count = 0;
+				drop(k);
+			}
+			if (opener.count === 0) drop(o);
+			if (closer.count === 0) {
+				drop(c);
+				c = next[c];
+			}
 		}
-		// What never matched is literal text, and is already in place.
+		// What never matched is literal text, already in place, and takes the marks around it.
+		for (const [mark, span] of spans) {
+			let depth = 0;
+			for (let k = 0; k < items.length; k++) {
+				depth += span[k];
+				const it = items[k];
+				if (depth > 0 && 'text' in it) (it.marks as Record<string, unknown>)[mark] = true;
+			}
+		}
 	}
 
 	#link(src: string, at: number): { text: string; url: string; end: number } | null {

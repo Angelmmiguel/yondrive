@@ -203,4 +203,20 @@ describe('markdown', () => {
 		expect(() => readMarkdown(deep)).not.toThrow();
 		expect(() => readMarkdown('x'.repeat(9 * 1024 * 1024))).toThrow();
 	});
+
+	it('pairs emphasis in time that grows with the text, not its cube', () => {
+		const started = performance.now();
+		for (const src of [
+			'*a'.repeat(40000),
+			'_a '.repeat(30000),
+			'a* '.repeat(30000),
+			'*a '.repeat(15000) + 'b* '.repeat(15000)
+		])
+			readMarkdown(src);
+		expect(performance.now() - started).toBeLessThan(1500);
+		expect(textOf(readMarkdown('*a *b* c*').model.blocks[0])).toBe('a b c');
+		expect((readMarkdown('**a * b**').model.blocks[0] as Paragraph).content).toEqual([
+			{ type: 'text', text: 'a * b', marks: { bold: true } }
+		]);
+	});
 });
