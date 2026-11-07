@@ -110,6 +110,26 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(cell(page, 'B2')).toHaveText('');
 		});
 
+		test('text that reads as a time or an error stays text through the formula bar', async () => {
+			await typeIn(page, 'G1', "'12:30");
+			await typeIn(page, 'G2', "'#N/A");
+			for (const [ref, text] of [
+				['G1', '12:30'],
+				['G2', '#N/A']
+			]) {
+				await goTo(page, ref);
+				await expect(formulaBar(page)).toHaveValue(`'${text}`);
+				// Into the formula bar and out to another cell, changing nothing.
+				await formulaBar(page).click();
+				await cell(page, 'H5').click();
+				await goTo(page, ref);
+				await expect(formulaBar(page)).toHaveValue(`'${text}`);
+				await expect(cell(page, ref)).toHaveText(text);
+			}
+			await goTo(page, 'G1:G2');
+			await page.keyboard.press('Delete');
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');
