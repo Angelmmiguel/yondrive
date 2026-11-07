@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { err } from '$lib/formula/values';
 import { readXlsx, writeXlsx } from './xlsx';
-import { xlsxOf } from '../../../tests/fixtures/sheet-samples';
+import { odsOf, xlsxOf } from '../../../tests/fixtures/sheet-samples';
+import { readOds } from './ods';
 import { entryData, readZip } from './zip';
 
 const fixture = (n: string) =>
@@ -308,6 +309,20 @@ describe('writing .xlsx back', () => {
 		expect([...sheet.matchAll(/<row r="(\d+)"/g)].map((m) => m[1])).toEqual(['1', '2', '6']);
 		const again = (await readXlsx(out)).book.engine;
 		expect([0, 1, 5].map((r) => again.cell(s, r, 0)!.value)).toEqual([1, 3, 6]);
+	});
+
+	it('keeps the 1904 date system of a workbook from another format', async () => {
+		const ods = await odsOf(
+			'<table:calculation-settings><table:null-date table:date-value="1904-01-01"/></table:calculation-settings>' +
+				'<table:table table:name="T"><table:table-row><table:table-cell office:value-type="date" office:date-value="2024-01-31"><text:p>x</text:p></table:table-cell></table:table-row></table:table>'
+		);
+		const { book } = await readOds(ods);
+		expect(book.date1904).toBe(true);
+		const s = book.engine.sheets[0].id;
+		const serial = book.engine.cell(s, 0, 0)!.value;
+		const again = (await readXlsx(await writeXlsx(book))).book;
+		expect(again.date1904).toBe(true);
+		expect(again.engine.cell(again.engine.sheets[0].id, 0, 0)!.value).toBe(serial);
 	});
 
 	it('writes a workbook from nothing that reads back the same', async () => {

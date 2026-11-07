@@ -1229,7 +1229,7 @@ const TEMPLATE_SHEET = (prefix: string, info: SheetInfo) => {
 
 const enc = new TextEncoder();
 
-async function template(): Promise<Uint8Array> {
+async function template(date1904: boolean): Promise<Uint8Array> {
 	const files: [string, string][] = [
 		[
 			'[Content_Types].xml',
@@ -1243,7 +1243,7 @@ async function template(): Promise<Uint8Array> {
 		],
 		[
 			'xl/workbook.xml',
-			`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${MAIN_NS}" xmlns:r="${REL_NS}"><bookViews><workbookView/></bookViews><sheets/></workbook>`
+			`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="${MAIN_NS}" xmlns:r="${REL_NS}">${date1904 ? '<workbookPr date1904="1"/>' : ''}<bookViews><workbookView/></bookViews><sheets/></workbook>`
 		],
 		[
 			'xl/_rels/workbook.xml.rels',
@@ -1274,7 +1274,7 @@ function removeElements(
  */
 export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint8Array> {
 	const same = original !== undefined && book.source.format === 'xlsx';
-	const zip = readZip(same ? original : await template());
+	const zip = readZip(same ? original : await template(book.date1904));
 	const pkg = await readPackage(zip);
 	const engine = book.engine;
 	const theme = themeColors(pkg.themePath ? await partText(zip, pkg.themePath) : null);
