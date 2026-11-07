@@ -235,10 +235,11 @@ adds a version over the same blob. Because the frames stay sealed under the id t
 with, a version carries that id and its signer too (CRYPTO.md, section 12). `current_version`
 moves under an optimistic check: `expected_version` answers `412 version_conflict` on a mismatch.
 
-**Quota.** `used_bytes` and `reserved_bytes` on the user are kept by triggers on `blobs` and `uploads`,
+**Quota.** `used_bytes` and `reserved_bytes` on the user are kept by triggers on `blobs`, `uploads` and `nodes`,
 so a row removed by a cascade releases its bytes like any other. An upload reserves its size when
 created, and the commit changes reserved to used in one transaction. The owner of the node is charged,
-whoever is uploading.
+whoever is uploading. A node's sealed metadata counts as used too, so a tree of empty nodes is not free:
+creating a node, renaming it and rotating it are refused with `quota_exceeded` when the metadata would not fit.
 
 **Uploads.** Create, then send frames in any order, then commit:
 

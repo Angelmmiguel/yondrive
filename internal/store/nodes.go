@@ -181,6 +181,9 @@ func (s *Store) CreateNode(ctx context.Context, n Node, parentGeneration *int64)
 		if err := checkNameFree(ctx, tx, n.ParentID, n.NameTag, ""); err != nil {
 			return err
 		}
+		if err := checkRoom(ctx, tx, n.OwnerID, int64(len(n.SealedMetadata))); err != nil {
+			return err
+		}
 		if err := insertNode(ctx, tx, n); err != nil {
 			return err
 		}
@@ -429,12 +432,24 @@ func (s *Store) UpdateNode(ctx context.Context, id string, metadata, nameTag []b
 			}
 		}
 		if metadata != nil {
+			if err := checkMetadataRoom(ctx, tx, n, metadata); err != nil {
+				return false, err
+			}
 			if _, err := tx.ExecContext(ctx, "UPDATE nodes SET sealed_metadata = ? WHERE id = ?", metadata, id); err != nil {
 				return false, fmt.Errorf("store: update metadata: %w", err)
 			}
 		}
 		return nameTag != nil || metadata != nil, nil
 	})
+}
+
+// checkMetadataRoom refuses metadata that grows a node past the owner's quota.
+// Sealed metadata is charged to the owner, whoever is writing it.
+func checkMetadataRoom(ctx context.Context, q querier, n Node, metadata []byte) error {
+	if grow := int64(len(metadata) - len(n.SealedMetadata)); grow > 0 {
+		return checkRoom(ctx, q, n.OwnerID, grow)
+	}
+	return nil
 }
 
 // MoveGuard is what a move must hold to inside its transaction, since an owner

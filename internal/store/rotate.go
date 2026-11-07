@@ -57,6 +57,9 @@ func (s *Store) RotateNode(ctx context.Context, id string, r Rotation, now time.
 		if err := checkGeneration(ctx, tx, n.ParentID, &r.ParentKeyGeneration); err != nil {
 			return false, err
 		}
+		if err := checkMetadataRoom(ctx, tx, n, r.SealedMetadata); err != nil {
+			return false, err
+		}
 		if err := rewrapChildren(ctx, tx, id, r.Children); err != nil {
 			return false, err
 		}

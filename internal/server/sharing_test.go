@@ -340,9 +340,10 @@ func TestEditorLimits(t *testing.T) {
 func TestEditorQuotaIsTheOwners(t *testing.T) {
 	e, alice, bob := driveEnv(t, "none")
 	admin := e.login("root")
-	admin.call(http.MethodPatch, api+"/admin/users/"+alice.id, obj{"quota_bytes": 100}).wantStatus(t, http.StatusOK)
 	_, folder, _ := sharedFolder(t, alice, bob, "editor")
 	file := bob.create(folder.ID, "file", "f")
+	// Room for 100 bytes of content over the metadata the nodes hold.
+	admin.call(http.MethodPatch, api+"/admin/users/"+alice.id, obj{"quota_bytes": 100 + alice.metadataBytes()}).wantStatus(t, http.StatusOK)
 	bob.call(http.MethodPost, api+"/uploads", bob.uploadRequest(file.ID, bob.frames(101, 1))).wantError(t, http.StatusRequestEntityTooLarge, "quota_exceeded")
 	bob.startUpload(file.ID, bob.frames(100, 1))
 	if _, reserved := alice.storage(); reserved != 100 {

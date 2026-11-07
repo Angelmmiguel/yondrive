@@ -250,7 +250,17 @@ func (d *driveUser) upload(node string, frames [][]byte) versionBody {
 	return v
 }
 
+// storage reports what the user's blobs and uploads hold. The sealed metadata of
+// their nodes counts against the quota too, and is left out so that these
+// figures say what a test put in; total has it.
 func (d *driveUser) storage() (used, reserved int64) {
+	d.e.t.Helper()
+	used, reserved = d.total()
+	return used - d.metadataBytes(), reserved
+}
+
+// total reports used and reserved bytes as the quota counts them.
+func (d *driveUser) total() (used, reserved int64) {
 	d.e.t.Helper()
 	var s struct {
 		Used     int64 `json:"used_bytes"`
@@ -260,6 +270,22 @@ func (d *driveUser) storage() (used, reserved int64) {
 	resp.wantStatus(d.e.t, http.StatusOK)
 	resp.decode(d.e.t, &s)
 	return s.Used, s.Reserved
+}
+
+// metadataBytes is the size of the sealed metadata of the user's nodes, read
+// from the database.
+func (d *driveUser) metadataBytes() int64 {
+	d.e.t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(d.e.st.Dir(), "yondrive.db"))
+	if err != nil {
+		d.e.t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	var n int64
+	if err := db.QueryRow("SELECT coalesce(sum(length(sealed_metadata)), 0) FROM nodes WHERE owner_id = ?", d.id).Scan(&n); err != nil {
+		d.e.t.Fatal(err)
+	}
+	return n
 }
 
 func (e *env) blobFile(id string) string {
@@ -1926,5 +1952,43 @@ func TestAFailedCommitLeavesTheFilePlaced(t *testing.T) {
 	got := alice.call(http.MethodGet, api+"/blobs/"+u.ID, nil)
 	if !bytes.Equal(got.body, frames[0]) {
 		t.Error("the retried file differs")
+	}
+}
+
+func TestSealedMetadataIsChargedToTheQuota(t *testing.T) {
+	e, alice, _ := driveEnv(t, "none")
+	root := alice.root()
+	e.login("root").call(http.MethodPatch, api+"/admin/users/"+alice.id, obj{"quota_bytes": 100}).wantStatus(t, http.StatusOK)
+	sized := func(parent, kind, name string, n int) obj {
+		body := alice.nodeRequest(parent, kind, name)
+		body["sealed_metadata"] = b64(fill(1, n))
+		return body
+	}
+	tooBig := func(resp response) { resp.wantError(t, http.StatusRequestEntityTooLarge, "quota_exceeded") }
+
+	resp := alice.call(http.MethodPost, api+"/nodes", sized(root.ID, "folder", "a", 60))
+	resp.wantStatus(t, http.StatusCreated)
+	var a nodeBody
+	resp.decode(t, &a)
+	if used, _ := alice.total(); used != 60 {
+		t.Errorf("used %d", used)
+	}
+	tooBig(alice.call(http.MethodPost, api+"/nodes", sized(root.ID, "folder", "b", 41)))
+	tooBig(alice.call(http.MethodPost, api+"/nodes", sized(root.ID, "file", "c", 41)))
+
+	patch := func(n int) response {
+		return alice.call(http.MethodPatch, api+"/nodes/"+a.ID, obj{"suite": alice.suite, "sealed_metadata": b64(fill(1, n))})
+	}
+	tooBig(patch(101))
+	patch(30).wantStatus(t, http.StatusOK)
+	if used, _ := alice.total(); used != 30 {
+		t.Errorf("after a smaller one: used %d", used)
+	}
+
+	body := rotateBody(alice, 1)
+	body["sealed_metadata"] = b64(fill(1, 101))
+	tooBig(alice.call(http.MethodPost, api+"/nodes/"+a.ID+"/rotate", body))
+	if used, _ := alice.total(); used != 30 {
+		t.Errorf("after a refused rotation: used %d", used)
 	}
 }

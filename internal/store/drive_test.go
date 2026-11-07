@@ -27,7 +27,7 @@ func root(t *testing.T, st *Store, owner string) Node {
 
 func child(id, owner, parent, kind, name string) Node {
 	return Node{ID: id, OwnerID: owner, ParentID: parent, Kind: kind, Suite: suiteTest,
-		SealedMetadata: []byte("{}"), NameTag: tag(name), CreatedAt: t0}
+		SealedMetadata: []byte{}, NameTag: tag(name), CreatedAt: t0}
 }
 
 func addNode(t *testing.T, st *Store, owner, parent, kind, name string) Node {
@@ -925,5 +925,108 @@ func TestARelativeDataDirectoryWorks(t *testing.T) {
 	}
 	if err := live.Close(); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestSealedMetadataCountsAgainstTheQuota(t *testing.T) {
+	st := open(t)
+	u := addUser(t, st, "alice") // quota 100
+	r := root(t, st, u.ID)
+	sized := func(n int) Node {
+		c := child(NewID(), u.ID, r.ID, KindFolder, fmt.Sprint("n", n, NewID()))
+		c.SealedMetadata = make([]byte, n)
+		return c
+	}
+	used := func() int64 { return usage(t, st, u.ID).UsedBytes }
+
+	a, err := st.CreateNode(ctx, sized(60), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if used() != 60 {
+		t.Errorf("after create: used %d", used())
+	}
+	_, err = st.CreateNode(ctx, sized(41), nil)
+	wantErr(t, err, ErrQuotaExceeded)
+	if used() != 60 {
+		t.Errorf("after a refusal: used %d", used())
+	}
+
+	// A rename that grows it is checked, one that shrinks it frees the difference.
+	_, err = st.UpdateNode(ctx, a.ID, make([]byte, 101), nil, KeyCheck{}, t0)
+	wantErr(t, err, ErrQuotaExceeded)
+	if _, err := st.UpdateNode(ctx, a.ID, make([]byte, 30), nil, KeyCheck{}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if used() != 30 {
+		t.Errorf("after shrinking: used %d", used())
+	}
+	_, err = st.RotateNode(ctx, a.ID, Rotation{KeyGeneration: 1, ParentKeyGeneration: 1, SealedMetadata: make([]byte, 101)}, t0)
+	wantErr(t, err, ErrQuotaExceeded)
+	if _, err := st.RotateNode(ctx, a.ID, Rotation{KeyGeneration: 1, ParentKeyGeneration: 1, SealedMetadata: make([]byte, 50)}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if used() != 50 {
+		t.Errorf("after rotating: used %d", used())
+	}
+
+	// It goes with the node, with the subtree of a removed one too.
+	sub, err := st.CreateNode(ctx, sized(10), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateNode(ctx, child(NewID(), u.ID, sub.ID, KindFile, "deep"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.TrashNode(ctx, a.ID, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PurgeNode(ctx, a.ID, t0, t0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.RemoveDueNodes(ctx, t0.Add(time.Hour), 10); err != nil {
+		t.Fatal(err)
+	}
+	if used() != 10 {
+		t.Errorf("after removal: used %d", used())
+	}
+}
+
+func TestTheMigrationChargesNodesThatAreThere(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := addUser(t, st, "alice")
+	r := root(t, st, u.ID)
+	// A database from before the charge: no triggers, and 7 bytes of blobs.
+	for _, name := range []string{"nodes_charge", "nodes_recharge", "nodes_discharge"} {
+		if _, err := st.write.Exec("DROP TRIGGER " + name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, size := range []int{20, 5} {
+		c := child(NewID(), u.ID, r.ID, KindFolder, fmt.Sprint("n", i))
+		c.SealedMetadata = make([]byte, size)
+		if _, err := st.CreateNode(ctx, c, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.write.Exec("UPDATE users SET used_bytes = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.write.Exec("PRAGMA user_version = 3"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	st, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if got := usage(t, st, u.ID).UsedBytes; got != 7+25 {
+		t.Errorf("used %d, want 32", got)
 	}
 }
