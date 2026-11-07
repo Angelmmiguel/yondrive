@@ -220,15 +220,16 @@ func (s *Server) signInPatch(ctx context.Context, in *oapi.UpdateSettingsJSONReq
 	return patch, nil
 }
 
-// checkKeepsLocalAdmin refuses to remove the last local admin while local accounts
-// are off: they are the way back in when the provider is down. The caller holds
+// checkKeepsLocalAdmin refuses to remove the last local admin while a provider is
+// on, whether or not local accounts are: they are the way back in when the provider
+// is down. The caller holds
 // accountMu.
 func (s *Server) checkKeepsLocalAdmin(ctx context.Context, target string) error {
 	settings, err := s.store.Settings(ctx)
 	if err != nil {
 		return err
 	}
-	if settings.LocalAccounts {
+	if !settings.OIDC.Enabled {
 		return nil
 	}
 	admins, err := s.store.LocalAdmins(ctx)

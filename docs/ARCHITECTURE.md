@@ -486,8 +486,9 @@ passphrase is the **fallback admin**. They are never demoted, nor is the last ad
 
 **Local accounts off.** Local sign-in and registration are refused for all but the fallback admin,
 who is the way back in when the provider is down. It is refused with `local_accounts_lockout`
-while no provider is on or no local admin exists, and so are turning off the provider or removing
-the last local admin while they are off.
+while no provider is on or no local admin exists, and so is turning off the provider while they are off.
+Removing or disabling the last local admin is refused whenever a provider is on, with local accounts
+on or off.
 
 **Credentials.** An SSO account has no `auth_key_hash`. Login reads only that and the recovery hash,
 so the unlock auth key signs nobody in, and the right recovery key learns `sso_required`. The KDF

@@ -955,8 +955,9 @@ func TestLocalAccountsOff(t *testing.T) {
 	t.Run("the provider cannot be turned off under it", func(t *testing.T) {
 		s.root.call(http.MethodPatch, settingsRoute, obj{"oidc": obj{"enabled": false}, "current_auth_key": cur}).wantError(t, http.StatusConflict, "local_accounts_lockout")
 	})
+	var admin *client
+	rootID := me(t, s.root).User.ID
 	t.Run("the last local admin cannot be removed", func(t *testing.T) {
-		rootID := me(t, s.root).User.ID
 		// Another admin, through the provider, who would otherwise be able to.
 		invite := createInvite(t, s.root, obj{"role": "admin", "current_auth_key": cur})
 		s.who("s-admin", nil)
@@ -965,13 +966,16 @@ func TestLocalAccountsOff(t *testing.T) {
 		if session == nil {
 			t.Fatal("no session")
 		}
-		admin := &client{e: s.e, cookie: session.Name + "=" + session.Value}
+		admin = &client{e: s.e, cookie: session.Name + "=" + session.Value}
 		admin.call(http.MethodPatch, "/api/v1/admin/users/"+rootID, obj{"disabled": true}).wantError(t, http.StatusConflict, "local_accounts_lockout")
 		admin.call(http.MethodDelete, "/api/v1/admin/users/"+rootID, obj{"current_auth_key": ""}).wantError(t, http.StatusConflict, "local_accounts_lockout")
 	})
 	t.Run("turned back on", func(t *testing.T) {
 		s.root.call(http.MethodPatch, settingsRoute, obj{"local_accounts": true, "current_auth_key": cur}).wantStatus(t, http.StatusOK)
 		s.e.login("alice")
+		// With local accounts on and a provider, the last local admin still stays.
+		admin.call(http.MethodPatch, "/api/v1/admin/users/"+rootID, obj{"disabled": true}).wantError(t, http.StatusConflict, "local_accounts_lockout")
+		admin.call(http.MethodDelete, "/api/v1/admin/users/"+rootID, obj{"current_auth_key": ""}).wantError(t, http.StatusConflict, "local_accounts_lockout")
 	})
 }
 

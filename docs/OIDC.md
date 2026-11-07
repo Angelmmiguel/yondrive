@@ -176,6 +176,9 @@ they are how you get back in if the provider is down or misconfigured.
 With local accounts off, nobody else can sign in with a passphrase or register. YonDrive refuses to turn
 them off without a working provider setting and a local admin.
 
+With a provider on, the last admin with a passphrase cannot be disabled or deleted, whether or not local
+accounts are on, so there is always a way back in.
+
 ## Passphrases and the second factor
 
 **End-to-end mode.** The provider's word gets a session, which opens nothing. On first sign-in people
