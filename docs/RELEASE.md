@@ -46,9 +46,9 @@ Vite and its plugins run code from `node_modules` whatever `ignore-scripts` says
 So the jobs that build (`binaries`, `image`) have no OIDC token and cannot sign,
 and the jobs that sign (`sign`, `sign-image`) build nothing: they download what
 was built, install cosign from the flake, and sign. A compromised dependency can
-still change what it builds, which the reproducible build lets anyone detect
-below, but it cannot sign as this workflow or rewrite `dist/` after it was
-hashed. Every action is pinned by commit, and checkouts keep no credentials.
+still change what the build job produces, `SHA256SUMS` included, which a
+rebuild from source (below) shows, but it never holds the token that signs as
+this workflow. Every action is pinned by commit, and checkouts keep no credentials.
 
 ## Verifying a download
 
