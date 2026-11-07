@@ -6,8 +6,8 @@
  * sealed under the search index's key (see `cache.ts`). Pure, and plain data.
  */
 import type { NoteFacts, NoteLink, NoteTask } from './parse';
-import { mentionAt, around } from './parse';
-import { sameTitle } from './model';
+import { around, MAX_FACTS, mentionAt } from './parse';
+import { normalizeName } from '$lib/crypto/metadata';
 
 export const NOTES_INDEX_VERSION = 1;
 
@@ -39,6 +39,8 @@ export interface Mention {
 
 export class NotesIndex {
 	readonly entries = new Map<string, IndexEntry>();
+	/** Moves on with each change, so what is worked out from the entries is kept until then. */
+	revision = 0;
 
 	get(id: string): IndexEntry | undefined {
 		return this.entries.get(id);
@@ -51,6 +53,7 @@ export class NotesIndex {
 
 	set(id: string, version: string, facts: NoteFacts): void {
 		this.entries.set(id, { ...facts, version });
+		this.revision++;
 	}
 
 	/** Drops what is not in `keep`; whether anything went. */
@@ -62,6 +65,7 @@ export class NotesIndex {
 				changed = true;
 			}
 		}
+		if (changed) this.revision++;
 		return changed;
 	}
 
@@ -120,46 +124,77 @@ function checkEntry(value: unknown): IndexEntry | null {
 		preview: e.preview,
 		text: e.text,
 		words: e.words,
-		links,
-		tasks,
-		tags: (e.tags as unknown[]).filter(isString),
-		images: (e.images as unknown[]).filter(isString)
+		// Stored before the caps of `analyzeModel`, an entry could hold more.
+		links: links.slice(0, MAX_FACTS),
+		tasks: tasks.slice(0, MAX_FACTS),
+		tags: (e.tags as unknown[]).filter(isString).slice(0, MAX_FACTS),
+		images: (e.images as unknown[]).filter(isString).slice(0, MAX_FACTS)
 	};
 }
 
-/** The note a link points at: by id, or the note with that title. */
-export function resolveLink(link: NoteLink, notes: readonly NoteRef[]): string | null {
-	if (link.kind === 'node') return link.target;
-	return notes.find((n) => sameTitle(n.title, link.target))?.id ?? null;
+/**
+ * The notes a link may point at, looked up by title in one step. Built once for a
+ * list of notes and passed to each question, so no question walks the notes per link.
+ */
+export class NoteRefs {
+	readonly live: ReadonlySet<string>;
+	readonly #byTitle = new Map<string, string>();
+
+	constructor(notes: readonly NoteRef[]) {
+		this.live = new Set(notes.map((n) => n.id));
+		for (const n of notes) {
+			const key = normalizeName(n.title.trim());
+			// The first note with a title is the one it names, as before.
+			if (!this.#byTitle.has(key)) this.#byTitle.set(key, n.id);
+		}
+	}
+
+	/** The note a link points at: by id, or the note with that title. */
+	resolve(link: NoteLink): string | null {
+		if (link.kind === 'node') return link.target;
+		return this.#byTitle.get(normalizeName(link.target.trim())) ?? null;
+	}
+}
+
+/** For each note, the notes that link to it and the context of each one's first link. */
+type LinkGraph = Map<string, Backlink[]>;
+
+const graphs = new WeakMap<NotesIndex, { revision: number; refs: NoteRefs; graph: LinkGraph }>();
+
+/** Who links to whom, read once per change of the index or of the notes. */
+function linkGraph(index: NotesIndex, refs: NoteRefs): LinkGraph {
+	const known = graphs.get(index);
+	if (known !== undefined && known.revision === index.revision && known.refs === refs)
+		return known.graph;
+	const graph: LinkGraph = new Map();
+	for (const [from, entry] of index.entries) {
+		if (!refs.live.has(from)) continue;
+		const reached = new Set<string>();
+		for (const link of entry.links) {
+			const to = refs.resolve(link);
+			if (to === null || to === from || reached.has(to)) continue;
+			reached.add(to);
+			const list = graph.get(to);
+			const back = { from, context: link.context };
+			if (list === undefined) graph.set(to, [back]);
+			else list.push(back);
+		}
+	}
+	graphs.set(index, { revision: index.revision, refs, graph });
+	return graph;
 }
 
 /** Notes that link to `target`, each once, with the context of its first link. */
-export function backlinks(
-	index: NotesIndex,
-	target: string,
-	notes: readonly NoteRef[]
-): Backlink[] {
-	const live = new Set(notes.map((n) => n.id));
-	const out: Backlink[] = [];
-	for (const [from, entry] of index.entries) {
-		if (from === target || !live.has(from)) continue;
-		const link = entry.links.find((l) => resolveLink(l, notes) === target);
-		if (link) out.push({ from, context: link.context });
-	}
-	return out;
+export function backlinks(index: NotesIndex, target: string, refs: NoteRefs): Backlink[] {
+	return linkGraph(index, refs).get(target) ?? [];
 }
 
 /** Notes that name `target`'s title in their text without linking to it. */
-export function unlinkedMentions(
-	index: NotesIndex,
-	target: NoteRef,
-	notes: readonly NoteRef[]
-): Mention[] {
-	const live = new Set(notes.map((n) => n.id));
+export function unlinkedMentions(index: NotesIndex, target: NoteRef, refs: NoteRefs): Mention[] {
+	const linking = new Set(backlinks(index, target.id, refs).map((b) => b.from));
 	const out: Mention[] = [];
 	for (const [from, entry] of index.entries) {
-		if (from === target.id || !live.has(from)) continue;
-		if (entry.links.some((l) => resolveLink(l, notes) === target.id)) continue;
+		if (from === target.id || !refs.live.has(from) || linking.has(from)) continue;
 		const at = mentionAt(entry.text, target.title);
 		if (at >= 0) out.push({ from, context: around(entry.text, at, target.title.length) });
 	}

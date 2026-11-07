@@ -8,7 +8,7 @@
 	import { SvelteSet } from 'svelte/reactivity';
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import { Icon, Tabs } from '$lib/components';
-	import { backlinks, resolveLink, unlinkedMentions } from '$lib/notes/index';
+	import { backlinks, NoteRefs, unlinkedMentions } from '$lib/notes/index';
 	import type { NoteItem } from '$lib/notes/list';
 	import { isNoteFile, notebookColor, titleOf } from '$lib/notes/model';
 	import { drive } from '$lib/state/drive.svelte';
@@ -39,7 +39,7 @@
 		onclose
 	}: Props = $props();
 
-	const refs = $derived(items.map((i) => ({ id: i.id, title: i.title })));
+	const refs = $derived(new NoteRefs(items));
 	const byId = $derived(new Map(items.map((i) => [i.id, i])));
 	const index = $derived(notes.index);
 	const back = $derived(index ? backlinks(index, item.id, refs) : []);
@@ -50,7 +50,7 @@
 		void drive.rev;
 		const list: { id: string; title: string; where: string; kind: 'note' | 'file' }[] = [];
 		for (const link of item.entry?.links ?? []) {
-			const id = resolveLink(link, refs);
+			const id = refs.resolve(link);
 			if (id === null || id === item.id || list.some((l) => l.id === id)) continue;
 			const note = byId.get(id);
 			if (note) {

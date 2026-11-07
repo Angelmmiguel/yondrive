@@ -5,6 +5,7 @@
  * either side never breaks them. A `[[Title]]` typed elsewhere is read too, by
  * title. Pure, on the same reader the editor uses.
  */
+import { normalizeName } from '$lib/crypto/metadata';
 import { readMarkdown, writeMarkdown } from '$lib/formats/markdown';
 import {
 	inlineText,
@@ -53,7 +54,13 @@ const TAG = /(^|[\s(])#([\p{L}\p{N}][\p{L}\p{N}_/-]*)/gu;
 const DUE = /\s@(\d{4}-\d{2}-\d{2})\s*$/;
 const PREVIEW = 280;
 const TEXT_LIMIT = 20_000;
+const TASK_LIMIT = 500;
 const CONTEXT = 160;
+/**
+ * The most links, tags, tasks and pictures read from one note. A note may come from
+ * anyone who shares it, and every one of them is looked at again on each change.
+ */
+export const MAX_FACTS = 1000;
 
 /** The paragraphs of a document, those in tables included, in order. */
 export function paragraphs(blocks: readonly Block[]): Paragraph[] {
@@ -68,6 +75,16 @@ export function paragraphs(blocks: readonly Block[]): Paragraph[] {
 
 /** A line of text cut around a place in it, for showing a link or a mention in context. */
 export function around(text: string, at = 0, length = 0): string {
+	// A long text is cut near the place first, so the cost does not grow with it.
+	const reach = CONTEXT * 4;
+	if (text.length > reach * 2 + length) {
+		const lo = Math.max(0, at - reach);
+		const hi = Math.min(text.length, at + length + reach);
+		const cut = around(text.slice(lo, hi), at - lo, length);
+		const lead = lo > 0 && !cut.startsWith('…') ? '…' : '';
+		const tail = hi < text.length && !cut.endsWith('…') ? '…' : '';
+		return `${lead}${cut}${tail}`;
+	}
 	const flat = text.replace(/\s+/g, ' ').trim();
 	if (flat.length <= CONTEXT) return flat;
 	const start = Math.max(0, Math.min(at - CONTEXT / 2 + length / 2, flat.length - CONTEXT));
@@ -82,14 +99,15 @@ export function splitDue(text: string): { text: string; due: string | null } {
 }
 
 /** `#tags` in text, without code. */
-export function tagsIn(text: string): string[] {
-	const out: string[] = [];
+export function tagsIn(text: string, limit = Infinity): string[] {
+	const out = new Set<string>();
 	for (const m of text.matchAll(TAG)) {
+		if (out.size >= limit) break;
 		const tag = cleanTag(m[2]);
 		// A number alone is an issue or a heading count, not a tag.
-		if (tag !== '' && /\p{L}/u.test(tag)) out.push(tag);
+		if (tag !== '' && /\p{L}/u.test(tag)) out.add(tag);
 	}
-	return out;
+	return [...out];
 }
 
 /** The text of a paragraph with code left out, as tags and wiki links are read from it. */
@@ -103,9 +121,17 @@ export function analyze(markdown: string): NoteFacts {
 
 export function analyzeModel(model: Pick<DocModel, 'blocks'>): NoteFacts {
 	const links: NoteLink[] = [];
+	// Links to the same node, or the same title, count once: the first gives the context.
+	const seen = new Set<string>();
+	const link = (kind: NoteLink['kind'], target: string, context: () => string) => {
+		const key = `${kind}:${kind === 'title' ? normalizeName(target) : target}`;
+		if (links.length >= MAX_FACTS || seen.has(key)) return;
+		seen.add(key);
+		links.push({ kind, target, context: context() });
+	};
 	const tags = new Set<string>();
 	const tasks: NoteTask[] = [];
-	const images: string[] = [];
+	const images = new Set<string>();
 	const lines: string[] = [];
 	let preview = '';
 	for (const b of model.blocks) {
@@ -115,46 +141,43 @@ export function analyzeModel(model: Pick<DocModel, 'blocks'>): NoteFacts {
 		const text = inlineText(p.content);
 		lines.push(text);
 		if (p.style !== 'code') {
+			let at = 0;
 			for (const i of p.content) {
+				const here = at;
+				at += i.type === 'text' ? i.text.length : i.type === 'break' ? 1 : (i.alt?.length ?? 0);
 				if (i.type === 'text' && i.marks.link) {
 					const m = NODE_HREF.exec(i.marks.link);
-					if (m)
-						links.push({ kind: 'node', target: m[1], context: around(text, text.indexOf(i.text)) });
+					if (m) link('node', m[1], () => around(text, here));
 				} else if (i.type === 'image') {
 					const m = NODE_HREF.exec(i.image);
-					if (m) images.push(m[1]);
+					if (m && images.size < MAX_FACTS) images.add(m[1]);
 					const l = i.link === undefined ? null : NODE_HREF.exec(i.link);
-					if (l) links.push({ kind: 'node', target: l[1], context: around(text) });
+					if (l) link('node', l[1], () => around(text));
 				}
 			}
 			const plain = prose(p.content);
-			for (const m of plain.matchAll(WIKI)) {
-				links.push({ kind: 'title', target: m[1].trim(), context: around(text, m.index ?? 0) });
+			if (links.length < MAX_FACTS) {
+				for (const m of plain.matchAll(WIKI)) {
+					link('title', m[1].trim(), () => around(text, m.index ?? 0));
+					if (links.length >= MAX_FACTS) break;
+				}
 			}
-			for (const t of tagsIn(plain)) tags.add(t);
+			if (tags.size < MAX_FACTS) for (const t of tagsIn(plain, MAX_FACTS - tags.size)) tags.add(t);
 		}
-		if (p.list?.kind === 'check') {
+		if (p.list?.kind === 'check' && tasks.length < MAX_FACTS) {
 			const { text: task, due } = splitDue(text);
-			tasks.push({ text: task, done: p.list.checked === true, due });
+			tasks.push({ text: task.slice(0, TASK_LIMIT), done: p.list.checked === true, due });
 		}
 		if (preview.length < PREVIEW && !/^h\d$|^title$/.test(p.style) && text.trim() !== '') {
-			preview = `${preview}${preview === '' ? '' : '\n'}${text.trim()}`;
+			preview = `${preview}${preview === '' ? '' : '\n'}${text.slice(0, PREVIEW * 2).trim()}`;
 		}
 	}
 	const all = lines.join('\n');
-	// Links to the same node from the same paragraph count once.
-	const seen = new Set<string>();
-	const unique = links.filter((l) => {
-		const key = `${l.kind}:${l.target}:${l.context}`;
-		if (seen.has(key)) return false;
-		seen.add(key);
-		return true;
-	});
 	return {
-		links: unique,
+		links,
 		tags: [...tags],
 		tasks,
-		images: [...new Set(images)],
+		images: [...images],
 		preview: preview.length > PREVIEW ? `${preview.slice(0, PREVIEW).trimEnd()}…` : preview,
 		text: all.slice(0, TEXT_LIMIT),
 		words: countWords(model.blocks as Block[])

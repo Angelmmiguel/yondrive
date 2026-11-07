@@ -7,7 +7,7 @@ import { memoryResumeStore } from '$lib/drive/upload/resume';
 import { memorySegmentCache } from '$lib/search/cache';
 import { fakeDriveServer, fakeUser, SUITES, USER_ID } from '$lib/testing/drive';
 import { entryData, readZip } from '$lib/formats/zip';
-import { backlinks } from './index';
+import { backlinks, NoteRefs } from './index';
 import { NotesIndexer, sealedNotesCache, NOTES_INDEX_ID } from './indexer';
 import { isNotesRoot, parseNoteMeta, titleOf } from './model';
 import { Notes } from './notes';
@@ -82,7 +82,9 @@ describe.each(SUITES)('notes in mode %s', (_, suite) => {
 				.all(root.id)
 				.map(({ node }) => ({ id: node.id, version: node.currentVersion, size: node.size }))
 		);
-		const refs = notes.all(root.id).map(({ node }) => ({ id: node.id, title: titleOf(node.name) }));
+		const refs = new NoteRefs(
+			notes.all(root.id).map(({ node }) => ({ id: node.id, title: titleOf(node.name) }))
+		);
 		expect(backlinks(index.index, plan.id, refs).map((b) => b.from)).toEqual([log.id]);
 		index.stop();
 	});

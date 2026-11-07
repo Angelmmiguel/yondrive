@@ -285,7 +285,10 @@ is parsed as hostile input, on the device and never on the server.
   PNG, JPEG, GIF, WebP or BMP; a picture at any other address is a placeholder and is never
   fetched. A link to a node opens in the app and is never handed to the browser. A note saved
   as HTML is escaped throughout, with no script or outside resource, and keeps only web, mail
-  and phone links. Names are checked when written, not when read, so the ZIP of every note
+  and phone links. A shared note is indexed like one's own, so what is read from one note is
+  capped (1,000 links, tags, tasks and pictures, 20,000 characters of text), and backlinks are
+  answered from a map built once per change, so a note full of links cannot stall the app.
+  Names are checked when written, not when read, so the ZIP of every note
   makes each part of a path safe again: separators and control characters become `-`, `.`,
   `..` and empty parts become `_`, names Windows reserves are prefixed, and trailing dots and
   spaces go. Nothing in the archive points outside the folder it is unpacked in.
