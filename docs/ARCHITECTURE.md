@@ -974,6 +974,32 @@ Moving the name lookups out of the format modules, and loading the code behind t
 formats and sheets clients on first call, took the shell from 253 to 169 KiB. pdf.js (1.2 MB before gzip) is
 only in its worker and in a chunk the viewer imports when a PDF opens.
 
+### Page timings
+
+`web/tests/e2e/perf.spec.ts` times, on an end-to-end server, what grows with a library. Measured in headless
+Chromium on a development machine, from the action to the content on screen:
+
+| What | Measured | Fails above |
+| --- | --- | --- |
+| Home with 1,000 files, from a page load to the first row | 1.4 s | 6 s |
+| A `.docx` opening in the editor, from the click | 0.7 s | 4 s |
+| A 1,000 × 100 sheet (100,000 cells) opening, from Edit to its first cells | 2.0 s | 8 s |
+| The notes list with 500 notes, from a page load | 0.6 s | 4 s |
+
+The thresholds are loose on purpose: they catch a change that makes a screen several times slower, not a busy
+machine.
+
+### Accessibility and phones
+
+`web/tests/tour.ts` walks every screen, and two specs stop at each. `a11y.spec.ts` runs axe-core's WCAG 2.1 AA
+rules in the light and the dark theme and fails on a serious or critical finding; no rule is turned off. It also
+works the app from the keyboard: a skip link first, a visible focus at every stop in reading order, menus on the
+arrows, dialogs that hold the focus and give it back, Escape, and a document and a sheet edited without a pointer.
+Under `prefers-reduced-motion` a global rule ends every transition and animation at once. `phone.spec.ts` walks
+the same screens at 390 × 844 and 360 × 740: no sideways scroll of the page, no text under 11px, every control on
+screen or in a box that scrolls to it, and 44px to touch, which `app.css` sets as a floor on narrow screens and
+coarse pointers.
+
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when
 the working tree does not build. Single sign-on specs run a provider in the spec's process
