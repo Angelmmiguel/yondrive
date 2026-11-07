@@ -8,8 +8,20 @@
 #     over SHA256SUMS and the image, and build provenance for both;
 #   - a GitHub release carrying all of it, with notes from CHANGELOG.md.
 #
-# Every tool comes from the flake: the build from the default shell, cosign and
-# syft from the `release` one. docs/RELEASE.md says how to verify the result.
+# Nothing is built or published until `guard` has checked the tag: a release
+# version, on a commit that is on main, with a dated section in CHANGELOG.md.
+#
+# Building runs the web app's dependencies (Vite and its plugins), so no job
+# that builds can sign: `binaries` and `image` have no OIDC token, and `sign`
+# and `sign-image` only download what was built and sign it, running nothing
+# from the repository's dependencies. A compromised package can still change
+# what it builds, which the reproducible build lets anyone detect, but it
+# cannot sign anything as this workflow.
+#
+# Every action is pinned by commit; Dependabot proposes updates. Every tool
+# comes from the flake: the build from the default shell, cosign and syft from
+# the `release` one. docs/RELEASE.md says how to verify the result, and which
+# repository settings this relies on.
 name: Release
 
 on:
@@ -28,8 +40,67 @@ env:
   IMAGE: ghcr.io/angelmmiguel/yondrive
 
 jobs:
+  guard:
+    name: Tag, branch and changelog
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # All branches, to see main.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # vX.Y.Z, or vX.Y.Z-something for a pre-release. Anything else that
+      # matches v* (vtest, v1, v1.2) is not a release.
+      - id: tag
+        name: The tag is a release version
+        run: |
+          if ! [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::$GITHUB_REF_NAME is not vX.Y.Z or vX.Y.Z-pre"; exit 1
+          fi
+          version="${GITHUB_REF_NAME#v}"
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      # Only what has reached main is released, so a tag on a branch nobody
+      # reviewed signs nothing.
+      - name: The commit is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
+
+      # The section of CHANGELOG.md headed with this version, up to the next
+      # one. A release needs one with its date; a pre-release takes the section
+      # of the version it leads to, which may still say Unreleased.
+      - name: Notes
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          section="${VERSION%%-*}"
+          awk -v v="$section" '
+            /^## / { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "::error::CHANGELOG.md has no section for $section"; exit 1; }
+          if [ "$PRERELEASE" = false ] && grep -q '^## \['"$VERSION"'\] - Unreleased' CHANGELOG.md; then
+            echo "::error::CHANGELOG.md still marks $VERSION as unreleased"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notes
+          path: notes.md
+          if-no-files-found: error
+
   suites:
     name: CI
+    needs: [guard]
     uses: ./.github/workflows/ci.yml
     # The called workflow's publish job asks for packages: write, so the call
     # must allow it, although that job runs only for main and is skipped here.
@@ -39,16 +110,14 @@ jobs:
 
   binaries:
     name: Binaries, checksums and SBOM
-    needs: [suites]
+    needs: [guard, suites]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write # keyless signing and provenance
-      attestations: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -56,9 +125,11 @@ jobs:
       # The same stamp `just` derives from git: the tag without its v, the
       # commit, and the commit's time.
       - name: Stamp
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
         run: |
           {
-            echo "YONDRIVE_VERSION=${GITHUB_REF_NAME#v}"
+            echo "YONDRIVE_VERSION=$VERSION"
             echo "YONDRIVE_COMMIT=$GITHUB_SHA"
             echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
           } >> "$GITHUB_ENV"
@@ -90,136 +161,206 @@ jobs:
         working-directory: dist
         run: sha256sum yondrive-* web-bundle.sha256 > SHA256SUMS && cat SHA256SUMS
 
-      # The signature is a Sigstore bundle: the signature, the short-lived
-      # certificate naming this workflow at this tag, and the transparency log
-      # entry. No key exists to leak.
-      - name: Sign the checksums
-        run: nix develop .#release --command cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
-
-      - name: Provenance
-        uses: actions/attest-build-provenance@v3
-        with:
-          subject-checksums: dist/SHA256SUMS
-
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/
           if-no-files-found: error
 
-  image:
-    name: Image
-    needs: [suites]
+  # Signs what `binaries` built, from the artifact alone: nothing here installs
+  # or runs the web app's dependencies. The checkout is for the flake that
+  # pins cosign.
+  sign:
+    name: Sign the binaries
+    needs: [guard, binaries]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
-      packages: write
-      id-token: write
+      id-token: write # keyless signing and provenance
       attestations: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
 
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: dist
+          path: dist
+
+      # The signature is a Sigstore bundle: the signature, the short-lived
+      # certificate naming this workflow at this tag, and the transparency log
+      # entry. No key exists to leak.
+      - name: Sign the checksums
+        run: nix develop .#release --command cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json dist/SHA256SUMS
+
+      - name: Provenance
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signature
+          path: SHA256SUMS.sigstore.json
+          if-no-files-found: error
+
+  # Builds and pushes the image, with no OIDC token: the build runs the web
+  # app's dependencies. `sign-image` signs what this pushed, by digest.
+  image:
+    name: Image
+    needs: [guard, suites]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
       - name: Stamp
-        run: |
-          echo "YONDRIVE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
-          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The release's version, its minor and major lines, and latest.
+      # The release's version, and for a release (not a pre-release) its minor
+      # and major lines. `latest` follows main (ci.yml), never a tag.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
           images: ${{ env.IMAGE }}
           flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest
+            type=raw,value=${{ needs.guard.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ needs.guard.outputs.prerelease == 'false' }}
+            type=semver,pattern={{major}},enable=${{ needs.guard.outputs.prerelease == 'false' }}
 
       # The Dockerfile cross-compiles for each platform on the runner's own,
       # so the arm64 binary in the image is the one `just dist` builds. The
-      # layers take the commit's time rather than the build's.
+      # layers take the commit's time rather than the build's. Its labels name
+      # the repository, the licence and the version; the index carries the same
+      # annotations, which is where GHCR reads a multi-platform package's.
       - id: push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           provenance: false
           build-args: |
-            VERSION=${{ env.YONDRIVE_VERSION }}
+            VERSION=${{ needs.guard.outputs.version }}
             COMMIT=${{ github.sha }}
             SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           outputs: type=image,push=true,rewrite-timestamp=true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          annotations: |
+            index:org.opencontainers.image.title=YonDrive
+            index:org.opencontainers.image.description=Self-hosted files, documents and notes with zero-knowledge encryption.
+            index:org.opencontainers.image.source=https://github.com/Angelmmiguel/yondrive
+            index:org.opencontainers.image.licenses=AGPL-3.0-only
+            index:org.opencontainers.image.version=${{ needs.guard.outputs.version }}
+            index:org.opencontainers.image.revision=${{ github.sha }}
         env:
           SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
 
-      # Signed by digest, so the signature covers every platform and no tag
-      # can be moved under it.
+  # Signs the image by digest, so the signature covers every platform and no
+  # tag can be moved under it. Nothing is built here.
+  sign-image:
+    name: Sign the image
+    needs: [guard, image]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      packages: write # the signature and the attestation are pushed beside the image
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sign the image
-        run: nix develop .#release --command cosign sign --yes "$IMAGE@${{ steps.push.outputs.digest }}"
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+        run: nix develop .#release --command cosign sign --yes "$IMAGE@$DIGEST"
 
       - name: Provenance
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
           subject-name: ${{ env.IMAGE }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ needs.image.outputs.digest }}
           push-to-registry: true
 
   release:
     name: GitHub release
-    needs: [binaries, image]
+    needs: [guard, sign, image, sign-image]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: dist
           path: dist
 
-      # The section of CHANGELOG.md headed with this version, up to the next
-      # one. A tag without a section fails here, before anything is published.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signature
+          path: dist
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: notes
+
       - name: Notes
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+          DIGEST: ${{ needs.image.outputs.digest }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '
-            /^## / { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
-            found { print }
-          ' CHANGELOG.md > notes.md
-          [ -s notes.md ] || { echo "CHANGELOG.md has no section for $version"; exit 1; }
-          if grep -q '^## \['"$version"'\] - Unreleased' CHANGELOG.md; then
-            echo "CHANGELOG.md still marks $version as unreleased"; exit 1
-          fi
           {
             echo
-            echo "Image: \`${IMAGE}:${version}\` (\`${IMAGE}@${{ needs.image.outputs.digest }}\`)"
+            echo "Image: \`${IMAGE}:${VERSION}\` (\`${IMAGE}@${DIGEST}\`)"
             echo "Web app: \`$(sha256sum dist/web-bundle.sha256 | cut -d' ' -f1)\`"
             echo
             echo "Verify the downloads, the signatures and the provenance as docs/RELEASE.md describes."
           } >> notes.md
 
+      # A pre-release is marked so, and does not become the latest release.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          PRERELEASE: ${{ needs.guard.outputs.prerelease }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --verify-tag --title "YonDrive ${GITHUB_REF_NAME#v}" --notes-file notes.md
+          flags=(--latest)
+          [ "$PRERELEASE" = true ] && flags=(--prerelease --latest=false)
+          gh release create "$GITHUB_REF_NAME" dist/* -R "$GITHUB_REPOSITORY" \
+            --verify-tag --title "YonDrive $VERSION" --notes-file notes.md "${flags[@]}"
