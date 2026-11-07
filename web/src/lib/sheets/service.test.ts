@@ -192,3 +192,21 @@ describe('arguments from the page', () => {
 		expect(svc.addSheet('  Totals ').name).toBe('Totals');
 	});
 });
+
+describe('sorting whole columns', () => {
+	it('sorts the rows in use only', async () => {
+		const svc = new SheetService();
+		const { sheets } = await svc.load(fixture(), 'xlsx');
+		const s = sheets[0].id;
+		const t = performance.now();
+		const r = svc.sort(s, { top: 0, left: 0, bottom: 1048575, right: 1 }, [{ col: 1, desc: true }], true);
+		expect(performance.now() - t).toBeLessThan(1000);
+		expect(r.changed.length).toBeLessThan(50);
+		const used = new SheetService();
+		await used.load(fixture(), 'xlsx');
+		const rows = used.sheets()[0].rows;
+		used.sort(s, { top: 0, left: 0, bottom: rows - 1, right: 1 }, [{ col: 1, desc: true }], true);
+		const values = (x: SheetService) => x.window(s, 0, 0, 20, 5).map((v) => [v.row, v.col, v.value]);
+		expect(values(svc)).toEqual(values(used));
+	});
+});

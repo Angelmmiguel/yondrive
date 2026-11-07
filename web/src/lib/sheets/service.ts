@@ -594,10 +594,16 @@ export class SheetService {
 		) {
 			throw new FormulaInputError('readonly', 'merged cells');
 		}
+		// Rows and columns past the last with anything in them are empty, and an
+		// empty row sorts last, where it already is: whole columns sort what is used.
+		const ext = e.extent(sheet);
+		const bottom = Math.min(area.bottom, ext.rows - 1);
+		const right = Math.min(area.right, ext.cols - 1);
+		if (top > bottom || area.left > right) return { changed: [] };
 		const rows: { from: number; cells: (Cell | undefined)[] }[] = [];
-		for (let r = top; r <= area.bottom; r++) {
+		for (let r = top; r <= bottom; r++) {
 			const cells: (Cell | undefined)[] = [];
-			for (let c = area.left; c <= area.right; c++) {
+			for (let c = area.left; c <= right; c++) {
 				if (e.readOnly(sheet, r, c))
 					throw new FormulaInputError('readonly', 'a cell that cannot be changed');
 				cells.push(e.cell(sheet, r, c));
@@ -628,6 +634,8 @@ export class SheetService {
 			const r = top + i;
 			row.cells.forEach((cell, k) => {
 				const col = area.left + k;
+				// Nothing moves into or out of an empty place, or a row that stays.
+				if (r === row.from || (!cell && !e.cell(sheet, r, col))) return;
 				let input: CellInput | null = null;
 				if (cell?.formula?.ast)
 					input = { formula: print(translateFormula(cell.formula.ast, r - row.from, 0)) };
