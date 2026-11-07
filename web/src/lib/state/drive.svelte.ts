@@ -3,8 +3,6 @@
  * turns its changes into reactive state. A lock or sign-out ends the session of the
  * app shell, whose effect calls `stop`, and that zeroes everything the drive holds.
  */
-import { goto } from '$app/navigation';
-import { resolve } from '$app/paths';
 import { LockedError } from '$lib/account/errors';
 import { registerDocumentText } from '$lib/docs/search-text';
 import { formatOf } from '$lib/formats/document';
@@ -464,7 +462,10 @@ export class DriveState {
 
 	edit(node: DriveNode): void {
 		this.viewing = null;
-		void goto(resolve(`/doc/${node.id}`));
+		// Loaded when needed, so that this module stays free of the router.
+		void Promise.all([import('$app/navigation'), import('$app/paths')]).then(([nav, paths]) =>
+			nav.goto(paths.resolve(`/doc/${node.id}`))
+		);
 	}
 
 	/** Takes a tag off the list. */
