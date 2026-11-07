@@ -83,7 +83,18 @@ export const ICONS = {
 	'zoom-in': 'M11 18a7 7 0 1 0 0-14a7 7 0 1 0 0 14M20 20l-3.5-3.5M8 11h6M11 8v6',
 	'zoom-out': 'M11 18a7 7 0 1 0 0-14a7 7 0 1 0 0 14M20 20l-3.5-3.5M8 11h6',
 	'arrow-left': 'M19 12H5M11 18l-6-6 6-6',
-	code: 'M9 8l-4 4 4 4M15 8l4 4-4 4'
+	code: 'M9 8l-4 4 4 4M15 8l4 4-4 4',
+	// The spreadsheet editor's toolbar, from the Sheets board.
+	currency:
+		'M12 3v18M16.5 7.5C16 6 14.2 5 12 5c-2.5 0-4.5 1.3-4.5 3.3 0 4.4 9 2.7 9 7.2 0 2-2 3.5-4.5 3.5-2.4 0-4.2-1.1-4.7-2.8',
+	percent: 'M19 5L5 19M7 9a2 2 0 1 0 0-4a2 2 0 1 0 0 4M17 19a2 2 0 1 0 0-4a2 2 0 1 0 0 4',
+	'fill-color': 'M5 11l6-6 7 7-6 6a2 2 0 0 1-2.8 0L5 13.8a2 2 0 0 1 0-2.8zM5 12h13',
+	borders: 'M4 4h16v16H4zM4 12h16M12 4v16',
+	merge: 'M4 5v14M20 5v14M8 12h8M14 9l3 3-3 3M10 9l-3 3 3 3',
+	wrap: 'M4 6h16M4 12h13a3 3 0 0 1 0 6h-4M15 16l-2 2 2 2M4 18h6',
+	'sort-lines': 'M7 4v16M4 17l3 3 3-3M14 6h7M14 12h5M14 18h3',
+	funnel: 'M4 5h16l-6 8v6l-4-2v-4z',
+	function: 'M18 5H6l6 7-6 7h12'
 } as const;
 
 export type IconName = keyof typeof ICONS;

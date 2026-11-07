@@ -38,7 +38,7 @@
 	let { children } = $props();
 
 	const path = $derived(page.url.pathname);
-	const fullScreen = $derived(path.startsWith('/doc/'));
+	const fullScreen = $derived(path.startsWith('/doc/') || path.startsWith('/sheet/'));
 	const encrypted = $derived(session.sealer?.encrypted ?? true);
 	const username = $derived(session.account?.user.username ?? '');
 	const isAdmin = $derived(session.account?.user.role === 'admin');
