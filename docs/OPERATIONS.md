@@ -186,6 +186,11 @@ docker exec yondrive /yondrive backup /backups/$(date +%F)
   container count as two filesystems, so there they are copied.) They do not protect against a
   failing disk, so copy the backup to another disk or machine (`rsync -aH`, or
   any backup tool). On another filesystem they are copied.
+- A hard link is the same file as the one in the data directory, owner and mode
+  included. Never `chmod -R` or `chown -R` a backup on the same filesystem: it
+  changes the live server's files too, and the reverse holds for the data
+  directory. To hand a backup to another user, copy it (`rsync -aH`, or `cp -a`
+  to another filesystem) and change the copy.
 - A directory without `yondrive.db` is an unfinished backup. Uploads in progress
   are not included; clients start them again.
 - The admin area shows when the last backup finished, and so does
@@ -339,7 +344,7 @@ Commands that work beside the running server: `backup`, `migrate --check`,
 | Symptom | Cause and fix |
 | --- | --- |
 | `data directory is in use by another process` | Another server or an admin command has the directory. Stop it; never run two |
-| `permission denied` opening the data directory, or the container restarting at once | The directory does not belong to the user the server runs as. `chown -R 99:100` it for the image |
+| `permission denied` opening the data directory, or the container restarting at once | The directory does not belong to the user the server runs as. `chown -R 99:100` it for the image (a backup on the same filesystem shares its files, and changes with it) |
 | `database schema is newer than this binary` | A newer release migrated this database. Run that release or a later one, or restore a backup from before the upgrade |
 | The setup link is lost | Restart the server before setup is complete; it prints a new one |
 | The admin area warns that requests look proxied by an untrusted address | Set `YONDRIVE_TRUSTED_PROXIES` to the proxy's address ([PROXY.md](PROXY.md)) |

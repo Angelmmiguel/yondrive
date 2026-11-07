@@ -47,6 +47,12 @@ search index's key and bound to the index and the note, and forgotten on signing
 
 It cannot see names, types, tags, dates inside metadata, or contents.
 
+**Held in plaintext, in both modes:** usernames, email addresses, the subject of each identity at a
+provider, the email address an invite was made for, and the names given to device tokens. The
+audit trail and the request log hold the client address of each event, including the anonymous
+ones of public links (opening one, a wrong password, unlocking it). In `none` mode the search index
+segments are stored as plaintext too, like everything else there.
+
 **What people a node is shared with see of each other.** The owner sees every grant on a node and
 the folders above it. Anyone else sees their own grants and the usernames of the editors there,
 since a version's signer has to be someone with edit rights for their client to check it, but not
@@ -130,8 +136,11 @@ sign-in cannot mint a device token or delete users. A cookie taken within those 
 fresh sign-in still can, and a provider that reports a false `auth_time` decides this alone.
 
 **Becoming an admin.** With an admin group set, the provider decides who is an admin, at each
-sign-in. An admin session sees no content in `e2e` mode, but it can delete users and change
-settings, subject to the current credential on the worst of those. The first local admin is
+sign-in. An admin session sees no content in `e2e` mode, but it can change settings and
+delete users. Deleting a user needs a current credential (a passphrase, or in `none` mode a fresh
+sign-in through the provider), and so do an invite for an admin, a password reset link, a change to
+sign-in settings, and shortening the grace period or the audit trail's retention; other settings do
+not. The first local admin is
 never demoted, and can always sign in with a passphrase, whatever the provider says.
 
 **Linking.** Link modes trust the provider's claims about who someone is. `email` needs

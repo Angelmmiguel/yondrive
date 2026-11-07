@@ -254,7 +254,7 @@ node key (32 random bytes, per file or folder)
 | **SSO compromise** gives access to a user's wrapped key, which can be attacked offline. | Enforce a minimum passphrase strength. Argon2id sets the price of each guess. |
 | **Removing someone from a shared folder.** They may have kept the keys. | Rotate the node key on revoke for future content. Say plainly that earlier content may have been copied. |
 | **A stolen session can delete files.** | Trash, version history and a server-enforced grace period before anything is purged. |
-| **Malicious documents from other users** run in the same origin as the keys. | Our parsers run in workers and output a typed model, never HTML. Sanitise with DOMPurify, keep CSP strict, and download SVG and HTML instead of rendering them inline. |
+| **Malicious documents from other users** run in the same origin as the keys. | Our parsers run in workers and output a typed model, never HTML. Build the page from that model rather than sanitising HTML, keep CSP strict, and download SVG and HTML instead of rendering them inline. |
 
 ### 5.3 Encryption modes
 
@@ -403,7 +403,6 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 | `orderedmap`, `rope-sequence`, `w3c-keyname` | Linked through ProseMirror | MIT |
 | pdf.js (`pdfjs-dist`) | PDF viewing | Apache-2.0 |
 | `@noble/*`, `@scure/*` | Cryptography | MIT |
-| DOMPurify | Sanitising | MPL-2.0 or Apache-2.0 |
 | `modernc.org/sqlite` | Metadata | BSD-3-Clause; carries SQLite (public domain) |
 | `modernc.org/libc`, `mathutil`, `memory`, `golang.org/x/sys`, `remyoudompheng/bigfft`, `google/uuid` | Linked through the SQLite driver and the API runtime | BSD-3-Clause |
 | `dustin/go-humanize`; musl and `go-netdb` inside `modernc.org/libc` | Linked through the SQLite driver | MIT |
@@ -645,8 +644,9 @@ in other Markdown editors, and reminders that come due while no tab is open, whi
 Built for release engineering: reproducible builds (the same commit gives the same binary and web app
 from `just build` and the Dockerfile, checked by `just verify-reproducible`), release builds with the
 official Go release rather than the patched one in nixpkgs, `yondrive version` and `yondrive assets`
-with the web app's root hash in health and the admin area, a release workflow on `v*` tags with
-binaries, SHA256SUMS, SBOMs, keyless signatures and provenance ([docs/RELEASE.md](docs/RELEASE.md)),
+with the web app's root hash in health and the admin area, a release workflow on `v*` tags, refused unless the tag is a release version on `main` with a dated
+changelog section, with binaries, SHA256SUMS, SBOMs, and keyless signatures and provenance made
+in jobs apart from the build ([docs/RELEASE.md](docs/RELEASE.md)),
 [CHANGELOG.md](CHANGELOG.md), upgrade tests from every schema version, `yondrive migrate` and
 `yondrive restore` with a backup and restore drill in Go and in the browser, operator commands to get
 back in, [docs/OPERATIONS.md](docs/OPERATIONS.md) and [docs/API.md](docs/API.md). Open: the first
