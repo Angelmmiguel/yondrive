@@ -1,0 +1,11 @@
+# Proposes updates to the actions the workflows use, which are pinned by
+# commit with the version in a comment beside it.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
