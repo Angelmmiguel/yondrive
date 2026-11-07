@@ -336,6 +336,8 @@ func TestRotationRefusesTagsThatCollide(t *testing.T) {
 	b := addNode(t, st, owner.ID, f.ID, KindFile, "b")
 	_, err := st.RotateNode(ctx, f.ID, rotation(1, RotatedChild{ID: a.ID, NameTag: tag("b")}, RotatedChild{ID: b.ID, NameTag: tag("a")}), t0)
 	wantErr(t, err, ErrNameConflict)
+	_, err = st.RotateNode(ctx, f.ID, rotation(1, RotatedChild{ID: a.ID, NameTag: tag("c")}, RotatedChild{ID: b.ID, NameTag: tag("c")}), t0)
+	wantErr(t, err, ErrNameConflict)
 }
 
 func TestRotationKeepsVersionsReadable(t *testing.T) {

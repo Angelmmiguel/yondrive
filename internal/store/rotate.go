@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -96,6 +95,7 @@ func rewrapChildren(ctx context.Context, tx *sql.Tx, parentID string, children [
 		trashed bool
 	}
 	have := map[string]current{}
+	tags := map[string]string{}
 	for rows.Next() {
 		var id string
 		var c current
@@ -104,6 +104,9 @@ func rewrapChildren(ctx context.Context, tx *sql.Tx, parentID string, children [
 			return fmt.Errorf("store: read children: %w", err)
 		}
 		have[id] = c
+		if !c.trashed {
+			tags[string(c.tag)] = id
+		}
 	}
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return fmt.Errorf("store: read children: %w", err)
@@ -111,22 +114,22 @@ func rewrapChildren(ctx context.Context, tx *sql.Tx, parentID string, children [
 	if len(have) != len(children) {
 		return ErrRotateConflict
 	}
-	// New tags come from a new key. One that matches a sibling's is a mistake, and
-	// finding it here keeps it from the unique index halfway through the batch.
+	// New tags come from a new key, so one that matches a sibling's is a mistake.
+	// Finding it here keeps it from the unique index halfway through the batch.
 	seen := make(map[string]bool, len(children))
 	for _, c := range children {
-		if _, ok := have[c.ID]; !ok || seen[c.ID] {
+		child, ok := have[c.ID]
+		if !ok || seen[c.ID] {
 			return ErrRotateConflict
 		}
 		seen[c.ID] = true
-		if have[c.ID].trashed {
+		if child.trashed {
 			continue
 		}
-		for id, other := range have {
-			if id != c.ID && !other.trashed && bytes.Equal(other.tag, c.NameTag) {
-				return ErrNameConflict
-			}
+		if holder, taken := tags[string(c.NameTag)]; taken && holder != c.ID {
+			return ErrNameConflict
 		}
+		tags[string(c.NameTag)] = c.ID
 	}
 	update, err := tx.PrepareContext(ctx, "UPDATE nodes SET wrapped_key = ?, name_tag = ? WHERE id = ?")
 	if err != nil {
