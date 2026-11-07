@@ -325,6 +325,26 @@ describe('writing .xlsx back', () => {
 		expect(again.engine.cell(again.engine.sheets[0].id, 0, 0)!.value).toBe(serial);
 	});
 
+	it('keeps a shared formula it cannot read shared when its cells are restyled or moved', async () => {
+		const bytes = await xlsxOf([
+			'<sheetData><row r="1"><c r="B1"><f t="shared" ref="B1:B3" si="0">Table1[[#This Row],[x]]*A1</f><v>1</v></c></row>' +
+				'<row r="2"><c r="B2"><f t="shared" si="0"/><v>2</v></c></row>' +
+				'<row r="3"><c r="B3"><f t="shared" si="0"/><v>3</v></c></row></sheetData>'
+		]);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		const bold = book.styleId({ ...book.styles[0], font: { ...book.styles[0].font, bold: true } });
+		book.engine.setStyle(s, 1, 1, bold);
+		let sheet = (await part(await writeXlsx(book, bytes), 'xl/worksheets/sheet1.xml'))!;
+		expect(sheet).toMatch(/<c r="B2" s="\d+"><f t="shared" si="0"\/><v>2<\/v><\/c>/);
+		expect(sheet).toContain('<c r="B3"><f t="shared" si="0"/><v>3</v></c>');
+		expect(sheet).not.toContain('*A2');
+		book.insertRows(s, 0, 1);
+		sheet = (await part(await writeXlsx(book, bytes), 'xl/worksheets/sheet1.xml'))!;
+		expect(sheet).toContain('<c r="B2"><f t="shared" ref="B2:B4" si="0">Table1[[#This Row],[x]]*A1</f><v>1</v></c>');
+		expect(sheet).toContain('<c r="B4"><f t="shared" si="0"/><v>3</v></c>');
+	});
+
 	it('writes a workbook from nothing that reads back the same', async () => {
 		const { book } = await readXlsx(fixture('book.xlsx'));
 		book.source = { format: 'csv', styles: 0, sheets: 0 };

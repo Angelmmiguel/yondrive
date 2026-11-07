@@ -755,6 +755,15 @@ const cellEq = (c: Cell | undefined, src: CellSrc) => {
 	return sameValue(c.value, src.value);
 };
 
+function tryParse(text: string) {
+	try {
+		return parseFormula(text);
+	} catch (e) {
+		if (e instanceof FormulaSyntaxError) return null;
+		throw e;
+	}
+}
+
 function setAttr(tag: string, name: string, value: string | null): string {
 	// Either quote, and space around `=`, as XML allows.
 	const re = new RegExp(`(\\s)${name.replace(/[.:]/g, '\\$&')}\\s*=\\s*(?:"[^"]*"|'[^']*')`);
@@ -895,14 +904,17 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 			}
 		}
 	}
-	/** `value` when only a formula's result changed, which keeps the cell's markup. */
+	/**
+	 * `value` when a formula is as the file has it and only its result or style
+	 * changed, which keeps the cell's markup, shared formula and all.
+	 */
 	const change = (c: CellSrc): 'none' | 'value' | 'full' => {
 		const cur = now.get(c);
 		if (!cur) return 'full';
 		const cell = engine.cell(info.id, cur.row, cur.col);
 		const src = { ...c, s: origStyle(c.s) };
 		if (cellEq(cell, src)) return 'none';
-		if (cell?.formula && cell.formula.text === c.formula && cell.style === src.s) return 'value';
+		if (cell?.formula && cell.formula.text === c.formula) return 'value';
 		return 'full';
 	};
 	const dirty = (c: CellSrc) => change(c) === 'full';
@@ -910,10 +922,23 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 		const cur = now.get(c);
 		return !!cur && (cur.row !== c.row || cur.col !== c.col);
 	};
+	// A shared formula this engine cannot parse cannot be written out cell by
+	// cell: its members would all get the first cell's text. It stays shared,
+	// readdressed, unless its first cell is gone.
+	const opaque = new Set<string>();
 	const broken = new Set<string>();
-	for (const [si, g] of groups) if (g.some((c) => dirty(c) || moved(c))) broken.add(si);
+	for (const [si, g] of groups) {
+		const master = g.find((c) => c.f?.text);
+		if (!master || tryParse(master.f!.text) === null) {
+			opaque.add(si);
+			if (master && !now.get(master)) broken.add(si);
+		} else if (g.some((c) => dirty(c) || moved(c))) broken.add(si);
+	}
+	const isOpaque = (c: CellSrc) => c.f?.t === 'shared' && opaque.has(c.f.si ?? '');
 	const regenerate = (c: CellSrc) =>
-		dirty(c) || (c.f?.t === 'shared' && broken.has(c.f.si ?? '')) || (moved(c) && !!c.f?.ref);
+		dirty(c) ||
+		(c.f?.t === 'shared' && broken.has(c.f.si ?? '')) ||
+		(moved(c) && !!c.f?.ref && !isOpaque(c));
 
 	// Engine cells that are not where a cell of the file went, by row.
 	const fresh = new Map<number, Cell[]>();
@@ -982,7 +1007,19 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 				let tag = xml.slice(c.start, c.tagEnd);
 				let body = xml.slice(c.tagEnd, c.end);
 				if (moved(c) || !c.hasR) tag = setAttr(tag, 'r', a1(at.row, at.col));
+				if (moved(c) && c.f?.ref && isOpaque(c)) {
+					const area = parseArea(c.f.ref);
+					const next = area && currentArea(steps, area);
+					if (next)
+						body = body.replace(new RegExp(`<${ctx.prefix}f\\b[^>]*>`), (f) =>
+							setAttr(f, 'ref', areaA1(next))
+						);
+				}
 				if (change(c) === 'value' && cell) {
+					if (cell.style !== origStyle(c.s)) {
+						const xf = ctx.xfOf(cell.style);
+						tag = setAttr(tag, 's', xf ? String(xf) : null);
+					}
 					const { t, v } = valueXml(cell.value, true, ctx.strings);
 					tag = setAttr(tag, 't', t ?? null);
 					const el = v === undefined ? '' : `<${ctx.prefix}v>${escapeXml(v)}</${ctx.prefix}v>`;
