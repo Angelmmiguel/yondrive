@@ -349,7 +349,9 @@ class Reader {
 			if (item.name === 'text:list-header') return 'List with unnumbered items';
 			if (item.name !== 'text:list-item') continue;
 			const paras = kids(item).filter((c) => c.name === 'text:p' || c.name === 'text:h');
-			if (paras.length !== 1) return 'List item with several paragraphs';
+			const nested = kids(item, 'text:list').length > 0;
+			if (paras.length > 1 || (paras.length === 0 && !nested))
+				return 'List item with several paragraphs';
 			for (const c of kids(item)) {
 				if (c.name === 'text:list') {
 					const r = this.#listLockReason(c);
@@ -362,7 +364,7 @@ class Reader {
 					return 'List with complex content';
 				}
 			}
-			const r = this.#paragraphLockReason(paras[0]);
+			const r = paras.length === 0 ? null : this.#paragraphLockReason(paras[0]);
 			if (r) return r;
 		}
 		return null;

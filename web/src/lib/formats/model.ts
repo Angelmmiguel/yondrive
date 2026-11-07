@@ -190,6 +190,13 @@ export function canonical(block: Block | Cell | Row | Inline): string {
 	return JSON.stringify(block, (key, value) => {
 		if (key === 'ref') return undefined;
 		if (key === 'marks') return cleanMarks(value as Marks);
+		// Key order is not meaning: the same block built in another order is the same.
+		if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+			const sorted: Record<string, unknown> = {};
+			for (const k of Object.keys(value as object).sort())
+				sorted[k] = (value as Record<string, unknown>)[k];
+			return sorted;
+		}
 		return value as unknown;
 	});
 }
