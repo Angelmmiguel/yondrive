@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fakeServer, memoryStorage, PASSPHRASE, testDeps, TOTP_CODE } from '$lib/testing/account';
+import {
+	fakeServer,
+	losingRekeyResponse,
+	memoryStorage,
+	OTHER_PASSPHRASE,
+	PASSPHRASE,
+	testDeps,
+	TOTP_CODE
+} from '$lib/testing/account';
+import { changePassphrase } from './change';
 import { sealerFor, SUITE_NONE } from '$lib/crypto/sealer';
 import { WrongPassphraseError } from './errors';
 import { newRecovery } from './recovery-key';
@@ -114,5 +123,21 @@ describe('passphrase-confirmed actions', () => {
 		await expect(
 			createPasswordResetLink({ userId: 'id-2', passphrase: 'not the passphrase' }, deps)
 		).rejects.toBeInstanceOf(WrongPassphraseError);
+	});
+});
+
+describe('after a rekey whose response was lost', () => {
+	it('confirms a device token and a TOTP change with the current KDF', async () => {
+		const { server, deps } = await setUp();
+		const lossy = { ...deps, api: losingRekeyResponse(server) };
+		await expect(
+			changePassphrase({ current: PASSPHRASE, next: OTHER_PASSPHRASE }, lossy)
+		).rejects.toBeInstanceOf(TypeError);
+
+		await createDeviceToken({ name: 'phone', passphrase: OTHER_PASSPHRASE }, deps);
+		await enrolTotp(OTHER_PASSPHRASE, deps);
+		await confirmTotp(TOTP_CODE, deps);
+		await disableTotp({ passphrase: OTHER_PASSPHRASE, factor: { code: TOTP_CODE } }, deps);
+		expect(deps.session.account?.user.totp_enabled).toBe(false);
 	});
 });

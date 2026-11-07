@@ -1,6 +1,6 @@
 /** A passphrase to the two keys it stands for. Each caller zeroes what it gets. */
 import type { Bytes } from '$lib/crypto/encoding';
-import { expandRoot, normalizePassphrase, type KdfParams } from '$lib/crypto/kdf';
+import { expandRoot, normalizePassphrase, parseKdfParams, type KdfParams } from '$lib/crypto/kdf';
 import { zero } from '$lib/crypto/random';
 import type { Deps } from './deps';
 import { isApiError } from '$lib/api/types';
@@ -40,4 +40,13 @@ export async function confirming<T>(request: Promise<T>): Promise<T> {
 		if (isApiError(e, 'wrong_credential')) throw new WrongPassphraseError();
 		throw e;
 	}
+}
+
+/**
+ * The auth key of the current passphrase under the KDF parameters the server holds
+ * now: the session's copy goes stale when a rekey's response is lost.
+ */
+export async function freshAuthKey(passphrase: string, deps: Deps): Promise<Bytes> {
+	const { kdf } = await deps.api.getMe();
+	return currentAuthKey(passphrase, parseKdfParams(kdf), deps);
 }

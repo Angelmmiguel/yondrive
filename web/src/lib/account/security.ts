@@ -12,9 +12,8 @@ import type {
 	TotpEnrolment
 } from '$lib/api/types';
 import { encodeBase64, type Bytes } from '$lib/crypto/encoding';
-import { parseKdfParams } from '$lib/crypto/kdf';
 import { zero } from '$lib/crypto/random';
-import { confirming, currentAuthKey } from './credentials';
+import { confirming, freshAuthKey } from './credentials';
 import { defaultDeps, type Deps } from './deps';
 import { LockedError } from './errors';
 import type { SecondFactor } from './login';
@@ -24,9 +23,8 @@ async function withCurrentKey<T>(
 	deps: Deps,
 	work: (key: Bytes) => Promise<T>
 ): Promise<T> {
-	const account = deps.session.account;
-	if (account === null) throw new LockedError();
-	const key = await currentAuthKey(passphrase, parseKdfParams(account.kdf), deps);
+	if (deps.session.account === null) throw new LockedError();
+	const key = await freshAuthKey(passphrase, deps);
 	try {
 		return await confirming(work(key));
 	} finally {
@@ -51,14 +49,20 @@ export async function disableTotp(
 	input: { passphrase: string; factor: SecondFactor },
 	deps: Deps = defaultDeps
 ): Promise<void> {
-	await withCurrentKey(input.passphrase, deps, (key) =>
-		deps.api.disableTotp({
-			current_auth_key: encodeBase64(key),
-			code: 'code' in input.factor ? input.factor.code.trim() : undefined,
-			recovery_code: 'recoveryCode' in input.factor ? input.factor.recoveryCode.trim() : undefined
-		})
-	);
-	deps.session.account = await deps.api.getMe();
+	try {
+		await withCurrentKey(input.passphrase, deps, (key) =>
+			deps.api.disableTotp({
+				current_auth_key: encodeBase64(key),
+				code: 'code' in input.factor ? input.factor.code.trim() : undefined,
+				recovery_code: 'recoveryCode' in input.factor ? input.factor.recoveryCode.trim() : undefined
+			})
+		);
+	} finally {
+		await deps.api
+			.getMe()
+			.then((account) => (deps.session.account = account))
+			.catch(() => {});
+	}
 }
 
 export function createDeviceToken(

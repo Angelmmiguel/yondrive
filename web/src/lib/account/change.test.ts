@@ -3,6 +3,7 @@ import { sealerFor, SUITE_E2E, SUITE_NONE } from '$lib/crypto/sealer';
 import { PassphraseTooShortError } from '$lib/crypto/kdf';
 import {
 	fakeServer,
+	losingRekeyResponse,
 	memoryStorage,
 	OTHER_PASSPHRASE,
 	PASSPHRASE,
@@ -167,5 +168,20 @@ describe('password reset', () => {
 		await expect(
 			resetPassword({ token: 'dead', passphrase: OTHER_PASSPHRASE }, deps)
 		).rejects.toMatchObject({ code: 'reset_invalid' });
+	});
+});
+
+describe('after a rekey whose response was lost', () => {
+	it('still confirms with the passphrase the server now holds', async () => {
+		const { server, deps } = await setUp('none');
+		const lossy = { ...deps, api: losingRekeyResponse(server) };
+
+		await expect(
+			changePassphrase({ current: PASSPHRASE, next: OTHER_PASSPHRASE }, lossy)
+		).rejects.toBeInstanceOf(TypeError);
+		expect(deps.session.account?.kdf).not.toEqual(server.users.get('admin')?.kdf);
+
+		await changePassphrase({ current: OTHER_PASSPHRASE, next: PASSPHRASE }, deps);
+		await signIn({ username: 'admin', passphrase: PASSPHRASE }, testDeps(server));
 	});
 });

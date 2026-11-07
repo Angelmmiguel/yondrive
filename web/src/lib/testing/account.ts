@@ -293,3 +293,32 @@ export function memoryStorage(): Storage {
 		setItem: (key, value) => void items.set(key, value)
 	};
 }
+
+/**
+ * The same server, but the response to a rekey is lost after it took effect and
+ * the next `/me` fails, so the session is left holding the old KDF parameters.
+ */
+export function losingRekeyResponse(server: FakeServer): Api {
+	let lost = false;
+	return new Proxy(server.api, {
+		get(target, name: string) {
+			if (name === 'rekey') {
+				return async (...args: Parameters<Api['rekey']>) => {
+					await target.rekey(...args);
+					lost = true;
+					throw new TypeError('network');
+				};
+			}
+			if (name === 'getMe') {
+				return async () => {
+					if (lost) {
+						lost = false;
+						throw new TypeError('network');
+					}
+					return target.getMe();
+				};
+			}
+			return target[name as keyof Api];
+		}
+	});
+}

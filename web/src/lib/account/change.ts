@@ -3,12 +3,11 @@
  * a reset link. A session alone is not enough for any of it, so each asks for the
  * current passphrase first.
  */
-import { parseKdfParams } from '$lib/crypto/kdf';
 import { encodeBase64 } from '$lib/crypto/encoding';
 import { zero, ZeroKeyError } from '$lib/crypto/random';
 import type { Sealer, UserKeys } from '$lib/crypto/sealer';
 import type { Account } from '$lib/api/types';
-import { confirming, currentAuthKey, deriveKeys } from './credentials';
+import { confirming, deriveKeys, freshAuthKey } from './credentials';
 import { defaultDeps, type Deps } from './deps';
 import { LockedError } from './errors';
 import { rekeyBody } from './wire';
@@ -53,31 +52,34 @@ export async function changePassphrase(
 	input: { current: string; next: string },
 	deps: Deps = defaultDeps
 ): Promise<void> {
-	const { sealer, account, keys, live } = open(deps);
+	const { sealer, keys, live } = open(deps);
 	const kdf = deps.newKdfParams();
-	await underLock(async () => {
-		const current = await currentAuthKey(input.current, parseKdfParams(account.kdf), deps);
-		try {
-			const next = await deriveKeys(input.next, kdf, deps);
+	try {
+		await underLock(async () => {
+			const current = await freshAuthKey(input.current, deps);
 			try {
-				live();
-				const wrapped = sealer.wrapMaster(keys.masterKey, next.kek, 'passphrase');
-				await confirming(
-					deps.api.rekey(
-						rekeyBody({
-							currentAuthKey: current,
-							passphrase: { authKey: next.authKey, kdf, wrapped }
-						})
-					)
-				);
+				const next = await deriveKeys(input.next, kdf, deps);
+				try {
+					live();
+					const wrapped = sealer.wrapMaster(keys.masterKey, next.kek, 'passphrase');
+					await confirming(
+						deps.api.rekey(
+							rekeyBody({
+								currentAuthKey: current,
+								passphrase: { authKey: next.authKey, kdf, wrapped }
+							})
+						)
+					);
+				} finally {
+					zero(next.kek, next.authKey);
+				}
 			} finally {
-				zero(next.kek, next.authKey);
+				zero(current);
 			}
-		} finally {
-			zero(current);
-		}
-	});
-	await refreshAccount(deps);
+		});
+	} finally {
+		await refreshAccount(deps).catch(() => {});
+	}
 }
 
 /**
@@ -88,26 +90,29 @@ export async function replaceRecoveryKey(
 	input: { current: string; recoveryKey: Uint8Array },
 	deps: Deps = defaultDeps
 ): Promise<void> {
-	const { sealer, account, keys, live } = open(deps);
-	await underLock(async () => {
-		const current = await currentAuthKey(input.current, parseKdfParams(account.kdf), deps);
-		const recovery = sealer.expandRecoveryKey(input.recoveryKey);
-		try {
-			live();
-			const wrapped = sealer.wrapMaster(keys.masterKey, recovery.kek, 'recovery');
-			await confirming(
-				deps.api.rekey(
-					rekeyBody({
-						currentAuthKey: current,
-						recovery: { authKey: recovery.authKey, wrapped }
-					})
-				)
-			);
-		} finally {
-			zero(current, recovery.kek, recovery.authKey);
-		}
-	});
-	await refreshAccount(deps);
+	const { sealer, keys, live } = open(deps);
+	try {
+		await underLock(async () => {
+			const current = await freshAuthKey(input.current, deps);
+			const recovery = sealer.expandRecoveryKey(input.recoveryKey);
+			try {
+				live();
+				const wrapped = sealer.wrapMaster(keys.masterKey, recovery.kek, 'recovery');
+				await confirming(
+					deps.api.rekey(
+						rekeyBody({
+							currentAuthKey: current,
+							recovery: { authKey: recovery.authKey, wrapped }
+						})
+					)
+				);
+			} finally {
+				zero(current, recovery.kek, recovery.authKey);
+			}
+		});
+	} finally {
+		await refreshAccount(deps).catch(() => {});
+	}
 }
 
 /** A new password from a reset link. The server refuses it in a mode with keys. */
