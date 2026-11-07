@@ -158,3 +158,37 @@ describe('saving through the worker', () => {
 		}
 	});
 });
+
+describe('arguments from the page', () => {
+	it('refuses positions, counts, sizes and areas that are not on the grid', async () => {
+		const svc = new SheetService();
+		const { sheets } = await svc.load(fixture(), 'xlsx');
+		const s = sheets[0].id;
+		const before = [...svc.window(s, 0, 0, 20, 20)];
+		const refused = (f: () => unknown) =>
+			expect(f).toThrow(expect.objectContaining({ name: 'FormulaInputError', problem: 'argument' }));
+		refused(() => svc.insertRows(s, 0, NaN));
+		refused(() => svc.insertRows(s, 0, -2));
+		refused(() => svc.deleteRows(s, 1.5, 1));
+		refused(() => svc.insertCols(s, 16384, 1));
+		refused(() => svc.cell(s, 0, 16384));
+		refused(() => svc.setCells([{ sheet: s, row: 0, col: 16384, text: 'x' }]));
+		refused(() => svc.setCells([{ sheet: 999, row: 0, col: 0, text: 'x' }]));
+		refused(() => svc.setRowHeight(s, 0, 0, NaN));
+		refused(() => svc.setColWidth(s, 3, 1, 10));
+		refused(() => svc.setFrozen(s, NaN, 0));
+		refused(() => svc.merge(s, { top: 3, left: 0, bottom: 1, right: 1 }));
+		refused(() => svc.clear(s, { top: 0, left: 0, bottom: NaN, right: 1 }));
+		refused(() => svc.sort(s, { top: 0, left: 0, bottom: 3, right: 1 }, [{ col: 5 }]));
+		refused(() => svc.addSheet(undefined, -1));
+		expect(svc.window(s, 0, 0, 20, 20)).toEqual(before);
+	});
+
+	it('checks the name of an added sheet as a rename does', async () => {
+		const svc = new SheetService();
+		await svc.load(fixture(), 'xlsx');
+		expect(() => svc.addSheet('a/b')).toThrow(/valid/);
+		expect(() => svc.addSheet("'x")).toThrow(/valid/);
+		expect(svc.addSheet('  Totals ').name).toBe('Totals');
+	});
+});

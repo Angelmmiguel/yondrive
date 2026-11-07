@@ -178,6 +178,53 @@ function sortRank(v: Scalar): number {
 
 const TEXT_LIMIT = 1024 * 1024;
 
+/** The widest column Excel has, in characters, and the tallest row, in points. */
+const MAX_WIDTH = 255;
+const MAX_HEIGHT = 409;
+
+// What crosses from the page is checked here: a NaN, a fraction or a position
+// off the grid would otherwise reach the engine's keys and loops.
+
+/** A whole number in [min, max]; anything else is refused, naming what it was. */
+function int(v: unknown, min: number, max: number, what: string): number {
+	if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max)
+		throw new FormulaInputError('argument', what);
+	return v;
+}
+
+const rowArg = (v: unknown, what = 'row') => int(v, 0, MAX_ROWS - 1, what);
+const colArg = (v: unknown, what = 'column') => int(v, 0, MAX_COLS - 1, what);
+
+/** An area on the grid with its corners in order. */
+function areaArg(a: Area): Area {
+	if (a === null || typeof a !== 'object') throw new FormulaInputError('argument', 'area');
+	const out = {
+		top: rowArg(a.top, 'area'),
+		left: colArg(a.left, 'area'),
+		bottom: rowArg(a.bottom, 'area'),
+		right: colArg(a.right, 'area')
+	};
+	if (out.top > out.bottom || out.left > out.right) throw new FormulaInputError('argument', 'area');
+	return out;
+}
+
+/** A width or height: undefined for the default, else a finite number in [0, max]. */
+function sizeArg(v: number | undefined, max: number, what: string): number | undefined {
+	if (v === undefined) return undefined;
+	if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > max)
+		throw new FormulaInputError('argument', what);
+	return v;
+}
+
+/** A sheet name as typed, trimmed, or a refusal. */
+function sheetNameArg(name: unknown): string {
+	const n = typeof name === 'string' ? name.trim() : '';
+	if (!n || n.length > 31 || /[[\]:*?/\\]/.test(n) || /^'|'$/.test(n)) {
+		throw new FormulaInputError('sheet', 'not a valid sheet name');
+	}
+	return n;
+}
+
 export class SheetService {
 	#book: Book | null = null;
 	#bytes: Uint8Array | null = null;
@@ -188,6 +235,13 @@ export class SheetService {
 	get #b(): Book {
 		if (!this.#book) throw new Error('no workbook is open');
 		return this.#book;
+	}
+
+	/** A sheet of the open workbook, by id. */
+	#sheet(id: unknown): number {
+		if (typeof id !== 'number' || !this.#b.sheets.some((s) => s.id === id))
+			throw new FormulaInputError('argument', 'sheet');
+		return id;
 	}
 
 	/** Opens a file; what was open before is dropped. */
@@ -253,6 +307,11 @@ export class SheetService {
 
 	/** The cells with content or a style in an area, for the grid to draw. */
 	window(sheet: number, top: number, left: number, bottom: number, right: number): CellView[] {
+		this.#sheet(sheet);
+		rowArg(top);
+		rowArg(bottom);
+		colArg(left);
+		colArg(right);
 		const e = this.#b.engine;
 		const out: CellView[] = [];
 		const size = (bottom - top + 1) * (right - left + 1);
@@ -275,7 +334,7 @@ export class SheetService {
 
 	/** One cell, for the formula bar; null when it is empty. */
 	cell(sheet: number, row: number, col: number): CellView | null {
-		const c = this.#b.engine.cell(sheet, row, col);
+		const c = this.#b.engine.cell(this.#sheet(sheet), rowArg(row), colArg(col));
 		return c ? this.#view(c) : null;
 	}
 
@@ -294,6 +353,13 @@ export class SheetService {
 	 */
 	setCells(edits: { sheet: number; row: number; col: number; text: string }[]): EditResult {
 		const b = this.#b;
+		if (!Array.isArray(edits)) throw new FormulaInputError('argument', 'edits');
+		for (const e of edits) {
+			this.#sheet(e?.sheet);
+			rowArg(e.row);
+			colArg(e.col);
+			if (typeof e.text !== 'string') throw new FormulaInputError('argument', 'text');
+		}
 		return this.#newStyles(b.styles.length, () => {
 			const parsed = edits.map((e) => ({ ...e, ...parseInput(e.text, b.date1904) }));
 			const changes = b.engine.setMany(
@@ -312,6 +378,8 @@ export class SheetService {
 
 	/** Clears an area's contents, keeping its formatting. */
 	clear(sheet: number, area: Area): EditResult {
+		this.#sheet(sheet);
+		area = areaArg(area);
 		const e = this.#b.engine;
 		const edits: (CellRef & { input: null })[] = [];
 		for (const c of e.cells(sheet)) {
@@ -331,6 +399,8 @@ export class SheetService {
 	/** Changes the formatting of an area. Whole columns change the columns' own style too. */
 	setStyle(sheet: number, area: Area, patch: StylePatch): EditResult {
 		const b = this.#b;
+		this.#sheet(sheet);
+		area = areaArg(area);
 		return this.#newStyles(b.styles.length, () => {
 			const e = b.engine;
 			const restyle = (row: number, col: number, current: number) => {
@@ -382,24 +452,29 @@ export class SheetService {
 	}
 
 	insertRows(sheet: number, at: number, count: number): EditResult {
-		return { changed: this.#b.insertRows(sheet, at, count).cells };
+		const n = int(count, 1, MAX_ROWS, 'count');
+		return { changed: this.#b.insertRows(this.#sheet(sheet), rowArg(at), n).cells };
 	}
 
 	deleteRows(sheet: number, at: number, count: number): EditResult {
-		return { changed: this.#b.deleteRows(sheet, at, count).cells };
+		const n = int(count, 1, MAX_ROWS, 'count');
+		return { changed: this.#b.deleteRows(this.#sheet(sheet), rowArg(at), n).cells };
 	}
 
 	insertCols(sheet: number, at: number, count: number): EditResult {
-		return { changed: this.#b.insertCols(sheet, at, count).cells };
+		const n = int(count, 1, MAX_COLS, 'count');
+		return { changed: this.#b.insertCols(this.#sheet(sheet), colArg(at), n).cells };
 	}
 
 	deleteCols(sheet: number, at: number, count: number): EditResult {
-		return { changed: this.#b.deleteCols(sheet, at, count).cells };
+		const n = int(count, 1, MAX_COLS, 'count');
+		return { changed: this.#b.deleteCols(this.#sheet(sheet), colArg(at), n).cells };
 	}
 
 	addSheet(name?: string, at?: number): SheetMeta {
 		const b = this.#b;
-		let n = name ?? '';
+		if (at !== undefined) int(at, 0, b.sheets.length, 'position');
+		let n = name === undefined || name === '' ? '' : sheetNameArg(name);
 		if (!n) {
 			let k = b.sheets.length + 1;
 			while (b.engine.sheetByName(`Sheet${k}`)) k++;
@@ -410,37 +485,39 @@ export class SheetService {
 	}
 
 	renameSheet(sheet: number, name: string): EditResult {
-		const n = name.trim();
-		if (!n || n.length > 31 || /[[\]:*?/\\]/.test(n) || /^'|'$/.test(n)) {
-			throw new FormulaInputError('sheet', 'not a valid sheet name');
-		}
-		return { changed: this.#b.engine.renameSheet(sheet, n).cells };
+		const n = sheetNameArg(name);
+		return { changed: this.#b.engine.renameSheet(this.#sheet(sheet), n).cells };
 	}
 
 	removeSheet(sheet: number): EditResult {
+		this.#sheet(sheet);
 		if (this.#b.sheets.length <= 1)
 			throw new FormulaInputError('sheet', 'a workbook keeps one sheet');
 		return { changed: this.#b.removeSheet(sheet).cells };
 	}
 
 	moveSheet(sheet: number, to: number): void {
-		this.#b.engine.moveSheet(sheet, to);
+		this.#b.engine.moveSheet(this.#sheet(sheet), int(to, 0, this.#b.sheets.length - 1, 'position'));
 	}
 
 	setSheetHidden(sheet: number, hidden: boolean): void {
-		const info = this.#b.sheet(sheet);
+		const info = this.#b.sheet(this.#sheet(sheet));
 		if (hidden) info.hidden = true;
 		else delete info.hidden;
 	}
 
 	/** Column widths in characters; undefined for the default. */
 	setColWidth(sheet: number, from: number, to: number, width: number | undefined): void {
-		this.#b.setColWidth(sheet, from, to, width);
+		this.#sheet(sheet);
+		if (colArg(from) > colArg(to)) throw new FormulaInputError('argument', 'column');
+		this.#b.setColWidth(sheet, from, to, sizeArg(width, MAX_WIDTH, 'width'));
 	}
 
 	/** Row heights in points; undefined for the default. */
 	setRowHeight(sheet: number, from: number, to: number, height: number | undefined): void {
-		const info = this.#b.sheet(sheet);
+		const info = this.#b.sheet(this.#sheet(sheet));
+		if (rowArg(from) > rowArg(to)) throw new FormulaInputError('argument', 'row');
+		height = sizeArg(height, MAX_HEIGHT, 'height');
 		for (let r = from; r <= to && r - from < 100_000; r++) {
 			const next: RowInfo = { ...info.rows.get(r) };
 			if (height === undefined) delete next.height;
@@ -451,7 +528,9 @@ export class SheetService {
 	}
 
 	setFrozen(sheet: number, rows: number, cols: number): void {
-		const info = this.#b.sheet(sheet);
+		const info = this.#b.sheet(this.#sheet(sheet));
+		int(rows, 0, MAX_ROWS - 1, 'row');
+		int(cols, 0, MAX_COLS - 1, 'column');
 		if (rows > 0 || cols > 0) info.frozen = { rows, cols };
 		else delete info.frozen;
 	}
@@ -459,6 +538,8 @@ export class SheetService {
 	/** Merges an area, keeping the top-left cell's content as Excel does; merges it overlaps go. */
 	merge(sheet: number, area: Area): EditResult {
 		const b = this.#b;
+		this.#sheet(sheet);
+		area = areaArg(area);
 		const info = b.sheet(sheet);
 		const edits: (CellRef & { input: null })[] = [];
 		for (const c of b.engine.cells(sheet)) {
@@ -482,7 +563,8 @@ export class SheetService {
 	}
 
 	unmerge(sheet: number, area: Area): void {
-		const info = this.#b.sheet(sheet);
+		const info = this.#b.sheet(this.#sheet(sheet));
+		area = areaArg(area);
 		info.merges = info.merges.filter(
 			(m) =>
 				m.bottom < area.top || m.top > area.bottom || m.right < area.left || m.left > area.right
@@ -496,6 +578,10 @@ export class SheetService {
 	 */
 	sort(sheet: number, area: Area, keys: SortKey[], header = false): EditResult {
 		const b = this.#b;
+		this.#sheet(sheet);
+		area = areaArg(area);
+		if (!Array.isArray(keys)) throw new FormulaInputError('argument', 'sort keys');
+		for (const k of keys) int(k?.col, area.left, area.right, 'sort column');
 		const e = b.engine;
 		const info = b.sheet(sheet);
 		const top = area.top + (header ? 1 : 0);
@@ -583,6 +669,7 @@ export class SheetService {
 		format?: SheetSaveFormat,
 		sheet?: number
 	): Promise<{ bytes: Uint8Array; format: SheetSaveFormat }> {
+		if (sheet !== undefined) this.#sheet(sheet);
 		const to = format ?? sheetSaveFormatOf(this.#format);
 		let bytes = await writeSpreadsheet(to, this.#b, {
 			original: this.#bytes ? { bytes: this.#bytes, format: this.#format } : undefined,

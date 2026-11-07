@@ -87,7 +87,14 @@ export interface DefinedName {
 	key?: number;
 }
 
-export type InputProblem = 'syntax' | 'unsupported' | 'arity' | 'sheet' | 'readonly';
+export type InputProblem =
+	| 'syntax'
+	| 'unsupported'
+	| 'arity'
+	| 'sheet'
+	| 'readonly'
+	/** A row, column, count, size or area that is not a whole number on the grid. */
+	| 'argument';
 
 /** Why a cell cannot take what was typed, for the UI to say. */
 export class FormulaInputError extends Error {
