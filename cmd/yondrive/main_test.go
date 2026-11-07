@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/Angelmmiguel/yondrive/internal/server"
+	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
 func TestParseSecure(t *testing.T) {
@@ -107,6 +112,70 @@ func TestSetupLink(t *testing.T) {
 	} {
 		if got := setupLink(tc.publicURL, tc.addr, "tok"); got != tc.want {
 			t.Errorf("setupLink(%q, %q) = %q, want %q", tc.publicURL, tc.addr, got, tc.want)
+		}
+	}
+}
+
+func TestAdminResetTOTP(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	u := store.User{ID: store.NewID(), Username: "alice", Role: "user", CreatedAt: time.Now()}
+	if err := st.CreateUser(ctx, u, "", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetPendingTOTP(ctx, u.ID, []byte("secret")); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.EnableTOTP(ctx, u.ID, 1, 1, [][]byte{{1}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The lock refuses the command while the server runs.
+	if err := admin([]string{"reset-totp", "--data", dir, "alice"}); !errors.Is(err, store.ErrLocked) {
+		t.Fatalf("with the store open: %v, want ErrLocked", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := admin([]string{"reset-totp", "--data", dir, "nobody"}); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("unknown user: %v", err)
+	}
+	if err := admin([]string{"reset-totp", "--data", dir, "ALICE"}); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	got, err := st.UserByID(ctx, u.ID)
+	if err != nil || got.TOTPEnabled || got.TOTPSecret != nil {
+		t.Errorf("user = %+v, %v", got, err)
+	}
+	entries, err := st.ListAudit(ctx, 1)
+	if err != nil || len(entries) != 1 || entries[0].Action != "totp_reset_by_operator" || entries[0].TargetID != u.ID {
+		t.Errorf("audit = %+v, %v", entries, err)
+	}
+}
+
+func TestAdminRejectsBadUsage(t *testing.T) {
+	stderr := os.Stderr
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = devnull.Close() }()
+	os.Stderr = devnull
+	defer func() { os.Stderr = stderr }()
+	for _, args := range [][]string{nil, {"nonsense"}, {"reset-totp", "--data", t.TempDir()}, {"reset-totp", "--data", t.TempDir(), "a", "b"}} {
+		if err := admin(args); err == nil {
+			t.Errorf("admin(%v) accepted", args)
 		}
 	}
 }

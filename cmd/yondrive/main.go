@@ -32,11 +32,21 @@ const (
 )
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "serve" {
+	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
-	if err := serve(os.Args[2:]); err != nil {
+	var run func([]string) error
+	switch os.Args[1] {
+	case "serve":
+		run = serve
+	case "admin":
+		run = admin
+	default:
+		usage()
+		os.Exit(2)
+	}
+	if err := run(os.Args[2:]); err != nil {
 		fmt.Fprintln(os.Stderr, "yondrive:", err)
 		os.Exit(1)
 	}
@@ -47,8 +57,10 @@ func usage() {
 
 usage:
   yondrive serve [flags]
+  yondrive admin reset-totp [--data dir] <username>
+                     turn off a user's TOTP, with the server stopped
 
-flags:
+serve flags:
   --addr             listen address (env YONDRIVE_ADDR, default 127.0.0.1:8080);
                      use :8080 to listen on every interface
   --data             data directory (env YONDRIVE_DATA, default ./data)
