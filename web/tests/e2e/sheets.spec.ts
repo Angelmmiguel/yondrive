@@ -339,6 +339,40 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			).toBeVisible();
 		});
 
+		test('leaving while a save is under way still saves what was typed during it', async () => {
+			await reloadHome(page, server);
+			await openSheet(page, 'Untitled spreadsheet.xlsx');
+			const commit = '**/api/v1/uploads/*/commit';
+			let held = 0;
+			let arrived = () => {};
+			let release = () => {};
+			const arrival = new Promise<void>((r) => (arrived = r));
+			const released = new Promise<void>((r) => (release = r));
+			await page.route(commit, async (route) => {
+				if (held++ === 0) {
+					arrived();
+					await released;
+				}
+				await route.continue();
+			});
+			await typeIn(page, 'F20', 'before leaving');
+			await grid(page).press('Control+s');
+			await arrival;
+			await expect(saveStatus(page)).toHaveText('Saving…');
+			await typeIn(page, 'F21', 'while leaving');
+			await page.getByRole('link', { name: 'Back to the folder' }).click();
+			await expect(grid(page)).toHaveCount(0);
+			release();
+			// The edit made during the first save goes in a second one, after the editor closed.
+			await expect.poll(() => held, { timeout: 30_000 }).toBe(2);
+			await page.unroute(commit);
+
+			await reloadHome(page, server);
+			await openSheet(page, 'Untitled spreadsheet.xlsx');
+			await expect(cell(page, 'F20')).toHaveText('before leaving');
+			await expect(cell(page, 'F21')).toHaveText('while leaving');
+		});
+
 		test('printing opens the print dialog with the sheet as a table', async () => {
 			await reloadHome(page, server);
 			await openSheet(page, `book-${mode}.xlsx`);

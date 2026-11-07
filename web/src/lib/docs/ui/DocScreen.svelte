@@ -98,6 +98,8 @@
 	let mount = $state<HTMLElement>();
 	let picker = $state<HTMLInputElement>();
 	let view = $state.raw<EditorView | null>(null);
+	/** The document as it was when the screen closed, for the saves that finish after. */
+	let closedDoc: EditorView['state']['doc'] | null = null;
 	let docSession: DocSession | null = null;
 	let store: ImageStore | null = null;
 
@@ -141,7 +143,12 @@
 				{
 					formats,
 					...driveFiles(),
-					blocks: () => (view ? fromDoc(view.state.doc) : []),
+					// Never nothing for want of a view: that would save an empty document.
+					blocks: () => {
+						const doc = closedDoc ?? view?.state.doc;
+						if (!doc) throw new Error('The editor is closed.');
+						return fromDoc(doc);
+					},
 					images: store,
 					onstatus: (s, e) => {
 						status = s;
@@ -267,6 +274,7 @@
 
 	onDestroy(() => {
 		const s = docSession;
+		closedDoc = view?.state.doc ?? null;
 		presence.stop();
 		void s?.close().finally(() => formats.stop());
 		if (wordTimer !== null) clearTimeout(wordTimer);

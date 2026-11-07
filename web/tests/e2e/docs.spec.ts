@@ -123,6 +123,39 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(editor(page)).toContainText('for more. During one. During two.');
 		});
 
+		test('leaving while a save is under way still saves what was typed during it', async () => {
+			await reloadHome(page, server);
+			await upload(page, await box.add(`leave-${mode}.docx`, await fixture('docs/sample.docx')));
+			await openDoc(page, `leave-${mode}.docx`);
+			const commit = '**/api/v1/uploads/*/commit';
+			let held = 0;
+			let arrived = () => {};
+			let release = () => {};
+			const arrival = new Promise<void>((r) => (arrived = r));
+			const released = new Promise<void>((r) => (release = r));
+			await page.route(commit, async (route) => {
+				if (held++ === 0) {
+					arrived();
+					await released;
+				}
+				await route.continue();
+			});
+			await typeAfter(page, 'for more.', ' Before leaving.');
+			await arrival;
+			await expect(saveStatus(page)).toHaveText('Saving…');
+			await typeAfter(page, 'Before leaving.', ' While leaving.');
+			await page.getByRole('link', { name: 'Back to the folder' }).click();
+			await expect(editor(page)).toHaveCount(0);
+			release();
+			// The edit made during the first save goes in a second one, after the editor closed.
+			await expect.poll(() => held, { timeout: 30_000 }).toBe(2);
+			await page.unroute(commit);
+
+			await reloadHome(page, server);
+			await openDoc(page, `leave-${mode}.docx`);
+			await expect(editor(page)).toContainText('for more. Before leaving. While leaving.');
+		});
+
 		test('.odt, .rtf and Markdown save back in their own format', async () => {
 			for (const [name, fixtureName, marker] of [
 				[`sample-${mode}.odt`, 'docs/sample.odt', 'for more.'],
