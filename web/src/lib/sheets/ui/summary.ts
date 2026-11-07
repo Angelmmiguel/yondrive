@@ -49,30 +49,41 @@ export interface Filter {
 	columns: ColumnFilter[];
 }
 
-/** The values of a column over rows `first`..`last`, each once, in order, blanks last. */
+/** The most values the filter lists for a column; the rest are not offered. */
+export const DISTINCT_LIMIT = 10_000;
+
+const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+
+/**
+ * The values of a column over rows `first`..`last`, each once, in order, blanks
+ * last: at most `limit` of them, and whether there were more.
+ */
 export function distinctValues(
 	texts: ReadonlyMap<number, string>,
 	first: number,
-	last: number
-): string[] {
+	last: number,
+	limit = DISTINCT_LIMIT
+): { values: string[]; more: boolean } {
 	const set = new Set<string>();
 	let shown = 0;
 	let blank = false;
+	let more = false;
 	for (const [r, t] of texts) {
 		if (r < first || r > last) continue;
 		shown++;
 		if (t === BLANK) blank = true;
-		else set.add(t);
+		else if (set.size < limit) set.add(t);
+		else if (!set.has(t)) more = true;
 	}
 	if (shown < last - first + 1) blank = true;
-	const list = [...set].sort((a, b) => {
-		const na = Number(a.replace(/[,$%\s]/g, ''));
-		const nb = Number(b.replace(/[,$%\s]/g, ''));
-		if (a !== '' && b !== '' && Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
-		return a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true });
+	const keyed = [...set].map((t) => {
+		const n = t === '' ? NaN : Number(t.replace(/[,$%\s]/g, ''));
+		return { t, n: Number.isFinite(n) ? n : null };
 	});
-	if (blank) list.push(BLANK);
-	return list;
+	keyed.sort((a, b) => (a.n !== null && b.n !== null ? a.n - b.n : collator.compare(a.t, b.t)));
+	const values = keyed.map((k) => k.t);
+	if (blank) values.push(BLANK);
+	return { values, more };
 }
 
 /**

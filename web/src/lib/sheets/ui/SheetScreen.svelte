@@ -61,6 +61,7 @@
 	import SheetToolbar, { type BorderKind } from './SheetToolbar.svelte';
 	import {
 		BLANK,
+		DISTINCT_LIMIT,
 		distinctValues,
 		hiddenRows as hiddenOf,
 		statNumber,
@@ -127,6 +128,8 @@
 	let filtering = $state<{
 		col: number;
 		values: string[];
+		/** Values past the most the list shows, which stay as they are. */
+		more: boolean;
 		hidden: Set<string>;
 	} | null>(null);
 	let fixedWarning = $state.raw<(() => void) | null>(null);
@@ -415,10 +418,15 @@
 			filters = { ...filters, [current]: f };
 		}
 		const texts = await columnTexts(f, col, m.rows - 1);
-		const values = distinctValues(texts, f.header + 1, Math.max(f.header + 1, m.rows - 1));
+		const { values, more } = distinctValues(
+			texts,
+			f.header + 1,
+			Math.max(f.header + 1, m.rows - 1)
+		);
 		filtering = {
 			col,
 			values,
+			more,
 			hidden: setOf(f.columns.find((c) => c.col === col)?.hidden ?? [])
 		};
 	}
@@ -1563,6 +1571,10 @@
 			{/each}
 			{#if fl.values.length > 500}<p class="muted">
 					And {fl.values.length - 500} more values.
+				</p>{/if}
+			{#if fl.more}<p class="muted" data-testid="filter-more">
+					This column has more than {DISTINCT_LIMIT.toLocaleString()} different values. Only those are
+					offered; rows with any other value stay shown.
 				</p>{/if}
 		</div>
 	{/if}

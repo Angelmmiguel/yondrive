@@ -5,7 +5,7 @@ import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
 import { cellLook } from './style';
-import { distinctValues, hiddenRows, statsOf } from './summary';
+import { DISTINCT_LIMIT, distinctValues, hiddenRows, statsOf } from './summary';
 import type { CellView } from '../service';
 import { DEFAULT_STYLE } from '$lib/formats/workbook';
 
@@ -242,13 +242,30 @@ describe('the status bar and the filter', () => {
 			[5, '10'],
 			[6, '9']
 		]);
-		expect(distinctValues(col, 1, 6)).toEqual(['9', '10', 'Apples', 'Pears', '']);
+		expect(distinctValues(col, 1, 6)).toEqual({
+			values: ['9', '10', 'Apples', 'Pears', ''],
+			more: false
+		});
 		const hidden = hiddenRows(
 			{ header: 0, columns: [{ col: 0, hidden: new Set(['Pears', '']) }] },
 			6,
 			() => col
 		);
 		expect([...hidden].sort()).toEqual([1, 3, 4]);
+	});
+});
+
+describe('a hostile column for the filter', () => {
+	it('lists at most the limit of values, says there are more, and sorts them quickly', () => {
+		const texts = new Map<number, string>();
+		for (let r = 1; r <= 200_000; r++) texts.set(r, `v${r}`);
+		const started = performance.now();
+		const { values, more } = distinctValues(texts, 1, 200_000);
+		expect(performance.now() - started).toBeLessThan(2_000);
+		expect(values).toHaveLength(DISTINCT_LIMIT);
+		expect(more).toBe(true);
+		expect(values.slice(0, 3)).toEqual(['v1', 'v2', 'v3']);
+		expect(distinctValues(texts, 1, 3, 3)).toEqual({ values: ['v1', 'v2', 'v3'], more: false });
 	});
 });
 
