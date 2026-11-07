@@ -1,5 +1,6 @@
 /** What the search specs do through the app. */
 import { expect, type Page } from '@playwright/test';
+import { myFiles } from './drive';
 
 /** Opens the palette from the keyboard, with this typed. */
 export async function openSearch(page: Page, text = ''): Promise<void> {
@@ -7,6 +8,19 @@ export async function openSearch(page: Page, text = ''): Promise<void> {
 	const input = page.getByRole('combobox', { name: 'Search for' });
 	await expect(input).toBeFocused();
 	if (text !== '') await input.fill(text);
+}
+
+/**
+ * Goes to My files and waits until the page change is over: the address has changed and
+ * the router has had its turn with the focus, which it resets once the new page is drawn.
+ */
+export async function settleAtMyFiles(page: Page): Promise<void> {
+	await myFiles(page);
+	await expect(page).toHaveURL(/\/files\/root$/);
+	await page.evaluate(
+		() =>
+			new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+	);
 }
 
 export const hits = (page: Page) => page.getByTestId('search-hit');

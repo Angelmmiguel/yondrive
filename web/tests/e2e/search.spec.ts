@@ -15,7 +15,7 @@ import {
 	row,
 	upload
 } from '../drive';
-import { expectFound, expectIndexed, hits, openSearch } from '../search';
+import { expectFound, expectIndexed, hits, openSearch, settleAtMyFiles } from '../search';
 import { captureRequests, findIn } from '../scan';
 import { startServer, type Mode, type Server } from '../server';
 import { addUser, person, refocus, shareDialog, shareWith } from '../sharing';
@@ -80,14 +80,34 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await openSearch(alice, 'walrus');
 			await hits(alice).first().getByText('Go to folder').click();
 			await expect(alice.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
-			await myFiles(alice);
+			await settleAtMyFiles(alice);
 
 			// The keyboard's way there, as an option holds no button of its own.
 			await openSearch(alice, 'walrus');
 			await expect(hits(alice)).toHaveCount(1);
 			await alice.keyboard.press('Shift+Enter');
 			await expect(alice.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
+			await settleAtMyFiles(alice);
+		});
+
+		test('the palette keeps the focus while a page change finishes underneath', async () => {
+			test.setTimeout(60_000);
+			await openFolder(alice, 'Archive');
+			// No wait between the click and the keys: the router resets the focus when the page
+			// it was sent to is drawn, and that may be after the palette took it.
 			await myFiles(alice);
+			await openSearch(alice, 'walrus');
+			await expect(alice).toHaveURL(/\/files\/root$/);
+			await alice.evaluate(
+				() =>
+					new Promise<void>((done) => setTimeout(() => requestAnimationFrame(() => done()), 300))
+			);
+			await expect(alice.getByRole('combobox', { name: 'Search for' })).toBeFocused();
+			await alice.keyboard.type(' chapter');
+			await expect(alice.getByRole('combobox', { name: 'Search for' })).toHaveValue(
+				'walrus chapter'
+			);
+			await alice.keyboard.press('Escape');
 		});
 
 		test('a folder goes on screen from the results', async () => {
