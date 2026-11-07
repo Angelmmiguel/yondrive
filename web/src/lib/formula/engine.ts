@@ -110,6 +110,9 @@ export class FormulaInputError extends Error {
 /** Ranges spanning more columns than this are scanned rather than indexed. */
 const WIDE = 64;
 
+/** How many cell reads all of a workbook's formulas may take to be calculated on load. */
+export const LOAD_RECALC_CELLS = 20_000_000;
+
 /** Cells of array formulas indexed one by one, at most; areas past it are scanned. */
 const ARRAY_INDEX = 1_000_000;
 
@@ -354,20 +357,62 @@ export class Engine {
 	}
 
 	/**
-	 * Builds the dependency graph once everything is loaded, and calculates the
-	 * formulas whose file gave no value.
+	 * Builds the dependency graph once everything is loaded, and calculates every
+	 * formula this engine can: a file's cached value could say anything. Formulas
+	 * not calculated here keep the file's value, out of date only where something
+	 * they read came out different. A workbook whose formulas read more cells than
+	 * `LOAD_RECALC_CELLS` in all keeps its cached values, so a large file still
+	 * opens in time; only formulas with no value are calculated then.
 	 */
-	loaded(uncached: Cell[] = []): void {
+	loaded(): void {
+		let todo: Cell[] = [];
+		let reads = 0;
 		for (const s of this.#sheets) {
 			for (const c of s.cells.values()) {
-				if (c.formula) {
-					this.#classify(c.formula);
-					this.#register(c);
-				}
+				if (!c.formula) continue;
+				this.#classify(c.formula);
+				this.#register(c);
+				if (c.formula.status !== 'ok') continue;
+				todo.push(c);
+				if (reads <= LOAD_RECALC_CELLS) reads += this.#reads(c);
 			}
 		}
-		const todo = uncached.filter((c) => c.formula?.status === 'ok');
-		if (todo.length > 0) this.#recalc(todo, todo);
+		if (reads > LOAD_RECALC_CELLS) todo = todo.filter((c) => c.value === null);
+		if (todo.length === 0) return;
+		const changed = this.#recalc(todo, todo);
+		// #recalc took every unsupported formula reading these as out of date.
+		for (const s of this.#sheets) for (const c of s.cells.values()) delete c.stale;
+		const seen = new Set<Cell>(changed);
+		const stack = [...changed];
+		while (stack.length > 0) {
+			const c = stack.pop() as Cell;
+			for (const d of this.#dependents(c.sheet, c.row, c.col)) {
+				if (seen.has(d)) continue;
+				seen.add(d);
+				if (d.formula && d.formula.status !== 'ok') d.stale = true;
+				stack.push(d);
+			}
+		}
+	}
+
+	/** About how many cells a formula reads: its references, ranges clipped to what is used. */
+	#reads(cell: Cell): number {
+		const ast = cell.formula?.ast;
+		if (!ast) return 0;
+		const home = this.#byId.get(cell.sheet)?.name ?? '';
+		let n = 0;
+		for (const node of walk(ast)) {
+			if (node.type === 'cell') n++;
+			else if (node.type === 'range') {
+				const id = this.sheetByName(node.sheet ?? home)?.id;
+				const ext = id === undefined ? undefined : this.#byId.get(id)?.extent();
+				if (!ext) continue;
+				const rows = Math.min(node.bottom, ext.rows - 1) - node.top + 1;
+				const cols = Math.min(node.right, ext.cols - 1) - node.left + 1;
+				if (rows > 0 && cols > 0) n += rows * cols;
+			}
+		}
+		return n;
 	}
 
 	/** Changes one cell: a formula (without `=`), a value, or nothing (`null`) to clear it. */

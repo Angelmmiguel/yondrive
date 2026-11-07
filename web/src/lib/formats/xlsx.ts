@@ -633,7 +633,6 @@ export async function readXlsx(
 	const style = (s: number) => (s >= 0 && s < book.styles.length ? s : 0);
 	const tally = new Tally();
 	const budget = { cells: SHEET_LIMITS.cells };
-	const uncached: Cell[] = [];
 	let unsupported = 0;
 	let arrays = 0;
 	let rich = 0;
@@ -669,14 +668,12 @@ export async function readXlsx(
 			if (ri) info.rows.set(r.row, ri);
 			for (const c of r.cells) {
 				if (c.t === 's' && sst.rich.has(Number(c.v))) rich++;
-				const cell = engine.load(info.id, c.row, c.col, {
+				engine.load(info.id, c.row, c.col, {
 					value: c.value,
 					formula: c.formula,
 					style: style(c.s),
 					array: c.array
 				});
-				if (c.formula !== undefined && c.v === undefined && c.t !== 'inlineStr')
-					uncached.push(cell);
 				if (c.array) arrays++;
 			}
 		}
@@ -698,7 +695,7 @@ export async function readXlsx(
 			key
 		};
 	});
-	engine.loaded(uncached);
+	engine.loaded();
 	for (const s of book.sheets) {
 		for (const c of engine.cells(s.id))
 			if (c.formula && c.formula.status !== 'ok' && !c.formula.array) unsupported++;

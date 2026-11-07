@@ -236,6 +236,8 @@ export class SheetService {
 	#format: SheetFormat = 'xlsx';
 	#census: Census = { items: [] };
 	#fixed: string[] = [];
+	/** Whether anything changed since the file was opened; an untouched file saves as it was. */
+	#edited = false;
 
 	get #b(): Book {
 		if (!this.#book) throw new Error('no workbook is open');
@@ -255,6 +257,7 @@ export class SheetService {
 		this.#book = opened.book;
 		this.#bytes = bytes;
 		this.#format = format;
+		this.#edited = false;
 		this.#census = opened.census;
 		this.#fixed = opened.fixedRanges;
 		return {
@@ -357,6 +360,7 @@ export class SheetService {
 	 * unsupported, arity, sheet, readonly) and changes nothing when any fails.
 	 */
 	setCells(edits: { sheet: number; row: number; col: number; text: string }[]): EditResult {
+		this.#edited = true;
 		const b = this.#b;
 		if (!Array.isArray(edits)) throw new FormulaInputError('argument', 'edits');
 		for (const e of edits) {
@@ -383,6 +387,7 @@ export class SheetService {
 
 	/** Clears an area's contents, keeping its formatting. */
 	clear(sheet: number, area: Area): EditResult {
+		this.#edited = true;
 		this.#sheet(sheet);
 		area = areaArg(area);
 		const e = this.#b.engine;
@@ -403,6 +408,7 @@ export class SheetService {
 
 	/** Changes the formatting of an area. Whole columns change the columns' own style too. */
 	setStyle(sheet: number, area: Area, patch: StylePatch): EditResult {
+		this.#edited = true;
 		const b = this.#b;
 		this.#sheet(sheet);
 		area = areaArg(area);
@@ -458,26 +464,31 @@ export class SheetService {
 	}
 
 	insertRows(sheet: number, at: number, count: number): EditResult {
+		this.#edited = true;
 		const n = int(count, 1, MAX_ROWS, 'count');
 		return { changed: this.#b.insertRows(this.#sheet(sheet), rowArg(at), n).cells };
 	}
 
 	deleteRows(sheet: number, at: number, count: number): EditResult {
+		this.#edited = true;
 		const n = int(count, 1, MAX_ROWS, 'count');
 		return { changed: this.#b.deleteRows(this.#sheet(sheet), rowArg(at), n).cells };
 	}
 
 	insertCols(sheet: number, at: number, count: number): EditResult {
+		this.#edited = true;
 		const n = int(count, 1, MAX_COLS, 'count');
 		return { changed: this.#b.insertCols(this.#sheet(sheet), colArg(at), n).cells };
 	}
 
 	deleteCols(sheet: number, at: number, count: number): EditResult {
+		this.#edited = true;
 		const n = int(count, 1, MAX_COLS, 'count');
 		return { changed: this.#b.deleteCols(this.#sheet(sheet), colArg(at), n).cells };
 	}
 
 	addSheet(name?: string, at?: number): SheetMeta {
+		this.#edited = true;
 		const b = this.#b;
 		if (at !== undefined) int(at, 0, b.sheets.length, 'position');
 		let n = name === undefined || name === '' ? '' : sheetNameArg(name);
@@ -491,11 +502,13 @@ export class SheetService {
 	}
 
 	renameSheet(sheet: number, name: string): EditResult {
+		this.#edited = true;
 		const n = sheetNameArg(name);
 		return { changed: this.#b.engine.renameSheet(this.#sheet(sheet), n).cells };
 	}
 
 	removeSheet(sheet: number): EditResult {
+		this.#edited = true;
 		this.#sheet(sheet);
 		if (this.#b.sheets.length <= 1)
 			throw new FormulaInputError('sheet', 'a workbook keeps one sheet');
@@ -503,10 +516,12 @@ export class SheetService {
 	}
 
 	moveSheet(sheet: number, to: number): void {
+		this.#edited = true;
 		this.#b.engine.moveSheet(this.#sheet(sheet), int(to, 0, this.#b.sheets.length - 1, 'position'));
 	}
 
 	setSheetHidden(sheet: number, hidden: boolean): void {
+		this.#edited = true;
 		const info = this.#b.sheet(this.#sheet(sheet));
 		if (hidden) info.hidden = true;
 		else delete info.hidden;
@@ -514,6 +529,7 @@ export class SheetService {
 
 	/** Column widths in characters; undefined for the default. */
 	setColWidth(sheet: number, from: number, to: number, width: number | undefined): void {
+		this.#edited = true;
 		this.#sheet(sheet);
 		if (colArg(from) > colArg(to)) throw new FormulaInputError('argument', 'column');
 		this.#b.setColWidth(sheet, from, to, sizeArg(width, MAX_WIDTH, 'width'));
@@ -521,6 +537,7 @@ export class SheetService {
 
 	/** Row heights in points; undefined for the default. */
 	setRowHeight(sheet: number, from: number, to: number, height: number | undefined): void {
+		this.#edited = true;
 		const info = this.#b.sheet(this.#sheet(sheet));
 		if (rowArg(from) > rowArg(to)) throw new FormulaInputError('argument', 'row');
 		height = sizeArg(height, MAX_HEIGHT, 'height');
@@ -534,6 +551,7 @@ export class SheetService {
 	}
 
 	setFrozen(sheet: number, rows: number, cols: number): void {
+		this.#edited = true;
 		const info = this.#b.sheet(this.#sheet(sheet));
 		int(rows, 0, MAX_ROWS - 1, 'row');
 		int(cols, 0, MAX_COLS - 1, 'column');
@@ -543,6 +561,7 @@ export class SheetService {
 
 	/** Merges an area, keeping the top-left cell's content as Excel does; merges it overlaps go. */
 	merge(sheet: number, area: Area): EditResult {
+		this.#edited = true;
 		const b = this.#b;
 		this.#sheet(sheet);
 		area = areaArg(area);
@@ -569,6 +588,7 @@ export class SheetService {
 	}
 
 	unmerge(sheet: number, area: Area): void {
+		this.#edited = true;
 		const info = this.#b.sheet(this.#sheet(sheet));
 		area = areaArg(area);
 		info.merges = info.merges.filter(
@@ -583,6 +603,7 @@ export class SheetService {
 	 * area holds merged or read-only cells.
 	 */
 	sort(sheet: number, area: Area, keys: SortKey[], header = false): EditResult {
+		this.#edited = true;
 		const b = this.#b;
 		this.#sheet(sheet);
 		area = areaArg(area);
@@ -657,6 +678,7 @@ export class SheetService {
 
 	/** A full recalculation, as Excel's. */
 	recalc(): EditResult {
+		this.#edited = true;
 		return { changed: this.#b.engine.recalc().cells };
 	}
 
@@ -685,6 +707,12 @@ export class SheetService {
 	): Promise<{ bytes: Uint8Array; format: SheetSaveFormat }> {
 		if (sheet !== undefined) this.#sheet(sheet);
 		const to = format ?? sheetSaveFormatOf(this.#format);
+		// Formulas are calculated on open, so values may differ from what the file
+		// cached; with nothing edited, the file goes back as it came.
+		if (!this.#edited && this.#bytes && to === this.#format) {
+			const bytes = this.#bytes.slice();
+			return transfer({ bytes, format: to }, [bytes.buffer as ArrayBuffer]);
+		}
 		let bytes = await writeSpreadsheet(to, this.#b, {
 			original: this.#bytes ? { bytes: this.#bytes, format: this.#format } : undefined,
 			sheet

@@ -779,8 +779,11 @@ worker's API and never holds the workbook itself.
 **Recalculation.** A reference to one cell is indexed by that cell; a range by each column it spans, or, over 64
 columns, in a list scanned per change, so `A:A` costs one entry. A change marks its dependents transitively; Tarjan's
 algorithm orders them so each is calculated once after what it reads, and a group that reads itself is a cycle whose
-cells show `#REF!` and are flagged. TODAY and NOW are calculated on every recalculation. On opening, cached values are
-used as they are, and only formulas without one are calculated.
+cells show `#REF!` and are flagged. TODAY and NOW are calculated on every recalculation. On opening, every formula
+calculated here is calculated, since a file's cached value could say anything; formulas not calculated here keep theirs
+and are flagged stale only where an input came out different. A workbook whose formulas read more than 20 million cells
+in all keeps its cached values instead, so it still opens in time, and only formulas without one are calculated. A file
+nobody edited saves as it came, byte for byte.
 
 **What is not calculated.** A formula with a function outside the 42, a named range, an array constant, a reference to
 another file or an array formula keeps its text and the file's value and is read-only; cells reading it use that value.

@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractText } from '$lib/search/extract';
 import { readXlsx } from '$lib/formats/xlsx';
-import { sampleOds } from '../../../tests/fixtures/sheet-samples';
+import { entryData, readZip } from '$lib/formats/zip';
+import { sampleOds, xlsxOf } from '../../../tests/fixtures/sheet-samples';
 import { createSheets } from './client';
 import { expose, wrap } from './rpc';
 import { registerSheetText } from './search-text';
@@ -240,5 +241,22 @@ describe('formatting large areas', () => {
 		const r = svc.setStyle(s, { top: 0, left: 0, bottom: 9999, right: 99 }, { fill: '#ff0000' });
 		expect(r.partial).toBe(true);
 		expect(svc.setStyle(s, { top: 0, left: 0, bottom: 9, right: 9 }, { fill: '#00ff00' }).partial).toBeUndefined();
+	});
+});
+
+describe('cached values on open', () => {
+	it('shows what formulas calculate and saves an untouched file as it came', async () => {
+		const bytes = await xlsxOf([
+			'<sheetData><row r="1"><c r="A1"><v>1</v></c><c r="B1"><f>A1+1</f><v>999</v></c></row></sheetData>'
+		]);
+		const svc = new SheetService();
+		const { sheets } = await svc.load(bytes, 'xlsx');
+		const s = sheets[0].id;
+		expect(svc.cell(s, 0, 1)?.value).toBe(2);
+		const untouched = await svc.save();
+		expect(Buffer.from(untouched.bytes).equals(Buffer.from(bytes))).toBe(true);
+		svc.setCells([{ sheet: s, row: 0, col: 2, text: 'x' }]);
+		const saved = readZip((await svc.save()).bytes).get('xl/worksheets/sheet1.xml')!;
+		expect(new TextDecoder().decode(await entryData(saved))).toContain('<f>A1+1</f><v>2</v>');
 	});
 });

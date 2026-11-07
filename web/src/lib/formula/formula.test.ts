@@ -469,15 +469,16 @@ describe('the engine', () => {
 		expect(e.cell(s, 0, 0)!.formula!.text).toBe('SUM(A1)');
 	});
 
-	it('calculates formulas a file gave no value for, and volatile ones each time', () => {
+	it('calculates formulas on load, whatever the file cached, and volatile ones each time', () => {
 		let now = new Date(2024, 0, 1);
 		const e = new Engine({ now: () => now });
 		const s = e.addSheet('S');
 		e.load(s, 0, 0, { value: 2 });
-		const c = e.load(s, 0, 1, { formula: 'A1*21', value: null });
+		e.load(s, 0, 1, { formula: 'A1*21', value: null });
 		e.load(s, 0, 2, { formula: 'TODAY()', value: 1 });
-		e.loaded([c]);
+		e.loaded();
 		expect(e.cell(s, 0, 1)!.value).toBe(42);
+		expect(e.cell(s, 0, 2)!.value).toBe(45292);
 		now = new Date(2024, 0, 2);
 		e.set(s, 5, 5, { value: 'x' });
 		expect(e.cell(s, 0, 2)!.value).toBe(45293);
@@ -546,12 +547,28 @@ describe('the engine', () => {
 		expect(e.cell(a, 0, 0)!.value).toEqual(err('#REF!'));
 	});
 
+	it('calculates on load what it can, and flags only what read a corrected value', () => {
+		const e = new Engine();
+		const s = e.addSheet('S');
+		e.load(s, 0, 0, { value: 1 });
+		e.load(s, 0, 1, { formula: 'A1+1', value: 999 });
+		e.load(s, 0, 2, { formula: 'XLOOKUP(B1,A1,A1)', value: 7 });
+		e.load(s, 0, 3, { formula: 'A1*2', value: 2 });
+		e.load(s, 0, 4, { formula: 'XLOOKUP(D1,A1,A1)', value: 8 });
+		e.loaded();
+		expect(e.cell(s, 0, 1)!.value).toBe(2);
+		expect(e.cell(s, 0, 2)).toMatchObject({ value: 7, stale: true });
+		expect(e.cell(s, 0, 4)!.value).toBe(8);
+		expect(e.cell(s, 0, 4)!.stale).toBeUndefined();
+	});
+
 	it('keeps a sheet of 100,000 cells and a range per row light', () => {
 		const e = new Engine();
 		const s = e.addSheet('S');
 		for (let r = 0; r < 50000; r++) {
 			e.load(s, r, 0, { value: r });
-			e.load(s, r, 1, { formula: `SUM($A$1:A${r + 1})`, value: null });
+			// Over the budget for calculating on load: the cached values stand.
+			e.load(s, r, 1, { formula: `SUM($A$1:A${r + 1})`, value: (r * (r + 1)) / 2 });
 		}
 		const t = Date.now();
 		e.loaded();

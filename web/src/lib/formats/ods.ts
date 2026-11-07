@@ -694,7 +694,6 @@ export async function readOds(
 	});
 	const idOf = (name: string | undefined) =>
 		name === undefined ? 0 : (styles.byName.get(name) ?? 0);
-	const uncached: Cell[] = [];
 	let unsupported = 0;
 	// Every cell loaded, styled empty ones too, against the cap of the whole file.
 	let loadBudget = ODS_LIMITS.cells;
@@ -725,18 +724,17 @@ export async function readOds(
 				if (loadBudget < 0) throw new OdsError('too many cells');
 				for (let dr = 0; dr < r.repeat; dr++) {
 					for (let dc = 0; dc < c.repeat; dc++) {
-						const cell = engine.load(info.id, r.row + dr, c.col + dc, {
+						engine.load(info.id, r.row + dr, c.col + dc, {
 							value: c.value,
 							formula: c.formula,
 							style
 						});
-						if (c.formula !== undefined && c.value === null) uncached.push(cell);
 					}
 				}
 			}
 		}
 	}
-	engine.loaded(uncached);
+	engine.loaded();
 	for (const s of book.sheets)
 		for (const c of engine.cells(s.id)) if (c.formula && c.formula.status !== 'ok') unsupported++;
 	const tally = new Tally();

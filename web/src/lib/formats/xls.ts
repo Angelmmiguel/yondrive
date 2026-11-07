@@ -10,7 +10,7 @@
  */
 import { MAX_COLS, MAX_ROWS, type Area } from '$lib/formula/address';
 import { print, rangeOf, type BinaryOp, type Node } from '$lib/formula/ast';
-import { Engine, type Cell } from '$lib/formula/engine';
+import { Engine } from '$lib/formula/engine';
 import { BUILTIN_FORMATS } from '$lib/formula/numfmt';
 import { err, type ErrorCode, type Scalar } from '$lib/formula/values';
 import { readCfb } from './cfb';
@@ -799,7 +799,6 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 		return b ? sheetNames.get(b) : undefined;
 	};
 	let budget = XLS_LIMITS.cells;
-	const uncached: Cell[] = [];
 	let unmapped = 0;
 	const counts = new Map<string, number>();
 	const count = (label: string) => counts.set(label, (counts.get(label) ?? 0) + 1);
@@ -1053,17 +1052,14 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 					unmapped++;
 				}
 			} else unmapped++;
-			const cell = engine.load(info.id, p.row, p.col, {
+			engine.load(info.id, p.row, p.col, {
 				value: p.value,
 				formula: text,
 				style: styleOf(p.style)
 			});
-			if (text !== undefined && p.value === null) uncached.push(cell);
 		}
 	}
-	for (const s of book.sheets)
-		for (const c of engine.cells(s.id)) if (c.formula && c.value === null) uncached.push(c);
-	engine.loaded(uncached);
+	engine.loaded();
 	for (const [label, n] of counts) tally.add(label, 'lost', n);
 	if (unmapped > 0) tally.add('Formula kept as its last value', 'changed', unmapped);
 	return { book, census: tally.census(), fixedRanges: [] };
