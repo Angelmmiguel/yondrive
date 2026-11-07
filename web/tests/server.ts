@@ -91,8 +91,13 @@ async function waitForToken(logs: () => string): Promise<string> {
 	throw new Error('the server logged no setup link');
 }
 
-/** Starts a fresh server, or points at YONDRIVE_E2E when set. */
-export async function startServer(options: { mode?: Mode } = {}): Promise<Server> {
+/**
+ * Starts a fresh server, or points at YONDRIVE_E2E when set. Given a dataDir, it
+ * serves that directory instead of a new one, and leaves it in place on stop.
+ */
+export async function startServer(
+	options: { mode?: Mode; dataDir?: string } = {}
+): Promise<Server> {
 	const mode = options.mode ?? 'e2e';
 	const external = process.env.YONDRIVE_E2E;
 	if (external !== undefined && external !== '') {
@@ -106,7 +111,7 @@ export async function startServer(options: { mode?: Mode } = {}): Promise<Server
 		};
 	}
 	const bin = await build();
-	const data = await mkdtemp(join(tmpdir(), 'yondrive-e2e-data-'));
+	const data = options.dataDir ?? (await mkdtemp(join(tmpdir(), 'yondrive-e2e-data-')));
 	const port = await freePort();
 	const url = `http://127.0.0.1:${port}`;
 	const child = spawn(bin, ['serve', '--addr', `127.0.0.1:${port}`, '--data', data], {
@@ -125,7 +130,7 @@ export async function startServer(options: { mode?: Mode } = {}): Promise<Server
 			child.kill('SIGTERM');
 			await exited;
 		}
-		await rm(data, { recursive: true, force: true });
+		if (options.dataDir === undefined) await rm(data, { recursive: true, force: true });
 	};
 	try {
 		await waitForHealth(url, child);
@@ -134,4 +139,20 @@ export async function startServer(options: { mode?: Mode } = {}): Promise<Server
 		throw e;
 	}
 	return { url, mode, dataDir: data, logs, setupToken: () => waitForToken(logs), stop };
+}
+
+/** Runs another subcommand of the binary the servers run, such as `backup`. */
+export async function runYondrive(
+	args: string[]
+): Promise<{ code: number; stdout: string; stderr: string }> {
+	const bin = await build();
+	return new Promise((resolve, reject) => {
+		const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+		let stdout = '';
+		let stderr = '';
+		child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+		child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+		child.on('error', reject);
+		child.on('exit', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+	});
 }
