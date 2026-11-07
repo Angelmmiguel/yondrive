@@ -62,6 +62,11 @@ isolated. Chromium process RSS was not captured.
 - Memory on a phone, a service worker being killed mid-stream, background throttling, and Chrome's behaviour with video
   containers whose index is at the end of the file.
 
+> Update, 2026-11-07: WebKit now starts here. The flake points `__EGL_VENDOR_LIBRARY_FILENAMES` at the Mesa EGL vendor
+> file, and the smoke subset of the browser tests passes in WebKit. The streaming measurements in this spike (cipher
+> throughput, service worker streaming, `<video>` seeking) were not repeated in WebKit, so the Safari criterion is
+> still open.
+
 ## What it means for the design
 
 - **A service worker path is viable** in Chromium and Firefox over a secure context: range requests map to frames

@@ -43,6 +43,10 @@ are the same order as the data.
 - WebKit (does not start in this environment).
 - Incremental updates and segment compaction.
 
+> Update, 2026-11-07: WebKit now starts here. The flake points `__EGL_VENDOR_LIBRARY_FILENAMES` at the Mesa EGL vendor
+> file, and the smoke subset of the browser tests passes in WebKit. The scale measurements in this spike were not
+> repeated in WebKit.
+
 ## What it means for the design
 
 - **The numbers pass at 100k nodes**: search is far below any interaction threshold, and the whole metadata set decrypts in
