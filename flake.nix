@@ -46,6 +46,9 @@
         export PLAYWRIGHT_BROWSERS_PATH="${pkgs.playwright-driver.browsers}"
         export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
         export PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=true
+        # WebKit draws through EGL, and on a machine without a system GL driver
+        # it finds no platform and aborts. Mesa's software one is enough.
+        export __EGL_VENDOR_LIBRARY_FILENAMES="${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
 
         # Load project env files: .env for shared vars (checked in),
         # .env.local for private overrides (gitignored).

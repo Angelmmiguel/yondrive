@@ -1003,4 +1003,6 @@ coarse pointers.
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when
 the working tree does not build. Single sign-on specs run a provider in the spec's process
-(`web/tests/oidc-provider.ts`).
+(`web/tests/oidc-provider.ts`). A WebKit project runs `smoke.spec.ts` alone (sign in, upload,
+download, a document, a sheet and a note) as the stand-in for Safari; WebKit draws through EGL,
+so the flake's shell points it at Mesa's software driver for machines without a system one.

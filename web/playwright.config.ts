@@ -12,5 +12,10 @@ export default defineConfig({
 	timeout: 60_000,
 	expect: { timeout: 15_000 },
 	use: { trace: 'retain-on-failure' },
-	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }]
+	projects: [
+		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+		// The stand-in for Safari, on the few flows every browser must do. It needs
+		// the EGL driver the flake's shell points at (flake.nix).
+		{ name: 'webkit', use: { ...devices['Desktop Safari'] }, testMatch: 'smoke.spec.ts' }
+	]
 });
