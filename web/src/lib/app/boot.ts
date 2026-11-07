@@ -9,6 +9,23 @@ import { acceptMode } from '$lib/account/mode';
 import { resume } from '$lib/account/session';
 import { isApiError } from '$lib/api/types';
 
+/**
+ * What a public link's page runs instead: the mode the server claims, through the same
+ * guard, and nothing about whoever may be signed in here. It asks for no session.
+ */
+export async function bootLink(deps: Deps = defaultDeps): Promise<void> {
+	const { api, session } = deps;
+	try {
+		const health = await api.getHealth();
+		session.health = health;
+		if (health.setup) session.sealer = acceptMode(health.mode, null, deps);
+		session.status = 'signed-out';
+	} catch (e) {
+		if (e instanceof ModeRefusedError) return;
+		session.status = 'offline';
+	}
+}
+
 export async function boot(deps: Deps = defaultDeps): Promise<void> {
 	const { api, session } = deps;
 	try {

@@ -5,7 +5,9 @@ import { signIn } from '$lib/account/session';
 import { completeSetup } from '$lib/account/setup';
 import { fakeServer, memoryPin, memoryStorage, PASSPHRASE, testDeps } from '$lib/testing/account';
 import { ApiError, type Mode } from '$lib/api/types';
-import { boot } from './boot';
+import { boot, bootLink } from './boot';
+import { Session } from '$lib/state/session.svelte';
+import type { Deps } from '$lib/account/deps';
 
 const suites = { e2e: SUITE_E2E, none: SUITE_NONE } as const;
 
@@ -96,5 +98,63 @@ describe('boot', () => {
 		const deps = testDeps(server);
 		await boot(deps);
 		expect(deps.session.status).toBe('offline');
+	});
+});
+
+describe('bootLink', () => {
+	it('takes the mode through the guard and asks for no session', async () => {
+		const getMe = vi.fn();
+		const session = new Session();
+		const deps = {
+			api: { getHealth: async () => ({ setup: true, mode: 'e2e' }), getMe },
+			session,
+			pin: { read: () => null, write: () => {} }
+		} as unknown as Deps;
+
+		await bootLink(deps);
+
+		expect(session.status).toBe('signed-out');
+		expect(session.sealer?.suite).toBe(SUITE_E2E);
+		expect(getMe).not.toHaveBeenCalled();
+	});
+
+	it('refuses a mode this device has pinned otherwise', async () => {
+		const session = new Session();
+		const deps = {
+			api: { getHealth: async () => ({ setup: true, mode: 'none' }) },
+			session,
+			pin: { read: () => SUITE_E2E, write: () => {} }
+		} as unknown as Deps;
+
+		await bootLink(deps);
+
+		expect(session.refusal).toBe('device-pinned');
+	});
+
+	it('stays off the guard on a server that has no mode yet', async () => {
+		const session = new Session();
+		const deps = {
+			api: { getHealth: async () => ({ setup: false }) },
+			session,
+			pin: { read: () => null, write: () => {} }
+		} as unknown as Deps;
+
+		await bootLink(deps);
+
+		expect(session.sealer).toBeNull();
+		expect(session.status).toBe('signed-out');
+	});
+
+	it('says the server is not answering', async () => {
+		const session = new Session();
+		const deps = {
+			api: { getHealth: () => Promise.reject(new Error('down')) },
+			session,
+			pin: { read: () => null, write: () => {} }
+		} as unknown as Deps;
+
+		await bootLink(deps);
+
+		expect(session.status).toBe('offline');
 	});
 });

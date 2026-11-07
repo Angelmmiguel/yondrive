@@ -11,6 +11,11 @@ export type Destination = '/' | '/setup' | '/signin' | '/unlock' | '/settings';
 /** Open to anyone in any state: a link is for whoever holds it. */
 const OPEN = ['/invite', '/reset', '/styleguide'];
 
+/** A public link's page: it has no session and asks for none. */
+export function isLinkPath(path: string): boolean {
+	return path.startsWith('/s/');
+}
+
 export function destinationFor(input: {
 	status: SessionStatus;
 	path: string;
@@ -18,7 +23,7 @@ export function destinationFor(input: {
 	wantsTotp?: boolean;
 }): Destination | null {
 	const { status, path, role, wantsTotp } = input;
-	if (status === 'booting' || status === 'offline') return null;
+	if (status === 'booting' || status === 'offline' || isLinkPath(path)) return null;
 	if (status === 'needs-setup')
 		return path === '/setup' || path === '/styleguide' ? null : '/setup';
 	if (OPEN.includes(path)) return null;

@@ -1,4 +1,5 @@
-import { boot } from '$lib/app/boot';
+import { boot, bootLink } from '$lib/app/boot';
+import { isLinkPath } from '$lib/app/routing';
 import { theme } from '$lib/state/theme.svelte';
 
 // Everything past sign-in is decrypted in the browser, so there is nothing a
@@ -9,5 +10,6 @@ export const ssr = false;
 /** Runs once per page load; client-side navigation does not repeat it. */
 export async function load(): Promise<void> {
 	theme.start();
-	await boot();
+	// From the address, not the `url` argument, so that this does not run again on every navigation.
+	await (isLinkPath(location.pathname) ? bootLink() : boot());
 }

@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { destinationFor } from './routing';
 
+describe('a public link', () => {
+	it.each(['needs-setup', 'signed-out', 'locked', 'unlocked'] as const)(
+		'stays where it is when %s',
+		(status) => {
+			expect(destinationFor({ status, path: '/s/abc' })).toBeNull();
+		}
+	);
+});
+
 describe('destinationFor', () => {
 	it.each([
 		['needs-setup', '/', '/setup'],
