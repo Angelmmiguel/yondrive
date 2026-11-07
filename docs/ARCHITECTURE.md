@@ -205,3 +205,51 @@ Two actions need the admin's current auth key as well as a session, because a st
 admin session could otherwise keep or widen its reach: an invite with the `admin` role,
 which mints an admin that outlives the session, and a password reset link, which takes
 over an account. Ordinary invites do not.
+
+## Web app
+
+The layers of the account flows, each knowing only the one below:
+
+| Where | Holds |
+| --- | --- |
+| `src/routes` | Thin glue: forms, and which flow to call. |
+| `src/lib/app` | What runs at page load (`boot`), where the session belongs (`destinationFor`). |
+| `src/lib/account` | The flows, pure, with what they reach outside for injected through `Deps`. |
+| `src/lib/state` | The session and toasts, in `.svelte.ts` modules. Keys live here, in memory only. |
+| `src/lib/crypto` | The primitives and the `Sealer`. |
+| `src/lib/api` | One function per route, on the generated schema. Knows nothing about crypto. |
+
+**One path for both modes.** A flow asks the `Sealer` for everything that differs: in `none`
+it hands back empty byte strings, which flow through untouched, and the wire layer leaves out
+what is empty and reads what is absent as empty. A flow never reads the mode. A screen reads
+`sealer.encrypted`, and only to show or skip what exists solely with keys: unlock, lock, the
+recovery steps, the password reset button and the "Not encrypted" indicator.
+
+**The guard.** Every flow gets its sealer from `acceptMode`, which runs `decideMode` on what
+the server claims and what the account holds, and pins the mode on a new device. It runs at
+page load on health, and again on the account at sign-in, recovery, unlock and resume. A
+refusal zeroes the keys and sets `session.refusal`, and the root layout then draws only the
+blocking alert. A refused sign-in also ends the session it just got.
+
+**Page load.** `boot` asks health. No setup: `/setup`, which without a token only says to use
+the link from the logs. No session: `/signin`. A session and both halves of the session key:
+the app. A session without them: `/unlock`. In `none` there is nothing to reopen, so a session
+is simply open. The root layout draws a page only once the session belongs on it.
+
+**Lock.** Zeroes the keys in place, forgets the sealed half, tells the other tabs on a
+`BroadcastChannel` and deletes the server's half, in that order, so that it never waits on the
+network. A flow holding a key across a wait fails with `LockedError`, or `ZeroKeyError` from
+the construction, and an unlock still storing its half when a lock arrives undoes it.
+`sessionStorage` is per tab, so each tab unlocks on its own, and the last to do so holds the
+server's half: another tab that reloads then asks for the passphrase.
+
+**New recovery keys** are shown and typed back before anything happens to the old one. In
+recovery and in settings the rekey is the last step, so nobody can be left holding a key they
+never saw. A pending key lives in memory, so a reload makes a new one.
+
+**The display name** typed in the wizard and in settings stays in `localStorage`. The API has
+no field for it, and the canary test checks that it never leaves the device.
+
+Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
+through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when
+the working tree does not build.
