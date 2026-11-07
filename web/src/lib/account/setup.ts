@@ -1,5 +1,5 @@
 /** Making an account: the first admin through the wizard, the others by registering. */
-import type { NewAccount, ServerSettingsInput } from '$lib/api/types';
+import type { NewAccount, ServerSettingsInput, SignInSettingsInput } from '$lib/api/types';
 import { normalizePassphrase } from '$lib/crypto/kdf';
 import { zeroIdentity } from '$lib/crypto/keys';
 import { zero } from '$lib/crypto/random';
@@ -49,12 +49,21 @@ async function accountBody(
  * tie the device to a choice that can still change.
  */
 export async function completeSetup(
-	input: { token: string; settings: ServerSettingsInput; admin: NewUser },
+	input: {
+		token: string;
+		settings: ServerSettingsInput;
+		admin: NewUser;
+		signIn?: SignInSettingsInput;
+	},
 	deps: Deps = defaultDeps
 ): Promise<void> {
 	const sealer = checkMode(input.settings.mode, deps);
 	const admin = await accountBody(input.admin, sealer, deps);
-	await deps.api.completeSetup(input.token, { settings: input.settings, admin });
+	await deps.api.completeSetup(input.token, {
+		settings: input.settings,
+		admin,
+		sign_in: input.signIn
+	});
 	deps.pin.write(sealer.suite);
 }
 

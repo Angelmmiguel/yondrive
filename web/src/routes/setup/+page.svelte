@@ -9,9 +9,17 @@
 	import { onDestroy } from 'svelte';
 	import { writeDisplayName } from '$lib/account/display-name';
 	import { sealerForMode } from '$lib/account/mode';
+	import {
+		newOidcForm,
+		oidcFormProblem,
+		oidcInput,
+		providerById,
+		type OidcForm
+	} from '$lib/account/providers';
 	import { discardRecovery, newRecovery, type PendingRecovery } from '$lib/account/recovery-key';
 	import { completeSetup } from '$lib/account/setup';
 	import { passphraseProblem } from '$lib/account/strength';
+	import OidcFields from '$lib/account/ui/OidcFields.svelte';
 	import { api } from '$lib/api/client';
 	import { isApiError, type Mode, type SetupInfo } from '$lib/api/types';
 	import { boot } from '$lib/app/boot';
@@ -68,11 +76,20 @@
 	let pending = $state.raw<PendingRecovery | null>(null);
 	let confirmed = $state(false);
 
+	let localAccounts = $state(true);
+	let openSignup = $state(false);
+	let oidcOn = $state(false);
+	let oidc = $state<OidcForm>(newOidcForm());
+	const redirectUri = $derived(
+		url.trim().replace(/\/+$/, '') + (info?.oidc_redirect_path ?? '/auth/oidc/callback')
+	);
+
 	const STEPS: Step[] = [
 		{ id: 'server', label: 'Server', hint: 'Name, address, storage' },
 		{ id: 'encryption', label: 'Encryption', hint: 'End-to-end or none' },
 		{ id: 'admin', label: 'Admin account', hint: 'Your first local user' },
 		{ id: 'recovery', label: 'Recovery key', hint: 'Save it somewhere safe' },
+		{ id: 'signin', label: 'Sign-in methods', hint: 'Local users and OIDC' },
 		{ id: 'review', label: 'Review', hint: 'Check and finish' }
 	];
 	const steps = $derived(STEPS.filter((s) => s.id !== 'recovery' || sealer.encrypted));
@@ -95,12 +112,20 @@
 			title: 'Your recovery key',
 			intro: 'A lost passphrase can be replaced only with this key.'
 		},
+		signin: {
+			title: 'How people sign in',
+			intro: 'Use local accounts, connect your identity provider with OpenID Connect, or both.'
+		},
 		review: {
 			title: 'Review and finish',
 			intro: 'Make sure everything looks right. You can jump back to any step.'
 		}
 	};
 
+	const signInProblem = $derived.by(() => {
+		if (!localAccounts && !oidcOn) return 'Turn on at least one way to sign in.';
+		return oidcOn ? oidcFormProblem(oidc) : null;
+	});
 	const usernameMissing = $derived(username.trim() === '');
 	const passphraseIssue = $derived(passphraseProblem(passphrase, confirmation));
 	const zones = $derived.by(() => {
@@ -118,6 +143,7 @@
 		if (step === 'server') return name.trim() !== '' && url.trim() !== '';
 		if (step === 'admin') return !usernameMissing && passphraseIssue === null;
 		if (step === 'recovery') return confirmed;
+		if (step === 'signin') return signInProblem === null;
 		return true;
 	});
 	const blockedHint = $derived.by(() => {
@@ -125,6 +151,7 @@
 		if (step === 'server') return 'A name and an address are needed.';
 		if (step === 'admin') return usernameMissing ? 'Choose a username.' : (passphraseIssue ?? '');
 		if (step === 'recovery') return 'Type the three words back to continue.';
+		if (step === 'signin') return signInProblem ?? '';
 		return '';
 	});
 
@@ -195,6 +222,11 @@
 					email,
 					passphrase,
 					recoveryKey: pending?.key ?? new Uint8Array(0)
+				},
+				signIn: {
+					local_accounts: localAccounts,
+					open_signup: localAccounts && openSignup,
+					oidc: oidcOn ? oidcInput(oidc, true) : undefined
 				}
 			});
 			writeDisplayName(localStorage, displayName);
@@ -422,6 +454,47 @@
 							</div>
 						{:else if step === 'recovery' && pending}
 							<RecoveryKeyPanel {pending} {username} server={name} bind:confirmed />
+						{:else if step === 'signin'}
+							<div class="switches">
+								<div class="switch-row">
+									<span class="switch-text">
+										<span class="switch-label">Local accounts</span>
+										<span class="small">People sign in with a username and passphrase.</span>
+									</span>
+									<Switch label="Local accounts" bind:checked={localAccounts} />
+								</div>
+								{#if localAccounts}
+									<div class="switch-row">
+										<span class="switch-text">
+											<span class="switch-label">Allow people to sign up</span>
+											<span class="small">Otherwise, only people you invite get an account.</span>
+										</span>
+										<Switch label="Allow people to sign up" bind:checked={openSignup} />
+									</div>
+								{/if}
+								<div class="switch-row">
+									<span class="switch-text">
+										<span class="switch-label">Single sign-on</span>
+										<span class="small">
+											Sign in through your identity provider with OpenID Connect.
+										</span>
+									</span>
+									<Switch label="Single sign-on" bind:checked={oidcOn} />
+								</div>
+							</div>
+							{#if !localAccounts}
+								<Banner tone="info" icon="shield">
+									You, as the first administrator, can always sign in with your passphrase. It is
+									the way back in if the provider is down.
+								</Banner>
+							{/if}
+							{#if oidcOn}
+								<OidcFields
+									bind:form={oidc}
+									{redirectUri}
+									test={(body) => api.testOidc(body, token)}
+								/>
+							{/if}
 						{:else if step === 'review'}
 							<div class="review">
 								<section>
@@ -466,6 +539,30 @@
 										{/if}
 										<dt>Two-factor</dt>
 										<dd>{wantsTotp ? 'Set up after first sign-in' : 'Not now'}</dd>
+									</dl>
+								</section>
+								<section>
+									<div class="row">
+										<h2>Sign-in</h2>
+										<Button variant="ghost" size="sm" onclick={() => go('signin')}>Edit</Button>
+									</div>
+									<dl>
+										<dt>Local accounts</dt>
+										<dd>
+											{localAccounts
+												? openSignup
+													? 'On · open sign-up'
+													: 'On · invite only'
+												: 'Off'}
+										</dd>
+										<dt>Single sign-on</dt>
+										<dd>
+											{oidcOn ? `${providerById(oidc.provider).name} · ${oidc.issuer}` : 'Off'}
+										</dd>
+										{#if oidcOn}
+											<dt>Admin group</dt>
+											<dd>{oidc.adminGroup || 'None'}</dd>
+										{/if}
 									</dl>
 								</section>
 							</div>
@@ -632,6 +729,10 @@
 		min-height: 56px;
 		padding-top: 14px;
 		border-top: 1px solid var(--divider);
+	}
+
+	.switches .switch-row:first-child {
+		border-top: 0;
 	}
 
 	.switch-text {
