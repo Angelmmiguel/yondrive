@@ -8,6 +8,8 @@ describe('templates', () => {
 		expect(fillTemplate('{{title}} on {{ date }} at {{time}}', { title: 'Standup', now })).toBe(
 			'Standup on 2026-11-07 at 09:05'
 		);
+		// A title goes in as typed: `$&`, `$'` and `$1` are not replacement patterns.
+		expect(fillTemplate('# {{title}}', { title: "$& $' $` $1 $$", now })).toBe("# $& $' $` $1 $$");
 		expect(titleFromTemplate({ id: 'builtin:daily', title: 'Daily journal' }, now)).toBe(
 			'2026-11-07'
 		);

@@ -77,9 +77,9 @@ const pad = (n: number) => String(n).padStart(2, '0');
 export function fillTemplate(body: string, values: { title: string; now: Date }): string {
 	const time = `${pad(values.now.getHours())}:${pad(values.now.getMinutes())}`;
 	return body
-		.replace(/\{\{\s*date\s*\}\}/g, dayKey(values.now))
-		.replace(/\{\{\s*time\s*\}\}/g, time)
-		.replace(/\{\{\s*title\s*\}\}/g, values.title);
+		.replace(/\{\{\s*date\s*\}\}/g, () => dayKey(values.now))
+		.replace(/\{\{\s*time\s*\}\}/g, () => time)
+		.replace(/\{\{\s*title\s*\}\}/g, () => values.title);
 }
 
 /** The title of a note made from a template: the template's, with the day for a journal. */
