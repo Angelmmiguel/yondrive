@@ -156,32 +156,51 @@ func dsn(path string, options ...string) string {
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String()
 }
 
-// migrate applies the embedded migrations newer than the database's
-// user_version, each in its own transaction with the version bump.
+// migrate applies every embedded migration newer than the database's
+// user_version.
 func (s *Store) migrate() error {
-	ctx := context.Background()
-	var current int
-	if err := s.write.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
-		return fmt.Errorf("store: read schema version: %w", err)
+	names, err := migrationNames()
+	if err != nil {
+		return err
 	}
+	return migrateTo(context.Background(), s.write, len(names))
+}
+
+// migrationNames lists the embedded migrations in the order they apply.
+func migrationNames() ([]string, error) {
 	entries, err := fs.ReadDir(migrations, "migrations")
 	if err != nil {
-		return fmt.Errorf("store: list migrations: %w", err)
+		return nil, fmt.Errorf("store: list migrations: %w", err)
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
 	slices.Sort(names)
+	return names, nil
+}
+
+// migrateTo applies the migrations after the database's user_version up to
+// target, each in its own transaction with the version bump. A database
+// already past what this binary knows is refused.
+func migrateTo(ctx context.Context, db *sql.DB, target int) error {
+	names, err := migrationNames()
+	if err != nil {
+		return err
+	}
+	var current int
+	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+		return fmt.Errorf("store: read schema version: %w", err)
+	}
 	if current > len(names) {
 		return fmt.Errorf("%w: database at %d, binary at %d", ErrSchemaTooNew, current, len(names))
 	}
-	for i := current; i < len(names); i++ {
+	for i := current; i < target; i++ {
 		body, err := migrations.ReadFile("migrations/" + names[i])
 		if err != nil {
 			return fmt.Errorf("store: read migration: %w", err)
 		}
-		err = s.tx(ctx, func(tx *sql.Tx) error {
+		err = inTx(ctx, db, func(tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx, string(body)); err != nil {
 				return err
 			}
@@ -197,7 +216,11 @@ func (s *Store) migrate() error {
 
 // tx runs fn in a write transaction, committing if it returns nil.
 func (s *Store) tx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := s.write.BeginTx(ctx, nil)
+	return inTx(ctx, s.write, fn)
+}
+
+func inTx(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("store: begin: %w", err)
 	}
