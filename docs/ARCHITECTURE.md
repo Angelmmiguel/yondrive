@@ -794,7 +794,8 @@ Typed formulas with any of these are refused with the reason.
 followed through the sheet's steps to where it is now. In `.xlsx`, an untouched sheet keeps its part; in an edited
 sheet, unchanged rows and cells are copied from the source text, a moved cell gets a new `r`, a formula whose result
 changed gets a new `<v>` in its own markup, and the rest is generated. A shared formula stays shared until one of its
-cells changes or moves, then each cell gets its own. Shared strings and cell formats are appended, never changed.
+cells' formula changes or moves, then each cell gets its own; a restyled cell keeps it, and a shared formula that
+does not parse here stays shared, readdressed, unless its first cell is deleted. Shared strings and cell formats are appended, never changed.
 Merges, conditional formats, validations, hyperlinks, filters and defined names follow inserts and deletes; charts,
 pivot tables and tables do not (PLAN 6.5's known gap), and the reader lists them in `fixedRanges` so the UI can warn.
 `calcChain.xml` is dropped, with its relationship and content type, when the set of formula cells changed; the workbook
