@@ -99,6 +99,13 @@ export class DriveTree {
 	readonly #children = new Map<string, Set<string>>();
 	readonly #loaded = new Set<string>();
 	readonly #loading = new Map<string, Promise<void>>();
+	/**
+	 * While a folder is being read, when each node was last written or forgotten here, on
+	 * `#clock`. A listing asked for before then is older than what is known, and must not
+	 * hide a file that has just committed, bring back an old name, or drop a new child.
+	 */
+	readonly #written = new Map<string, number>();
+	#clock = 0;
 	#rootRaw: RawMetadata = {};
 	#stopped = false;
 
@@ -261,7 +268,18 @@ export class DriveTree {
 		}
 	}
 
+	/** A node changed here: listings in flight are older than it. */
+	#wrote(id: string): void {
+		if (this.#loading.size > 0) this.#written.set(id, ++this.#clock);
+	}
+
+	/** Whether this node was written here after `at` on `#clock`. */
+	#writtenAfter(id: string, at: number): boolean {
+		return (this.#written.get(id) ?? -1) > at;
+	}
+
 	#store(node: Node, metadata: unknown, readable: boolean): DriveNode {
+		this.#wrote(node.id);
 		const opened = parseMetadata(metadata);
 		const parentId = node.parent_id ?? null;
 		const trashedAt = time(node.trashed_at);
@@ -300,7 +318,8 @@ export class DriveTree {
 		return stored;
 	}
 
-	async #openPage(parentId: string, records: Node[]): Promise<void> {
+	/** `asked`, for a listing, is when it was asked for: what changed here since stays as it is. */
+	async #openPage(parentId: string, records: Node[], asked?: number): Promise<void> {
 		if (records.length === 0) return;
 		const parentKey = await this.nodeKey(parentId);
 		let opened: OpenedNode[] = await this.#deps.open(parentKey, parentId, records);
@@ -316,6 +335,10 @@ export class DriveTree {
 		const byId = new Map(opened.map((o) => [o.id, o]));
 		for (const record of records) {
 			const one = byId.get(record.id);
+			if (asked !== undefined && this.#writtenAfter(record.id, asked)) {
+				if (one?.key) zero(one.key);
+				continue;
+			}
 			if (one?.key) this.#remember(record.id, one.key, record.key_generation);
 			this.#store(record, one?.metadata ?? null, one?.metadata != null);
 		}
@@ -353,24 +376,30 @@ export class DriveTree {
 		const running = this.#loading.get(id);
 		if (running !== undefined) return running;
 		if (!force && this.#loaded.has(id)) return Promise.resolve();
-		const load = this.#readFolder(id).finally(() => this.#loading.delete(id));
+		const load = this.#readFolder(id).finally(() => {
+			this.#loading.delete(id);
+			if (this.#loading.size === 0) this.#written.clear();
+		});
 		this.#loading.set(id, load);
 		return load;
 	}
 
 	async #readFolder(id: string): Promise<void> {
 		const present = new Set<string>();
+		const started = this.#clock;
 		let cursor: string | undefined;
 		do {
+			const asked = this.#clock;
 			const page = await this.#deps.api.listChildren(id, { cursor, limit: PAGE });
 			for (const node of page.nodes) present.add(node.id);
-			await this.#openPage(id, page.nodes);
+			await this.#openPage(id, page.nodes, asked);
 			cursor = page.next_cursor;
 			this.onchange();
 		} while (cursor !== undefined);
-		// What the server no longer lists here has moved, or gone.
+		// What the server no longer lists here has moved, or gone, unless it was made or
+		// moved here while the pages were on their way.
 		for (const child of [...(this.#children.get(id) ?? [])]) {
-			if (!present.has(child)) this.#forget(child);
+			if (!present.has(child) && !this.#writtenAfter(child, started)) this.#forget(child);
 		}
 		this.#loaded.add(id);
 		this.onchange();
@@ -400,6 +429,7 @@ export class DriveTree {
 
 	/** Takes a node and what is under it out of what is known here. */
 	#forget(id: string): void {
+		this.#wrote(id);
 		for (const child of [...(this.#children.get(id) ?? [])]) this.#forget(child);
 		this.#children.delete(id);
 		this.#loaded.delete(id);

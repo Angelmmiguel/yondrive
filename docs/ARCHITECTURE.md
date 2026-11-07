@@ -644,7 +644,10 @@ standard fonts, CMaps or wasm decoders embedded, so a PDF relying on those draws
 blob routes replace with their own.
 
 **Journal.** Read on focus and once a minute. It starts at the end, since the first read of the tree has it all. Each
-changed node is read again, and beyond 100 of them the tree is.
+changed node is read again, and beyond 100 of them the tree is. A folder's listing can be older than what this device
+did while its pages were on their way, so a node written here after a page was asked for keeps what it has (a file
+just committed is not hidden again as empty, a rename is not undone), and one made or moved here after the read began
+is not dropped for being missing from it.
 
 ### Sharing
 

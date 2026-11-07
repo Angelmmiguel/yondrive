@@ -236,6 +236,74 @@ describe.each(SUITES)('the tree in mode %s', (_, suite) => {
 		await tree.loadFolder(root, true);
 		expect(tree.nodes.has(folder.id)).toBe(false);
 	});
+
+	/** A tree whose folder listings are held, once answered, until let go. */
+	async function heldListings() {
+		const fixture = driveFixture(suite);
+		const held: (() => void)[] = [];
+		const { DriveTree } = await import('./tree');
+		const { openNodes } = await import('./open-nodes');
+		const tree = new DriveTree({
+			api: {
+				...fixture.server.api,
+				listChildren: async (...args: Parameters<typeof fixture.server.api.listChildren>) => {
+					const page = await fixture.server.api.listChildren(...args);
+					await new Promise<void>((go) => held.push(go));
+					return page;
+				}
+			},
+			sealer: fixture.sealer,
+			keys: () => fixture.keys,
+			open: async (k, p, r) => openNodes(fixture.sealer, k, p, r)
+		});
+		await tree.start();
+		const root = tree.rootId as string;
+		const waitHeld = async () => {
+			while (held.length === 0) await new Promise((r) => setTimeout(r, 0));
+		};
+		const release = () => held.splice(0).forEach((go) => go());
+		return { tree, root, deps: { tree, engine: fixture.engine }, waitHeld, release };
+	}
+
+	it('keeps a file made while its folder is read, though the listing left before it', async () => {
+		const { createWith } = await import('$lib/editing/save');
+		const { tree, root, deps, waitHeld, release } = await heldListings();
+		const reading = tree.loadFolder(root, true);
+		await waitHeld();
+		const made = await createWith(deps, root, 'Note.md', new TextEncoder().encode('hi'));
+		release();
+		await reading;
+		expect(tree.childrenOf(root).map((n) => n.id)).toContain(made.id);
+	});
+
+	it('keeps a file committed while its folder is read, though the listing has it empty', async () => {
+		const { saveVersion } = await import('$lib/editing/save');
+		const { tree, root, deps, waitHeld, release } = await heldListings();
+		const node = await tree.createFile(root, {
+			name: 'Note.md',
+			type: 'text/markdown',
+			size: 2,
+			modified: 0
+		});
+		const reading = tree.loadFolder(root, true);
+		await waitHeld();
+		await saveVersion(deps, node, new TextEncoder().encode('hi'), '');
+		release();
+		await reading;
+		expect(tree.childrenOf(root).map((n) => n.id)).toContain(node.id);
+		expect(tree.nodes.get(node.id)?.currentVersion).not.toBeNull();
+	});
+
+	it('keeps a rename made while its folder is read', async () => {
+		const { tree, root, waitHeld, release } = await heldListings();
+		const folder = await tree.createFolder(root, 'Before');
+		const reading = tree.loadFolder(root, true);
+		await waitHeld();
+		await tree.rename(folder.id, 'After');
+		release();
+		await reading;
+		expect(tree.nodes.get(folder.id)?.name).toBe('After');
+	});
 });
 
 function driveTreeFrom<T>(tree: T): T {
