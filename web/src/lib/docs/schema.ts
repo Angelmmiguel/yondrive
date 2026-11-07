@@ -7,7 +7,13 @@
  */
 import { Schema, type DOMOutputSpec, type MarkSpec, type NodeSpec } from 'prosemirror-model';
 import { tableNodes } from 'prosemirror-tables';
-import { safeHref, type BlockStyle, type ListInfo } from '$lib/formats/model';
+import {
+	CALLOUTS,
+	safeHref,
+	type BlockStyle,
+	type Callout,
+	type ListInfo
+} from '$lib/formats/model';
 
 const STYLE_TAGS: Record<BlockStyle, string> = {
 	normal: 'p',
@@ -27,6 +33,15 @@ export interface ParagraphAttrs {
 	align: string | null;
 	list: ListInfo | null;
 	ref: number | null;
+	callout: Callout | null;
+}
+
+/** A link to a node of the drive, by id, as notes write them: `yondrive:node/<id>`. */
+export const NODE_LINK = /^yondrive:node\/([0-9a-f]{32})$/;
+
+/** The node a link names, or null. */
+export function nodeLinkId(href: string): string | null {
+	return NODE_LINK.exec(href)?.[1] ?? null;
 }
 
 function listOf(el: HTMLElement): ListInfo | null {
@@ -71,7 +86,8 @@ const paragraph: NodeSpec = {
 		style: { default: 'normal' },
 		align: { default: null },
 		list: { default: null },
-		ref: { default: null }
+		ref: { default: null },
+		callout: { default: null }
 	},
 	content: 'inline*',
 	group: 'block',
@@ -82,6 +98,14 @@ const paragraph: NodeSpec = {
 			getAttrs: (el: HTMLElement) => ({ style: tag, align: alignOf(el), list: listOf(el) })
 		})),
 		{ tag: 'pre', preserveWhitespace: 'full' as const, getAttrs: () => ({ style: 'code' }) },
+		{
+			tag: 'blockquote[data-callout]',
+			priority: 60,
+			getAttrs: (el: HTMLElement) => {
+				const kind = CALLOUTS.find((c) => c === el.dataset.callout);
+				return { style: 'quote', callout: kind ?? 'note' };
+			}
+		},
 		{
 			tag: 'blockquote p',
 			getAttrs: (el: HTMLElement) => ({ style: 'quote', align: alignOf(el) })
@@ -113,6 +137,9 @@ const paragraph: NodeSpec = {
 		}
 		if (classes.length > 0) attrs.class = classes.join(' ');
 		if (a.align && ALIGNS.includes(a.align)) attrs.style = `text-align: ${a.align}`;
+		if (a.style === 'quote' && a.callout && CALLOUTS.includes(a.callout)) {
+			return ['blockquote', { ...attrs, class: 'callout', 'data-callout': a.callout }, 0];
+		}
 		if (a.style === 'code') return ['pre', attrs, ['code', 0]];
 		return [STYLE_TAGS[a.style] ?? 'p', attrs, 0];
 	}
@@ -223,6 +250,14 @@ const marks: Record<string, MarkSpec> = {
 		inclusive: false,
 		parseDOM: [
 			{
+				tag: 'a[data-node]',
+				priority: 60,
+				getAttrs(el: HTMLElement) {
+					const id = el.dataset.node ?? '';
+					return /^[0-9a-f]{32}$/.test(id) ? { href: `yondrive:node/${id}` } : false;
+				}
+			},
+			{
 				tag: 'a[href]',
 				getAttrs(el: HTMLElement) {
 					const href = el.getAttribute('href') ?? '';
@@ -232,6 +267,9 @@ const marks: Record<string, MarkSpec> = {
 		],
 		toDOM(mark): DOMOutputSpec {
 			const href = mark.attrs.href as string;
+			// A node of the drive is opened by the screen, never by the browser.
+			const node = nodeLinkId(href);
+			if (node !== null) return ['a', { class: 'node-link', 'data-node': node }, 0];
 			// An address the editor would not open is shown, never linked.
 			return safeHref(href)
 				? ['a', { href, rel: 'noopener noreferrer nofollow', target: '_blank' }, 0]

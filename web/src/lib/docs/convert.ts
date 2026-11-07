@@ -65,7 +65,8 @@ function paragraphNode(p: Paragraph): PMNode {
 		style: p.style,
 		align: p.align ?? null,
 		list: p.list ? { ...p.list } : null,
-		ref: p.ref ?? null
+		ref: p.ref ?? null,
+		callout: p.callout ?? null
 	};
 	return schema.nodes.paragraph.create(attrs, inlineNodes(p.content));
 }
@@ -166,6 +167,7 @@ function paragraphFrom(node: PMNode): Paragraph {
 		p.list = list;
 	}
 	if (a.ref !== null) p.ref = a.ref;
+	if (a.callout && a.style === 'quote') p.callout = a.callout;
 	return p;
 }
 

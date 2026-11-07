@@ -14,7 +14,7 @@ import {
 	deleteTable,
 	isInTable
 } from 'prosemirror-tables';
-import type { BlockStyle, ListInfo } from '$lib/formats/model';
+import type { BlockStyle, Callout, ListInfo } from '$lib/formats/model';
 import { schema, type ParagraphAttrs } from './schema';
 
 /** Each paragraph the selection touches, outside of locked blocks. */
@@ -52,7 +52,13 @@ function setParagraphs(
 export const setStyle =
 	(style: BlockStyle): Command =>
 	(state, dispatch) =>
-		setParagraphs(state, dispatch, () => ({ style }));
+		setParagraphs(state, dispatch, () => ({ style, callout: null }));
+
+/** Turns the selected paragraphs into a callout, a quote that stands out. */
+export const setCallout =
+	(callout: Callout = 'note'): Command =>
+	(state, dispatch) =>
+		setParagraphs(state, dispatch, () => ({ style: 'quote', callout, list: null }));
 
 export const setAlign =
 	(align: string | null): Command =>
@@ -178,7 +184,7 @@ export const enter: Command = (state, dispatch) => {
 			tr.split(tr.mapping.map($from.pos), 1, [
 				{
 					type: schema.nodes.paragraph,
-					attrs: { style: 'normal', align: null, list: null, ref: null }
+					attrs: { style: 'normal', align: null, list: null, ref: null, callout: null }
 				}
 			]);
 			dispatch(tr.scrollIntoView());
@@ -190,11 +196,14 @@ export const enter: Command = (state, dispatch) => {
 		if (!state.selection.empty) tr.deleteSelection();
 		const atEnd = tr.selection.$from.parentOffset === tr.selection.$from.parent.content.size;
 		const heading = /^h\d$|^title$/.test(a.style);
+		// A callout is one paragraph, so what follows it is body text.
+		const leaves = (heading && atEnd) || a.callout !== null;
 		const next: ParagraphAttrs = {
-			style: heading && atEnd ? 'normal' : a.style,
+			style: leaves ? 'normal' : a.style,
 			align: heading && atEnd ? null : a.align,
 			list: a.list ? { ...a.list, ...(a.list.kind === 'check' ? { checked: false } : {}) } : null,
-			ref: null
+			ref: null,
+			callout: null
 		};
 		tr.split(tr.selection.from, 1, [{ type: schema.nodes.paragraph, attrs: next }]);
 		dispatch(tr.scrollIntoView());

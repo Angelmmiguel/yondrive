@@ -52,11 +52,17 @@ export interface ListInfo {
 	checked?: boolean;
 }
 
+/** The kinds of callout Markdown marks with `> [!NOTE]`, after GitHub's. */
+export const CALLOUTS = ['note', 'tip', 'important', 'warning', 'caution'] as const;
+export type Callout = (typeof CALLOUTS)[number];
+
 export interface Paragraph {
 	type: 'paragraph';
 	style: BlockStyle;
 	align?: Align;
 	list?: ListInfo;
+	/** A quote that is a callout. Formats without callouts keep it as a quote. */
+	callout?: Callout;
 	content: Inline[];
 	ref?: number;
 }

@@ -7,10 +7,12 @@
  * ever rendered as HTML.
  */
 import {
+	CALLOUTS,
 	normalizeInlines,
 	sameBlock,
 	Tally,
 	type Block,
+	type Callout,
 	type Cell,
 	type Census,
 	type DocModel,
@@ -50,6 +52,7 @@ const HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/;
 const TABLE_DELIM = /^ *\|? *:?-+:? *(\| *:?-+:? *)*\|? *$/;
 const DEFINITION = /^ {0,3}\[([^\]]+)\]:\s*<?(\S+?)>?(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/;
+const CALLOUT = new RegExp(`^\\[!(${CALLOUTS.join('|')})\\][ \\t]*$`, 'i');
 const HTML_BLOCK = /^ {0,3}<(\/?[a-zA-Z][\w-]*(\s|\/?>|$)|!--|\?|![A-Z])/;
 
 function splitLines(src: string): Line[] {
@@ -207,8 +210,20 @@ function parse(src: string): Parsed {
 			while (j + 1 < lines.length && /^ {0,3}>/.test(lines[j + 1].text)) j++;
 			const inner = lines.slice(i, j + 1).map((l) => l.text.replace(/^ {0,3}> ?/, ''));
 			const nested = inner.some((t) => interrupts(t) || /^ {4}/.test(t) || /^\|/.test(t));
+			const callout = CALLOUT.exec(inner[0]);
 			if (nested) lock('Quote with other blocks inside', i, j);
-			else {
+			else if (callout) {
+				const body = inner.slice(1);
+				if (body.some((t) => /^\s*$/.test(t))) lock('Callout with several paragraphs', i, j);
+				else {
+					const kind = callout[1].toLowerCase() as Callout;
+					push(
+						paragraphOf(inline.parse(body.join('\n')), { style: 'quote', callout: kind }),
+						line,
+						lines[j]
+					);
+				}
+			} else {
 				// Each paragraph of the quote is a block of its own.
 				let k = 0;
 				while (k < inner.length) {
@@ -700,7 +715,7 @@ function serializeInlines(content: readonly Inline[]): string {
 			out += k === 'link' ? '[' : DELIM[k as 'bold'];
 		}
 		if (it.type === 'image') {
-			out += `![${escapeText(it.alt)}](${linkUrl(it.image.startsWith('http') ? it.image : '')})`;
+			out += `![${escapeText(it.alt)}](${linkUrl(it.image)})`;
 			continue;
 		}
 		const trail = open.length > 0 ? /\s*$/.exec(text)![0] : '';
@@ -747,11 +762,11 @@ function serializeParagraph(p: Paragraph, unit: Unit | undefined, eol: string): 
 			const close = /^[`~]+/.exec(fence)![0];
 			return [fence, ...text.split('\n'), close].join(eol);
 		}
-		case 'quote':
-			return body
-				.split('\n')
-				.map((l) => `> ${l}`)
-				.join(eol);
+		case 'quote': {
+			const lines = body === '' && p.callout ? [] : body.split('\n');
+			if (p.callout) lines.unshift(`[!${p.callout.toUpperCase()}]`);
+			return lines.map((l) => `> ${l}`).join(eol);
+		}
 	}
 	if (p.list) {
 		const level = p.list.level;
@@ -832,7 +847,8 @@ export function writeMarkdown(model: DocModel, original?: string): string {
 			pieces.push({ text: p.src.slice(item.start, item.end), block: b });
 		} else {
 			const own = b.ref === undefined ? undefined : p.units[b.ref];
-			pieces.push({ text: serializeBlock(b, unit ?? own, p.eol), block: b });
+			const text = serializeBlock(withoutEmbedded(b, model.images), unit ?? own, p.eol);
+			pieces.push({ text, block: b });
 		}
 	}
 	let out = '';
@@ -854,6 +870,30 @@ export function writeMarkdown(model: DocModel, original?: string): string {
 	}
 	if (original === undefined && out !== '') out += p.eol;
 	return out;
+}
+
+/**
+ * Pictures whose bytes are in the model have no address Markdown could hold, so
+ * they are written with an empty one; any other picture keeps the address it names.
+ */
+function withoutEmbedded(b: Block, images: DocModel['images']): Block {
+	const strip = (content: Inline[]): Inline[] =>
+		content.map((i) =>
+			i.type === 'image' && (i.image in images || i.image.startsWith('new:'))
+				? { ...i, image: '' }
+				: i
+		);
+	const para = (p: Paragraph): Paragraph => ({ ...p, content: strip(p.content) });
+	if (b.type === 'paragraph') return para(b);
+	if (b.type === 'table')
+		return {
+			...b,
+			rows: b.rows.map((r) => ({
+				...r,
+				cells: r.cells.map((c) => ({ ...c, content: c.content.map(para) }))
+			}))
+		};
+	return b;
 }
 
 const isItem = (b: Block) => b.type === 'paragraph' && b.list !== undefined;

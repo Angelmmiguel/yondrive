@@ -238,4 +238,46 @@ describe('markdown', () => {
 			{ type: 'text', text: 'a * b', marks: { bold: true } }
 		]);
 	});
+
+	it('reads a callout as one quote paragraph and writes it back', () => {
+		const src = 'Before\n\n> [!TIP]\n> Keep it **short**.\n\nAfter\n';
+		const { model } = readMarkdown(src);
+		expect(model.blocks[1]).toMatchObject({ style: 'quote', callout: 'tip' });
+		expect(writeMarkdown(model, src)).toBe(src);
+		const p = model.blocks[1] as Paragraph;
+		const edited = {
+			...model,
+			blocks: [
+				model.blocks[0],
+				{ ...p, content: [{ type: 'text' as const, text: 'Changed', marks: {} }] },
+				model.blocks[2]
+			]
+		};
+		expect(writeMarkdown(edited, src)).toBe('Before\n\n> [!TIP]\n> Changed\n\nAfter\n');
+	});
+
+	it('locks a callout of several paragraphs, and keeps a plain quote a quote', () => {
+		expect(readMarkdown('> [!NOTE]\n> one\n>\n> two\n').model.blocks[0]).toMatchObject({
+			type: 'locked'
+		});
+		expect(readMarkdown('> just a quote\n').model.blocks[0]).not.toHaveProperty('callout');
+	});
+
+	it('writes back a picture that names a file of the drive, and drops other addresses', () => {
+		const id = '0123456789abcdef0123456789abcdef';
+		const model: DocModel = {
+			blocks: [
+				{
+					type: 'paragraph',
+					style: 'normal',
+					content: [
+						{ type: 'image', image: `yondrive:node/${id}`, alt: 'sketch' },
+						{ type: 'image', image: 'new:abc', alt: 'pasted' }
+					]
+				}
+			],
+			images: {}
+		};
+		expect(writeMarkdown(model).trim()).toBe(`![sketch](yondrive:node/${id})![pasted]()`);
+	});
 });
