@@ -3,6 +3,8 @@
   the wizard and in administration. It draws and tests. Saving is its caller's.
 -->
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { copyText } from '$lib/components/clipboard';
 	import { failure } from '$lib/app/failure';
 	import { Banner, Button, CodeBlock, Field, Select, Switch, TextInput } from '$lib/components';
 	import type { OidcTestRequest, OidcTestResult } from '$lib/api/types';
@@ -24,6 +26,8 @@
 
 	let { form = $bindable(), redirectUri, secretSet = false, test }: Props = $props();
 
+	let copied = $state(false);
+	let copyTimer: ReturnType<typeof setTimeout> | undefined;
 	let testing = $state(false);
 	let tested = $state<string | null>(null);
 	let testError = $state<string | null>(null);
@@ -48,6 +52,19 @@
 		oidc_keys_failed:
 			'The provider’s configuration reads fine, but it offers no signing key YonDrive can use.'
 	};
+
+	async function copyRedirect() {
+		const result = await copyText(redirectUri);
+		if (result === 'manual') {
+			document.querySelector<HTMLInputElement>('[data-testid="redirect-uri"]')?.select();
+			return;
+		}
+		copied = true;
+		clearTimeout(copyTimer);
+		copyTimer = setTimeout(() => (copied = false), 2500);
+	}
+
+	onDestroy(() => clearTimeout(copyTimer));
 
 	function pick(id: ProviderId) {
 		const provider = providerById(id);
@@ -153,10 +170,14 @@
 			</div>
 			<Field label="Redirect URI" hint="Paste this into your provider.">
 				{#snippet children(field)}
-					<TextInput {...field} value={redirectUri} mono readonly data-testid="redirect-uri" />
+					<div class="copy-row">
+						<TextInput {...field} value={redirectUri} mono readonly data-testid="redirect-uri" />
+						<Button onclick={copyRedirect} label="Copy redirect URI">
+							{copied ? 'Copied' : 'Copy'}
+						</Button>
+					</div>
 				{/snippet}
 			</Field>
-			<CodeBlock code={redirectUri} label="redirect URI" />
 			<div class="pair">
 				<Field label="Scopes" required>
 					{#snippet children(field)}
@@ -207,7 +228,7 @@
 			<ol>
 				{#each guide.steps as step (step)}<li>{step}</li>{/each}
 			</ol>
-			<CodeBlock code={guide.snippet(redirectUri)} label="settings" />
+			<CodeBlock code={guide.snippet(redirectUri)} label="settings" wrap />
 			<span class="small">{guide.note}</span>
 		</aside>
 	</div>
@@ -327,6 +348,17 @@
 		flex-wrap: wrap;
 		gap: 22px;
 		align-items: flex-start;
+	}
+
+	.copy-row {
+		display: flex;
+		gap: 8px;
+		align-items: stretch;
+	}
+
+	.copy-row :global(.input) {
+		flex: 1;
+		min-width: 0;
 	}
 
 	.pair {

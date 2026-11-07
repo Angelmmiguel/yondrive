@@ -11,11 +11,13 @@
 	interface Props {
 		code: string;
 		variant?: 'block' | 'key';
+		/** Wrap long lines instead of scrolling sideways. */
+		wrap?: boolean;
 		/** Names what is copied, for the button's accessible name. */
 		label?: string;
 	}
 
-	let { code, variant = 'block', label = 'code' }: Props = $props();
+	let { code, variant = 'block', label = 'code', wrap = false }: Props = $props();
 
 	let phase = $state<'idle' | 'copied' | 'manual'>('idle');
 	let node = $state<HTMLElement>();
@@ -38,7 +40,7 @@
 	onDestroy(() => clearTimeout(timer));
 </script>
 
-<div class="code {variant}">
+<div class="code {variant}" class:wrap>
 	{#if variant === 'key'}
 		<code bind:this={node} class="text">{code}</code>
 	{:else}
@@ -84,6 +86,19 @@
 		line-height: 1.6;
 		overflow-x: auto;
 		white-space: pre;
+	}
+
+	.wrap pre.text {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		overflow-x: hidden;
+		padding-right: 16px;
+		padding-bottom: 46px;
+	}
+
+	.wrap .copy {
+		top: auto;
+		bottom: 8px;
 	}
 
 	code.text {
