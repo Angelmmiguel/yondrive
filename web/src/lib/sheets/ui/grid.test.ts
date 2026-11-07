@@ -8,6 +8,7 @@ import { cellLook } from './style';
 import { DISTINCT_LIMIT, distinctValues, hiddenRows, statsOf } from './summary';
 import type { CellView } from '../service';
 import { DEFAULT_STYLE } from '$lib/formats/workbook';
+import type { Area } from '$lib/formula/address';
 
 const view = (row: number, col: number, text = 'x'): CellView => ({
 	row,
@@ -93,6 +94,76 @@ describe('selection', () => {
 			bottom: 2,
 			right: 3
 		});
+	});
+
+	it('grows over chains of merges in one go, however they are ordered or overlap', () => {
+		// A ladder of dominoes, each reached only through the one before, listed last first.
+		const ladder: Area[] = [];
+		for (let k = 1; k <= 100_000; k++)
+			ladder.push({ top: k, left: k % 2, bottom: k + 1, right: k % 2 });
+		ladder.reverse();
+		// A staircase of overlapping merges, which Excel would refuse but a file may hold.
+		const stairs: Area[] = [];
+		for (let k = 0; k < 100_000; k++) stairs.push({ top: k, left: k, bottom: k + 1, right: k + 1 });
+		stairs.reverse();
+		const started = performance.now();
+		expect(withMerges({ top: 0, left: 0, bottom: 1, right: 1 }, ladder)).toEqual({
+			top: 0,
+			left: 0,
+			bottom: 100_001,
+			right: 1
+		});
+		expect(withMerges({ top: 0, left: 0, bottom: 0, right: 0 }, stairs)).toEqual({
+			top: 0,
+			left: 0,
+			bottom: 100_000,
+			right: 100_000
+		});
+		expect(withMerges({ top: 5, left: 3, bottom: 5, right: 3 }, ladder)).toEqual({
+			top: 5,
+			left: 3,
+			bottom: 5,
+			right: 3
+		});
+		expect(performance.now() - started).toBeLessThan(2_000);
+	});
+
+	it('grows over merges as a search to a fixed point would', () => {
+		let seed = 7;
+		const rand = (k: number) => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31), seed % k);
+		for (let trial = 0; trial < 200; trial++) {
+			const merges: Area[] = Array.from({ length: 8 }, () => {
+				const top = rand(12);
+				const left = rand(12);
+				return { top, left, bottom: top + rand(3), right: left + rand(3) };
+			});
+			const top = rand(12);
+			const left = rand(12);
+			const a = { top, left, bottom: top + rand(2), right: left + rand(2) };
+			let want = { ...a };
+			for (let changed = true; changed;) {
+				changed = false;
+				for (const m of merges) {
+					const hit = !(
+						m.bottom < want.top ||
+						m.top > want.bottom ||
+						m.right < want.left ||
+						m.left > want.right
+					);
+					const grown = {
+						top: Math.min(want.top, m.top),
+						left: Math.min(want.left, m.left),
+						bottom: Math.max(want.bottom, m.bottom),
+						right: Math.max(want.right, m.right)
+					};
+					if (hit && JSON.stringify(grown) !== JSON.stringify(want)) {
+						want = grown;
+						changed = true;
+					}
+				}
+			}
+			expect(withMerges(a, merges)).toEqual(want);
+		}
 	});
 
 	it('jumps to the edges of the data as Ctrl+arrow does', () => {

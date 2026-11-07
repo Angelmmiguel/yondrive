@@ -36,31 +36,64 @@ export const overlaps = (a: Area, b: Area) =>
 
 export const cellCount = (a: Area) => (a.bottom - a.top + 1) * (a.right - a.left + 1);
 
-/** The area grown until no merge sticks out of it. */
+/** A sheet's merges sorted four ways, by each edge, toward the far side of the sheet. */
+interface MergeIndex {
+	byTop: Uint32Array;
+	byBottom: Uint32Array;
+	byLeft: Uint32Array;
+	byRight: Uint32Array;
+}
+
+const mergeIndexes = new WeakMap<readonly Area[], MergeIndex>();
+
+function mergeIndex(merges: readonly Area[]): MergeIndex {
+	let ix = mergeIndexes.get(merges);
+	if (ix) return ix;
+	const sorted = (key: (m: Area) => number) =>
+		Uint32Array.from(merges.keys()).sort((x, y) => key(merges[x]) - key(merges[y]));
+	ix = {
+		byTop: sorted((m) => m.top),
+		byBottom: sorted((m) => -m.bottom),
+		byLeft: sorted((m) => m.left),
+		byRight: sorted((m) => -m.right)
+	};
+	mergeIndexes.set(merges, ix);
+	return ix;
+}
+
+/**
+ * The area grown until no merge sticks out of it. A merge meets the area once
+ * each of its four edges is within reach, and the area only grows, so one walk
+ * along each sorted list finds every merge, however the merges chain or overlap.
+ */
 export function withMerges(a: Area, merges: readonly Area[]): Area {
-	let out = { ...a };
-	for (let changed = true; changed;) {
-		changed = false;
-		for (const m of merges) {
-			if (!overlaps(out, m)) continue;
-			const next = {
-				top: Math.min(out.top, m.top),
-				left: Math.min(out.left, m.left),
-				bottom: Math.max(out.bottom, m.bottom),
-				right: Math.max(out.right, m.right)
-			};
-			if (
-				next.top !== out.top ||
-				next.left !== out.left ||
-				next.bottom !== out.bottom ||
-				next.right !== out.right
-			) {
-				out = next;
-				changed = true;
-			}
+	const out = { ...a };
+	const n = merges.length;
+	if (n === 0) return out;
+	const { byTop, byBottom, byLeft, byRight } = mergeIndex(merges);
+	const met = new Uint8Array(n);
+	const ready: number[] = [];
+	const meet = (k: number) => {
+		if (++met[k] === 4) ready.push(k);
+	};
+	let t = 0;
+	let b = 0;
+	let l = 0;
+	let r = 0;
+	for (;;) {
+		while (t < n && merges[byTop[t]].top <= out.bottom) meet(byTop[t++]);
+		while (b < n && merges[byBottom[b]].bottom >= out.top) meet(byBottom[b++]);
+		while (l < n && merges[byLeft[l]].left <= out.right) meet(byLeft[l++]);
+		while (r < n && merges[byRight[r]].right >= out.left) meet(byRight[r++]);
+		if (ready.length === 0) return out;
+		while (ready.length > 0) {
+			const m = merges[ready.pop() as number];
+			out.top = Math.min(out.top, m.top);
+			out.left = Math.min(out.left, m.left);
+			out.bottom = Math.max(out.bottom, m.bottom);
+			out.right = Math.max(out.right, m.right);
 		}
 	}
-	return out;
 }
 
 export const mergeAt = (merges: readonly Area[], row: number, col: number) =>
