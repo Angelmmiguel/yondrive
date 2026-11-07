@@ -730,13 +730,15 @@ that removes, adds or changes one, so neither typing nor deleting a selection ca
 
 **The census and the notice.** Each reader tallies what it found and how it is handled: locked, kept and not shown,
 lost on save, or changed (a `.doc` converted, change tracking that edits here do not follow). The notice above the
-document is generated from it, per file.
+document is generated from it, per file. A file just made with New doc or New sheet opens without one.
 
 **Saving.** `DocSession` saves 2.5 seconds after typing stops, or after 20 seconds of typing, or on Ctrl+S, one save at
 a time. Each save writes into the bytes that were opened and uploads them as a new version through the drive's upload
-engine, committed on the version this editor last saw. A `version_conflict` turns the bytes into a new file beside it (or
-in My files, where the folder is not writable) named `… (conflicting copy from <user>, <date>)`; the editor goes on in the
-copy and says so. A `.doc`, or a document whose format is changed in Details, is renamed and saved in the new format,
+engine, committed on the version this editor last committed or opened (never on a later one the refresh shows, which
+may be someone else's). Edits made while a save runs go in the save that follows it, and closing the editor waits for
+that one too, from the document as it was on closing. A `version_conflict` turns the bytes into a new file beside it (or
+in My files, where the folder is not writable) named `… (conflicting copy from <user>, <date>)`, with the extension of the format its bytes are in; the editor goes on
+in the copy and says so. A `.doc`, or a document whose format is changed in Details, is renamed and saved in the new format,
 or saved as a new file beside it when this user may not rename it; the original stays in Versions. Downloads in another
 format are written from the editor's model.
 
@@ -819,10 +821,13 @@ hidden row or a filtered one), so finding row 900,000 or the row at a pixel is a
 `window` in blocks of 64 rows by 16 columns, at most 600 kept; an edit marks the blocks it changed stale, and they are
 drawn as they were until the fresh ones arrive. Styles become inline CSS from the style table, letting through only
 `#rrggbb` colours, plain font names and sizes in range; black text and white fills follow the theme. A merged cell is
-drawn once, over the cells it covers; text runs over empty neighbours as in other spreadsheets.
+drawn once, over the cells it covers; text runs over empty neighbours as in other spreadsheets. A resize being dragged is
+laid over the axis rather than rebuilding it, a selection grows over merges in one walk of them sorted by each edge,
+and a cell lays out at most 2,000 characters (20,000 wrapped). The filter lists at most 10,000 values of a column.
 
 **Editing.** Typing over a cell starts an editor in place; F2, a double click, a double tap or the formula bar edit
-what is there; Enter, Tab, Escape, Ctrl+Enter and the arrows behave as in other spreadsheets. A refused input
+what is there, with text quoted whenever typing it would read as something else, and an edit left as it was changes
+nothing; Enter, Tab, Escape, Ctrl+Enter and the arrows behave as in other spreadsheets. A refused input
 (`syntax`, `unsupported`, `arity`, `sheet`, `readonly`) keeps the editor open and says why. Cells the worker marks
 `readOnly`, `stale` or `cycle` are drawn with a marked corner and the reason in their tooltip, and cannot be typed
 over. The keyboard follows the grid pattern: arrows, Shift to extend, Ctrl to the edge of the data, Home, End, Page Up
