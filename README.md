@@ -30,7 +30,8 @@ it, holds only ciphertext. It runs as one container with one data directory.
   transfers for large files
 - List and grid views, tags, favorites, recent files and trash
 - Version history with restore
-- Instant search across names, tags and document text, computed on your device
+- Instant search across names, tags and the text of documents and spreadsheets,
+  computed on your device
 - Previews for PDFs, images, video, audio and text
 - Per-user storage quotas
 
@@ -46,9 +47,8 @@ external service. Everything is parsed and written on your device.
 | `.rtf`, `.txt` | Yes | Yes | The same format, rewritten whole |
 | `.doc` | Text and basic formatting, best effort | After conversion | `.docx`; the original stays in Versions |
 
-Spreadsheets are not in this release: `.xlsx`, `.ods`, `.xls`, `.csv` and
-`.tsv` are stored, shared and downloaded like any other file. Apple `.pages` and
-`.numbers` files are too, and do not open in the editors in v1.
+Apple `.pages` files are stored, shared and downloaded like any other file, and
+do not open in the editors in v1.
 
 **The editor covers everyday use, on purpose:** headings, text formatting, fonts
 and colors, lists and checklists, alignment, links, images, tables, quotes, code,
@@ -75,6 +75,48 @@ real-time co-editing. If two people save anyway, the second save becomes a
 separate copy, so neither loses work.
 
 To turn a document into a PDF, use **Print** and your browser's "Save as PDF".
+
+### Spreadsheets
+
+Open spreadsheets in the browser, with the formulas calculated on your device
+by an engine written for this project.
+
+| Format | Open | Edit | Saved back as |
+| --- | --- | --- | --- |
+| `.xlsx` | Yes | Yes | `.xlsx`; cells and parts you did not edit are written back unchanged |
+| `.ods` | Yes | Yes | `.ods`; cells you did not edit are written back unchanged |
+| `.csv`, `.tsv` | Yes | Yes | The same format, one sheet of values; unchanged lines are kept as they were |
+| `.xls` | Values, formulas and basic formatting, best effort | After conversion | `.xlsx`; the original stays in Versions |
+
+Any of them downloads as `.xlsx`, `.ods`, or the current sheet as `.csv` or
+`.tsv`. Apple `.numbers` files are stored like any other file and do not open
+in v1.
+
+**The editor covers everyday use, on purpose:** number formats, font size, bold,
+italic, strikethrough, text and fill color, borders, merged cells, alignment and
+wrapping, sorting, a filter that hides rows while you look, frozen rows and
+columns, column widths and row heights, inserting and deleting rows, columns and
+sheets, copy and paste with other spreadsheets, and undo. About 40 functions are
+calculated: `SUM`, `AVERAGE`, `IF`, `VLOOKUP`, `INDEX`, `MATCH`, `SUMIF`, `TEXT`,
+`DATE` and their everyday companions. The status bar sums, counts and averages
+the selection. Charts and pivot tables are not drawn or edited.
+
+**Your file stays intact.** A formula that uses a function this app does not
+calculate keeps its text and the value the file had, is marked, and cannot be
+edited here; cells that read it use that value. Charts, pivot tables, comments
+and other parts the editor does not show stay in the file. Inserting or deleting
+rows moves formulas, merges and filters, but charts and pivot tables keep their
+old ranges, and the editor warns before doing it in a file that has them. A
+notice above each sheet lists what that file holds and how it is handled.
+
+**What has been tested, and what has not.** Formulas are checked against a table
+of expected results taken from Excel's documentation, and the round trip on
+files written by hand to each format's layout. Files saved here have not been
+opened in Excel or LibreOffice, no corpus of real spreadsheets has been tried,
+and `.xls` import has only been tried on a synthetic file.
+
+The same warning as for documents tells you when someone else is editing, and a
+second save becomes a separate copy. To print, or to save as a PDF, use **Print**.
 
 ### Notes
 

@@ -760,7 +760,8 @@ document opens up to 64 MiB.
 ### Spreadsheets
 
 The formula engine (`src/lib/formula`) and the spreadsheet formats (`src/lib/formats`) are framework-free and run in
-a worker (`src/lib/sheets`). The grid and editor are built on the worker's API.
+a worker (`src/lib/sheets`). The editor (`src/lib/sheets/ui`, at `src/routes/(app)/sheet/[id]`) is built on the
+worker's API and never holds the workbook itself.
 
 | Where | Holds |
 | --- | --- |
@@ -771,6 +772,9 @@ a worker (`src/lib/sheets`). The grid and editor are built on the worker's API.
 | `formats/workbook.ts` | The model: the engine, a style table (number format, font, fill, borders, alignment), and per sheet widths, heights, merges and panes, plus the steps (rows and columns inserted or deleted) since the file was opened. |
 | `formats/xlsx.ts`, `xlsx-styles.ts`, `ods.ts`, `csv.ts`, `xls.ts`, `spreadsheet.ts` | Readers and writers, one entry point, the census and the notice. |
 | `sheets/rpc.ts`, `service.ts`, `sheets.worker.ts`, `client.ts`, `search-text.ts` | A small RPC of our own, the service the editor calls, and text for search. |
+| `sheets/ui/geometry.ts`, `selection.ts`, `keys.ts`, `clipboard.ts`, `cache.ts`, `style.ts`, `summary.ts` | The grid's model: where rows and columns are, the selection, the keyboard, ranges as text, fetched blocks of cells, a style as CSS, the status bar and the filter. |
+| `sheets/ui/history.ts`, `edits.ts` | Every edit as a queued step of worker calls with the calls that undo it. |
+| `sheets/ui/SheetScreen.svelte`, `SheetGrid.svelte`, `SheetToolbar.svelte`, `SheetTabs.svelte` | The board: header, toolbar, formula bar, grid, tabs and status bar. |
 
 **Recalculation.** A reference to one cell is indexed by that cell; a range by each column it spans, or, over 64
 columns, in a list scanned per change, so `A:A` costs one entry. A change marks its dependents transitively; Tarjan's
@@ -802,13 +806,54 @@ remove, widths, heights, panes, `merge`, `sort`, `recalc`, `census`, `lostOnSave
 their `problem` (`syntax`, `unsupported`, `arity`, `sheet`, `readonly`). A call over 60 seconds ends the worker and the
 open workbook with it.
 
+**The grid.** The scroller holds an empty area the size of the shown part of the sheet, at least a thousand rows and
+twenty-six columns and growing as it is scrolled, and a stage stuck to its top left draws four panes (frozen corner,
+frozen rows, frozen columns, the rest) whose contents move by a transform. Cells are made and dropped only when the
+view crosses a band of eight rows or four columns, so a 100,000-cell sheet keeps about a thousand cells in the page.
+Positions come from each axis's default size and the sorted list of sizes that differ (from the file, a resize, a
+hidden row or a filtered one), so finding row 900,000 or the row at a pixel is a binary search. Cells arrive from
+`window` in blocks of 64 rows by 16 columns, at most 600 kept; an edit marks the blocks it changed stale, and they are
+drawn as they were until the fresh ones arrive. Styles become inline CSS from the style table, letting through only
+`#rrggbb` colours, plain font names and sizes in range; black text and white fills follow the theme. A merged cell is
+drawn once, over the cells it covers; text runs over empty neighbours as in other spreadsheets.
+
+**Editing.** Typing over a cell starts an editor in place; F2, a double click, a double tap or the formula bar edit
+what is there; Enter, Tab, Escape, Ctrl+Enter and the arrows behave as in other spreadsheets. A refused input
+(`syntax`, `unsupported`, `arity`, `sheet`, `readonly`) keeps the editor open and says why. Cells the worker marks
+`readOnly`, `stale` or `cycle` are drawn with a marked corner and the reason in their tooltip, and cannot be typed
+over. The keyboard follows the grid pattern: arrows, Shift to extend, Ctrl to the edge of the data, Home, End, Page Up
+and Page Down, Ctrl+A for the used range and then the sheet. The grid is focusable, with `aria-activedescendant` on
+the active cell, `aria-rowcount` and `aria-colcount`, and a polite live region that reads out the cell, its formula
+and why it cannot be edited.
+
+**Undo and saving.** `SheetEditor` queues every change. Before a step runs it reads what it is about to change through
+`cell` and `window`, and records the calls that put that back: text as it would be typed, styles as a full patch.
+Deleting rows or columns also reads the workbook's formulas first, to put back those the delete turned into `#REF!`.
+A step that would read more than 50,000 cells, or a change to the sheets themselves, clears the history instead. The
+session is the document editor's (`src/lib/editing`): saves are new versions after a pause, on the version last seen;
+a conflict becomes a copy; a lost answer is adopted. The bytes come from `save` through the same queue, so a save
+never falls between the calls of one step. If a call times out the worker is ended, the session is discarded so
+nothing more is saved from it, and the screen offers to open the file again. CSV and TSV files hold one sheet, so no
+sheet can be added to them; downloading a workbook as CSV or TSV takes the current sheet and says so.
+
+**The clipboard.** Copying puts the shown values on the clipboard as tab-separated text and remembers what would be
+typed to get each cell, so a paste inside the app brings formulas with their relative references moved (or unmoved,
+after a cut). From elsewhere, an HTML table is read for its text only, else the tab-separated text, and each field is
+taken as typed.
+
+**Filter and print.** A filter is per sheet and per column, by the text each cell shows, and only hides rows in the
+view; it is not written to the file. Print fetches the used cells of the sheet and lays them out as a plain table for
+the browser's print dialog.
+
 **Limits.** 2,000,000 cells and shared strings a workbook, strings of 32,767 characters, 1,024 sheets, 100,000 merges,
 65,000 cell formats, formulas of 8,192 characters and 128 levels, the ZIP and XML limits of documents, runs in `.ods`
 never expanded beyond the cell limit, CSV up to 64 MiB, `.xls` up to 4,000,000 records.
 
 **What is not verified.** The formula table follows Excel's documentation; rows marked unsure in the tests were not
 checked against Excel, which is not available here. Saved files have not been opened in Excel or LibreOffice, and no
-corpus of real files was used: fixtures are written by hand to the formats' layouts.
+corpus of real files was used: fixtures are written by hand to the formats' layouts. The editor is tested in Chromium
+only, and a worker that stops or times out is not exercised in a browser; scrolling is checked by the number of cells
+drawn and the time per frame in a headless browser, not on a phone.
 
 ### Single sign-on
 

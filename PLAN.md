@@ -611,6 +611,12 @@ before this exit: the corpus of real files from Word and other office applicatio
 
 **Exit:** the same round trip standard as documents. Results open in Excel, on a corpus of real files. Supported functions match Excel's results on a test set. A 100,000-cell sheet scrolls smoothly and recalculates without blocking the UI. **Release 0.5.**
 
+Built: the engine, the formats, and the editor with the board's toolbar, formula bar, tabs, filter, sort, undo and
+panels, checked automatically on files written by hand to each format's layout and in Chromium in both modes,
+including a 100,000-cell sheet that draws only what is in view and calculates in the worker. Still open before this
+exit: the corpus of real files, opening saved files in Excel and LibreOffice, checking the function table against
+Excel itself, and scrolling measured on real phones and other browsers.
+
 ### Phase 7: Notes (M)
 
 - Notes list and editor boards: notebooks, tags, pins, checklists
