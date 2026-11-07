@@ -864,6 +864,57 @@ corpus of real files was used: fixtures are written by hand to the formats' layo
 only, and a worker that stops or times out is not exercised in a browser; scrolling is checked by the number of cells
 drawn and the time per frame in a headless browser, not on a phone.
 
+### Notes
+
+Notes are files of the drive, so versions, sharing, quota, the journal and both modes come with it and the server
+knows nothing of them. `src/lib/notes` holds the logic, pure and tested against the fake server;
+`src/lib/state/notes.svelte.ts` follows the drive of the session as search does; the boards are in `src/lib/notes/ui`,
+at `/notes` in the app shell and `/notes/[id]` full screen.
+
+| Where | Holds |
+| --- | --- |
+| `model.ts` | What marks a node: the folder of notes (`app: "notes"` in its sealed metadata), notebooks (the folders in it, `notebook: {color}`), a note's own fields under `note` (pinned, archived, reminder, tags, daily). Titles and file names, tags, days. |
+| `notes.ts` | The folder made on first use (two devices racing make two; the oldest wins), notebooks, notes made with their first version, renames numbered on a clash, attachments, today's note, "Link it", the whole export. |
+| `parse.ts`, `index.ts`, `indexer.ts` | What a note's Markdown says (links, `#tags`, checklists and their `@YYYY-MM-DD`, pictures, text), the index of it with backlinks and unlinked mentions, and keeping it current. |
+| `list.ts`, `items.ts` | Sections, filters, counts and order of the list. |
+| `editor.ts`, `html.ts`, `export.ts`, `templates.ts`, `reminders.ts` | The editor's additions, a note as HTML, the ZIP, templates, reminders. |
+
+**Links** are written `[Title](yondrive:node/<id>)`: plain Markdown that other editors keep and show, naming the node
+by id, so renaming either note, or moving it, breaks nothing; the text is what was typed and the panel shows the
+current title. A `[[Title]]` written elsewhere is read too, by title. Pictures are `![alt](yondrive:node/<id>)` over
+a file uploaded beside the note and marked `attachment: {note}`; the editor reads it through the drive, shows only
+what its bytes say is a picture the browser may draw, and fetches nothing else. Typing `[[` offers notes and Drive
+files; `/` offers blocks; `# `, `- `, `1. `, `[] `, `> ` and three backticks at the start of a line set one.
+Callouts are GitHub's `> [!NOTE]`, a quote with a kind in the document model, which the Markdown reader and
+writer carry.
+
+**Saving** is the documents' `EditSession`: a version after a pause, on the version last seen, a copy on conflict
+(keeping the note's fields), the heartbeat and its warning. The bytes are written into the Markdown that was opened,
+so blocks the editor did not change, and what it does not model, are copied as they were. A version restored, or
+saved elsewhere, is shown when nothing here is unsaved. Pictures still uploading hold the save until they have an
+id.
+
+**The index** holds, per note and version, its links, tags, tasks, pictures, a preview and its text. After each
+change to the tree the notes whose version it has not read are read, two at a time, and what has gone is dropped;
+a save hands over the text in hand. It is kept only on the device, in IndexedDB, sealed with the search index's key
+under the id `notes-index`, and forgotten on signing out; another device builds its own. Searching words goes
+through the search index, which reads notes as it reads any Markdown; `#` filters by tag and `[[` by title.
+
+**Drive** leaves the folder of notes out of My files, favorites, recent, tags and its trash; the search palette and
+Drive's editors open what is in it, or a note shared on its own, in Notes. **Sharing** a note or a notebook is the
+share dialog's; Shared lists notes and notebooks that others shared and that say in their metadata that they are.
+
+**Reminders** are given by the open app: a timer set to the next one, or half a minute, gives each that is due once
+per device, as a toast and in the bell. One that came due while no tab was open is given at the next.
+
+**Export.** A note: its Markdown, HTML escaped throughout, printing, or a `.docx` in My files through the document
+writer, without its pictures and links to nodes. Every note: a ZIP with a folder per notebook, attachments beside
+the notes that use them, and links to notes and pictures rewritten to relative paths; a link to something not in
+the ZIP keeps its text and loses its address. Only blocks that held such a link are written again.
+
+**What is not verified.** Exports were checked by reading the ZIP back, not in other Markdown editors. Reminders were
+tested on a fake clock. The boards were checked in Chromium only.
+
 ### Single sign-on
 
 The sign-in page asks `GET /auth/methods`. With local accounts off it keeps a small way to the form, for the

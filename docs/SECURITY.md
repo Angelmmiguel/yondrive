@@ -37,6 +37,14 @@ the words a user has, and it can withhold or replay old ones. That makes results
 missing until the device has read the tree again, which it does at each unlock: the tree
 decides what is shown, and a segment only saves rereading text.
 
+Notes are Markdown files in a folder of the user's like any other, so the server sees them as
+it sees files: ids, sizes and times. It cannot tell a note from another file, or a notebook from
+a folder, as what marks them (the folder of notes, a notebook's colour, a note's pin, archive,
+reminder and tags) is sealed metadata. Links between notes are written into the sealed content
+by id. The notes index (links, tags, tasks and text, for backlinks and mentions) never reaches
+the server: it is kept in IndexedDB on the device, sealed under the search index's key and
+bound to its own id, and forgotten on signing out.
+
 It cannot see names, types, tags, dates inside metadata, or contents.
 
 ## Limits
@@ -271,6 +279,17 @@ is parsed as hostile input, on the device and never on the server.
   and never followed. A CSV field starting with `=` is text, never a formula, and values are
   written back as values, so a file saved here carries no injected formula it did not have.
   Seeded fuzz tests feed damaged `.xlsx`, `.ods`, `.xls` and CSV to every reader.
+
+- **Notes** are read by the same Markdown reader. A picture in a note is a file of the drive,
+  named by id (`yondrive:node/<id>`), read through the drive and shown only if its bytes are
+  PNG, JPEG, GIF, WebP or BMP; a picture at any other address is a placeholder and is never
+  fetched. A link to a node opens in the app and is never handed to the browser. A note saved
+  as HTML is escaped throughout, with no script or outside resource, and keeps only web, mail
+  and phone links.
+
+**Reminders** are given by the open app, on a timer: the server cannot read a reminder's time
+in end-to-end mode, and nothing is sent in either mode. Which reminders a device has given is
+kept in `localStorage` as note ids and times, nothing more.
 
 **Who is editing.** The editing heartbeat tells the server which user has which node open in an
 editor, and when. Anyone who can read the node sees the usernames of the others editing it.

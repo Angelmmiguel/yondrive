@@ -120,10 +120,25 @@ second save becomes a separate copy. To print, or to save as a PDF, use **Print*
 
 ### Notes
 
-- Markdown notes with notebooks, tags, pins and checklists
-- `[[Wiki links]]` to notes and Drive files, with backlinks
-- Slash commands, quick capture, daily notes and templates
-- Export to Markdown, PDF or HTML, or save a note to Drive as a document
+- Markdown notes with notebooks in colours, tags, pins, an archive and checklists,
+  where a task can end with a due date such as `@2026-11-20`
+- Type `[[` to link a note or a Drive file; links keep working when either is
+  renamed, and each note shows its backlinks and the notes that mention it
+  without a link, with a button to link them
+- Slash commands for headings, checklists, code, callouts, tables, pictures and
+  files; quick capture; today's note; templates, your own included (the notes
+  of a notebook called Templates)
+- Reminders, shown while YonDrive is open in a tab
+- Share a note or a notebook like any file or folder
+- Export a note as Markdown, HTML or a PDF (by printing), or save it to Drive as
+  a document; export every note as a ZIP of Markdown files in a folder per
+  notebook, with links between them and pictures that work in other editors
+
+Notes are Markdown files kept with your other files, so they have versions and
+count towards your storage, and a file edited in another Markdown editor keeps
+what Notes does not show. Pictures in a note are files beside it. Links are
+written `[Title](yondrive:node/<id>)`, which other editors show as links and
+the ZIP export turns into relative paths.
 
 ### Sharing
 
