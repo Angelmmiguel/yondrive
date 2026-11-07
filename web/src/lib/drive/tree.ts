@@ -1,0 +1,589 @@
+/**
+ * The tree as this device knows it: which nodes exist, their opened metadata and
+ * their keys. Everything goes through the `Sealer`, so the code is the same in
+ * both modes: in `none` the keys are empty strings that flow through untouched.
+ * Keys live in memory only and `stop` zeroes them.
+ */
+import type { Api } from '$lib/api/client';
+import { isApiError, type Node } from '$lib/api/types';
+import { encodeBase64, decodeBase64, type Bytes } from '$lib/crypto/encoding';
+import { normalizeName } from '$lib/crypto/metadata';
+import { zero } from '$lib/crypto/random';
+import type { Sealer, Suite, UserKeys } from '$lib/crypto/sealer';
+import { newId } from './ids';
+import {
+	nextTone,
+	parseMetadata,
+	parseRootMetadata,
+	rawMetadata,
+	type NodeMetadata,
+	type RawMetadata,
+	type TagDefinition
+} from './metadata';
+import { cleanName } from './names';
+import type { NodeOpener } from './node-opener';
+import type { OpenedNode } from './open-nodes';
+
+const PAGE = 500;
+
+export interface DriveNode extends NodeMetadata {
+	id: string;
+	parentId: string | null;
+	kind: 'file' | 'folder';
+	currentVersion: string | null;
+	thumbBlobId: string | null;
+	trashedAt: number | null;
+	purgedAt: number | null;
+	removeAt: number | null;
+	updatedAt: number;
+	/** False when its metadata could not be opened: damaged, or tampered with. */
+	readable: boolean;
+	/** The opened value, with what this client does not know, for rewriting it. */
+	raw: RawMetadata;
+}
+
+export interface TreeDeps {
+	api: Pick<
+		Api,
+		| 'getRootNode'
+		| 'createRootNode'
+		| 'createNode'
+		| 'getNode'
+		| 'updateNode'
+		| 'listChildren'
+		| 'moveNode'
+		| 'trashNode'
+		| 'restoreNode'
+		| 'purgeNode'
+		| 'listTrash'
+		| 'emptyTrash'
+	>;
+	sealer: Sealer;
+	/** The keys, or `LockedError`. */
+	keys: () => UserKeys;
+	open: NodeOpener;
+	now?: () => number;
+}
+
+const time = (value: string | undefined): number | null =>
+	value === undefined ? null : Date.parse(value);
+
+export class DriveTree {
+	readonly nodes = new Map<string, DriveNode>();
+	rootId: string | null = null;
+	tags: TagDefinition[] = [];
+	/** Told after every change, for whoever draws this. */
+	onchange: () => void = () => {};
+
+	readonly #deps: TreeDeps;
+	readonly #keys = new Map<string, Bytes>();
+	readonly #children = new Map<string, Set<string>>();
+	readonly #loaded = new Set<string>();
+	readonly #loading = new Map<string, Promise<void>>();
+	#rootRaw: RawMetadata = {};
+	#stopped = false;
+
+	constructor(deps: TreeDeps) {
+		this.#deps = deps;
+	}
+
+	get #suite(): Suite {
+		return this.#deps.sealer.suite;
+	}
+
+	#now(): number {
+		return this.#deps.now?.() ?? Date.now();
+	}
+
+	/** Zeroes every key and forgets the tree. Work still in flight then fails. */
+	stop(): void {
+		this.#stopped = true;
+		for (const key of this.#keys.values()) zero(key);
+		this.#keys.clear();
+		this.nodes.clear();
+		this.#children.clear();
+		this.#loaded.clear();
+		this.#loading.clear();
+		this.rootId = null;
+		this.tags = [];
+	}
+
+	/** Takes over `key`, unless this node already has one that callers may be holding. */
+	#remember(id: string, key: Bytes): Bytes {
+		const known = this.#keys.get(id);
+		if (known !== undefined) {
+			if (key !== known) zero(key);
+			return known;
+		}
+		if (this.#stopped) {
+			zero(key);
+			throw new Error('stopped');
+		}
+		this.#keys.set(id, key);
+		return key;
+	}
+
+	/** The root, made here if this is the first device to ask. */
+	async start(): Promise<DriveNode> {
+		const { api, sealer, keys } = this.#deps;
+		let node: Node;
+		try {
+			node = await api.getRootNode();
+		} catch (e) {
+			if (!isApiError(e, 'not_found')) throw e;
+			const id = newId();
+			const key = sealer.newNodeKey();
+			try {
+				const wrapped = sealer.wrapRootNodeKey(key, keys().masterKey, id);
+				const sealed = sealer.sealMetadata(key, id, { tags: [] });
+				// Another device may win the race, so what counts is the node that comes back.
+				node = await api.createRootNode({
+					id,
+					suite: this.#suite,
+					wrapped_key: encodeBase64(wrapped),
+					sealed_metadata: encodeBase64(sealed)
+				});
+			} finally {
+				zero(key);
+			}
+		}
+		this.#adoptRoot(node);
+		this.onchange();
+		return this.nodes.get(node.id) as DriveNode;
+	}
+
+	#adoptRoot(node: Node): void {
+		const { sealer, keys } = this.#deps;
+		const key = this.#remember(
+			node.id,
+			sealer.unwrapRootNodeKey(decodeBase64(node.wrapped_key), keys().masterKey, node.id)
+		);
+		this.rootId = node.id;
+		let opened: unknown = null;
+		// A brand new root in `none` mode may carry no metadata at all.
+		if (node.sealed_metadata !== '') {
+			opened = sealer.openMetadata(key, node.id, decodeBase64(node.sealed_metadata));
+		}
+		this.#rootRaw = rawMetadata(opened);
+		this.tags = parseRootMetadata(opened).tags;
+		this.#store(node, opened, true);
+	}
+
+	#store(node: Node, metadata: unknown, readable: boolean): DriveNode {
+		const opened = parseMetadata(metadata);
+		const parentId = node.parent_id ?? null;
+		const trashedAt = time(node.trashed_at);
+		const previous = this.nodes.get(node.id);
+		if (previous && previous.parentId !== null && previous.parentId !== parentId) {
+			this.#children.get(previous.parentId)?.delete(node.id);
+		}
+		const stored: DriveNode = {
+			...opened,
+			name: readable ? opened.name : 'Unreadable item',
+			id: node.id,
+			parentId,
+			kind: node.kind,
+			currentVersion: node.current_version ?? null,
+			thumbBlobId: node.thumb_blob_id ?? null,
+			trashedAt,
+			purgedAt: time(node.purged_at),
+			removeAt: time(node.remove_at),
+			updatedAt: Date.parse(node.updated_at),
+			readable,
+			raw: rawMetadata(metadata)
+		};
+		this.nodes.set(node.id, stored);
+		if (parentId !== null) {
+			let siblings = this.#children.get(parentId);
+			if (siblings === undefined) {
+				siblings = new Set();
+				this.#children.set(parentId, siblings);
+			}
+			if (trashedAt === null) siblings.add(node.id);
+			else siblings.delete(node.id);
+		}
+		return stored;
+	}
+
+	async #openPage(parentId: string, records: Node[]): Promise<void> {
+		if (records.length === 0) return;
+		const parentKey = await this.nodeKey(parentId);
+		const opened: OpenedNode[] = await this.#deps.open(parentKey, parentId, records);
+		const byId = new Map(opened.map((o) => [o.id, o]));
+		for (const record of records) {
+			const one = byId.get(record.id);
+			if (one?.key) this.#remember(record.id, one.key);
+			this.#store(record, one?.metadata ?? null, one?.metadata != null);
+		}
+	}
+
+	/** The key of a node, fetching whatever chain up to the root it takes to open it. */
+	async nodeKey(id: string): Promise<Bytes> {
+		const known = this.#keys.get(id);
+		if (known !== undefined) return known;
+		const node = await this.resolve(id);
+		const key = this.#keys.get(node.id);
+		if (key === undefined) throw new Error('cannot open this node');
+		return key;
+	}
+
+	/** A node, and its ancestors, known here from now on. */
+	async resolve(id: string, seen: Set<string> = new Set()): Promise<DriveNode> {
+		if (seen.has(id)) throw new Error('the tree has a cycle');
+		seen.add(id);
+		const known = this.nodes.get(id);
+		if (known !== undefined && this.#keys.has(id)) return known;
+		const node = await this.#deps.api.getNode(id);
+		if (node.parent_id === undefined) {
+			this.#adoptRoot(node);
+			return this.nodes.get(id) as DriveNode;
+		}
+		await this.resolve(node.parent_id, seen);
+		await this.#openPage(node.parent_id, [node]);
+		this.onchange();
+		return this.nodes.get(id) as DriveNode;
+	}
+
+	/** Whether this folder's list came from the server since it last changed. */
+	isLoaded(id: string): boolean {
+		return this.#loaded.has(id);
+	}
+
+	/** Reads a folder's children, page by page by id. `force` reads it again. */
+	loadFolder(id: string, force = false): Promise<void> {
+		const running = this.#loading.get(id);
+		if (running !== undefined) return running;
+		if (!force && this.#loaded.has(id)) return Promise.resolve();
+		const load = this.#readFolder(id).finally(() => this.#loading.delete(id));
+		this.#loading.set(id, load);
+		return load;
+	}
+
+	async #readFolder(id: string): Promise<void> {
+		const present = new Set<string>();
+		let cursor: string | undefined;
+		do {
+			const page = await this.#deps.api.listChildren(id, { cursor, limit: PAGE });
+			for (const node of page.nodes) present.add(node.id);
+			await this.#openPage(id, page.nodes);
+			cursor = page.next_cursor;
+			this.onchange();
+		} while (cursor !== undefined);
+		// What the server no longer lists here has moved, or gone.
+		for (const child of [...(this.#children.get(id) ?? [])]) {
+			if (!present.has(child)) this.#forget(child);
+		}
+		this.#loaded.add(id);
+		this.onchange();
+	}
+
+	/**
+	 * Reads every folder, breadth first, so that favorites, recent, tags and the
+	 * storage bar fill in. It never gets in the way: a folder someone opens is read
+	 * at once through `loadFolder`, and shared with this.
+	 */
+	async walk(signal?: AbortSignal): Promise<void> {
+		if (this.rootId === null) return;
+		const queue = [this.rootId];
+		while (queue.length > 0 && !signal?.aborted && !this.#stopped) {
+			const id = queue.shift() as string;
+			await this.loadFolder(id);
+			for (const child of this.#children.get(id) ?? []) {
+				if (this.nodes.get(child)?.kind === 'folder') queue.push(child);
+			}
+		}
+	}
+
+	/** Takes a node and what is under it out of what is known here. */
+	#forget(id: string): void {
+		for (const child of [...(this.#children.get(id) ?? [])]) this.#forget(child);
+		this.#children.delete(id);
+		this.#loaded.delete(id);
+		const parent = this.nodes.get(id)?.parentId;
+		if (parent) this.#children.get(parent)?.delete(id);
+		this.nodes.delete(id);
+	}
+
+	/** Whether anything shows for this node: a file with no version has not arrived yet. */
+	#visible(node: DriveNode | undefined): node is DriveNode {
+		return node !== undefined && (node.kind === 'folder' || node.currentVersion !== null);
+	}
+
+	/** A folder's children, in no particular order. */
+	childrenOf(id: string): DriveNode[] {
+		return [...(this.#children.get(id) ?? [])]
+			.map((child) => this.nodes.get(child))
+			.filter((node) => this.#visible(node));
+	}
+
+	/** Everything known that is not in the trash, the root aside. */
+	live(): DriveNode[] {
+		return [...this.nodes.values()].filter(
+			(node) => node.parentId !== null && node.trashedAt === null && this.#visible(node)
+		);
+	}
+
+	/** From the root down to this node. */
+	breadcrumbs(id: string): DriveNode[] {
+		const trail: DriveNode[] = [];
+		const seen = new Set<string>();
+		let at = this.nodes.get(id);
+		while (at !== undefined && !seen.has(at.id)) {
+			seen.add(at.id);
+			trail.unshift(at);
+			at = at.parentId === null ? undefined : this.nodes.get(at.parentId);
+		}
+		return trail;
+	}
+
+	/** Whether `id` is `ancestor` or under it, as far as is known here. */
+	isWithin(id: string, ancestor: string): boolean {
+		return this.breadcrumbs(id).some((node) => node.id === ancestor);
+	}
+
+	/** The child of this folder with this name, by the same rule as a name tag. */
+	async findByName(parentId: string, name: string): Promise<DriveNode | undefined> {
+		await this.loadFolder(parentId, true);
+		const wanted = normalizeName(name);
+		for (const child of this.#children.get(parentId) ?? []) {
+			const node = this.nodes.get(child);
+			if (node !== undefined && normalizeName(node.name) === wanted) return node;
+		}
+		return undefined;
+	}
+
+	/** Creates a child of a folder, under a fresh key. */
+	async #create(
+		parentId: string,
+		kind: 'file' | 'folder',
+		metadata: NodeMetadata
+	): Promise<DriveNode> {
+		const { api, sealer } = this.#deps;
+		const parentKey = await this.nodeKey(parentId);
+		const id = newId();
+		const key = sealer.newNodeKey();
+		const node = await api
+			.createNode({
+				id,
+				parent_id: parentId,
+				kind,
+				suite: this.#suite,
+				sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata)),
+				wrapped_key: encodeBase64(sealer.wrapNodeKey(key, parentKey, parentId, id)),
+				name_tag: encodeBase64(sealer.nameTag(parentKey, metadata.name))
+			})
+			.catch((e) => {
+				zero(key);
+				throw e;
+			});
+		this.#remember(id, key);
+		const stored = this.#store(node, metadata, true);
+		this.onchange();
+		return stored;
+	}
+
+	async createFolder(parentId: string, typed: string): Promise<DriveNode> {
+		const now = this.#now();
+		return this.#create(parentId, 'folder', {
+			name: cleanName(typed),
+			type: 'folder',
+			created: now,
+			modified: now,
+			size: 0,
+			tags: [],
+			favorite: false
+		});
+	}
+
+	/** The node of a file about to be uploaded. It does not show until a version commits. */
+	async createFile(
+		parentId: string,
+		file: { name: string; type: string; size: number; modified: number }
+	): Promise<DriveNode> {
+		return this.#create(parentId, 'file', {
+			name: cleanName(file.name),
+			type: file.type,
+			created: this.#now(),
+			modified: file.modified,
+			size: file.size,
+			tags: [],
+			favorite: false
+		});
+	}
+
+	/** Reads a node again, after a commit or because the journal said so. */
+	async refresh(id: string): Promise<DriveNode | undefined> {
+		let record: Node;
+		try {
+			record = await this.#deps.api.getNode(id);
+		} catch (e) {
+			if (isApiError(e, 'not_found')) {
+				this.#forget(id);
+				this.onchange();
+				return undefined;
+			}
+			throw e;
+		}
+		if (record.parent_id === undefined) {
+			this.#adoptRoot(record);
+		} else {
+			if (!this.nodes.has(record.parent_id)) await this.resolve(record.parent_id);
+			await this.#openPage(record.parent_id, [record]);
+			if (record.trashed_at !== undefined) this.#forgetChildren(id);
+		}
+		this.onchange();
+		return this.nodes.get(id);
+	}
+
+	#forgetChildren(id: string): void {
+		for (const child of [...(this.#children.get(id) ?? [])]) this.#forget(child);
+		this.#loaded.delete(id);
+	}
+
+	async #writeMetadata(node: DriveNode, patch: Partial<NodeMetadata>, nameTag?: Bytes) {
+		const { api, sealer } = this.#deps;
+		const key = await this.nodeKey(node.id);
+		const metadata = { ...node.raw, ...patch };
+		const record = await api.updateNode(node.id, {
+			suite: this.#suite,
+			sealed_metadata: encodeBase64(sealer.sealMetadata(key, node.id, metadata)),
+			name_tag: nameTag && encodeBase64(nameTag)
+		});
+		const stored = this.#store(record, metadata, true);
+		this.onchange();
+		return stored;
+	}
+
+	#need(id: string): DriveNode {
+		const node = this.nodes.get(id);
+		if (node === undefined) throw new Error('that is not loaded');
+		return node;
+	}
+
+	/** Changes fields of a node's metadata, leaving what this client does not know. */
+	patch(id: string, patch: Partial<NodeMetadata>): Promise<DriveNode> {
+		return this.#writeMetadata(this.#need(id), patch);
+	}
+
+	async rename(id: string, typed: string): Promise<DriveNode> {
+		const node = this.#need(id);
+		const name = cleanName(typed);
+		if (node.parentId === null) throw new Error('a root has no name');
+		const parentKey = await this.nodeKey(node.parentId);
+		return this.#writeMetadata(node, { name }, this.#deps.sealer.nameTag(parentKey, name));
+	}
+
+	/** Moves a node, wrapping its key and tagging its name under the new parent. */
+	async move(id: string, parentId: string): Promise<DriveNode> {
+		const { api, sealer } = this.#deps;
+		const node = this.#need(id);
+		const key = await this.nodeKey(id);
+		const parentKey = await this.nodeKey(parentId);
+		const record = await api.moveNode(id, {
+			parent_id: parentId,
+			wrapped_key: encodeBase64(sealer.wrapNodeKey(key, parentKey, parentId, id)),
+			name_tag: encodeBase64(sealer.nameTag(parentKey, node.name))
+		});
+		const stored = this.#store(record, node.raw, node.readable);
+		this.onchange();
+		return stored;
+	}
+
+	async trash(id: string): Promise<void> {
+		const record = await this.#deps.api.trashNode(id);
+		this.#forgetChildren(id);
+		const node = this.nodes.get(id);
+		if (node !== undefined) this.#store(record, node.raw, node.readable);
+		this.onchange();
+	}
+
+	/** Takes it out of the trash, which also cancels a purge. */
+	async restore(id: string): Promise<DriveNode> {
+		const record = await this.#deps.api.restoreNode(id);
+		const parentId = record.parent_id as string;
+		await this.nodeKey(parentId);
+		await this.#openPage(parentId, [record]);
+		this.#loaded.delete(id);
+		this.onchange();
+		return this.nodes.get(id) as DriveNode;
+	}
+
+	async purge(id: string): Promise<DriveNode> {
+		const record = await this.#deps.api.purgeNode(id);
+		const parentId = record.parent_id as string;
+		await this.#openPage(parentId, [record]);
+		this.onchange();
+		return this.nodes.get(id) as DriveNode;
+	}
+
+	/**
+	 * Clears the name of a file whose upload never finished: it had no content and
+	 * nobody saw it, so it stays out of the trash list until the server removes it.
+	 */
+	async discard(id: string): Promise<void> {
+		const { api } = this.#deps;
+		await api.trashNode(id);
+		await api.purgeNode(id);
+		this.#forget(id);
+		this.onchange();
+	}
+
+	/** Everything trashed in its own right, with its name opened. */
+	async listTrash(): Promise<DriveNode[]> {
+		const out: DriveNode[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = await this.#deps.api.listTrash({ cursor, limit: PAGE });
+			const byParent = new Map<string, Node[]>();
+			for (const node of page.nodes) {
+				const parentId = node.parent_id as string;
+				byParent.set(parentId, [...(byParent.get(parentId) ?? []), node]);
+			}
+			for (const [parentId, records] of byParent) {
+				await this.nodeKey(parentId);
+				await this.#openPage(parentId, records);
+				for (const record of records) {
+					const node = this.nodes.get(record.id);
+					if (node !== undefined && this.#visible(node)) out.push(node);
+				}
+			}
+			cursor = page.next_cursor;
+		} while (cursor !== undefined);
+		return out;
+	}
+
+	async emptyTrash(): Promise<number> {
+		return (await this.#deps.api.emptyTrash()).marked;
+	}
+
+	/** Adds a tag to the list on the root, or finds the one with this name. */
+	async createTag(typed: string): Promise<TagDefinition> {
+		const name = cleanName(typed);
+		const wanted = normalizeName(name);
+		const existing = this.tags.find((tag) => normalizeName(tag.name) === wanted);
+		if (existing !== undefined) return existing;
+		const tag: TagDefinition = { id: newId(), name, tone: nextTone(this.tags) };
+		await this.#writeTags([...this.tags, tag]);
+		return tag;
+	}
+
+	/** Takes a tag off the list. Files that carry it simply stop showing it. */
+	async deleteTag(id: string): Promise<void> {
+		await this.#writeTags(this.tags.filter((tag) => tag.id !== id));
+	}
+
+	async #writeTags(tags: TagDefinition[]): Promise<void> {
+		const { api, sealer } = this.#deps;
+		const id = this.rootId as string;
+		const key = await this.nodeKey(id);
+		const metadata = { ...this.#rootRaw, tags };
+		const record = await api.updateNode(id, {
+			suite: this.#suite,
+			sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata))
+		});
+		this.#rootRaw = metadata;
+		this.tags = tags;
+		this.#store(record, metadata, true);
+		this.onchange();
+	}
+}
