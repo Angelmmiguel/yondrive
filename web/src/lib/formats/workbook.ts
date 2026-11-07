@@ -168,7 +168,13 @@ export class Book {
 	display(cell: Cell | undefined): string {
 		if (!cell) return '';
 		const fmt = this.styles[cell.style]?.numFmt ?? 'General';
-		return formatValue(cell.value, fmt, { date1904: this.date1904 });
+		// A format code comes from the file: one that breaks the formatter must
+		// not take every window that shows the cell down with it.
+		try {
+			return formatValue(cell.value, fmt, { date1904: this.date1904 });
+		} catch {
+			return '#VALUE!';
+		}
 	}
 
 	addSheet(name: string, at?: number, origin: number | null = null): SheetInfo {

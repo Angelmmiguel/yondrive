@@ -441,19 +441,21 @@ function formatNumber(v: number, s: Section, showSign: boolean): string {
 		pointAt >= 0
 			? (toks.slice(pointAt + 1, decEnd).filter((t) => t.t === 'digit') as { c: '0' | '#' | '?' }[])
 			: [];
+	// toFixed takes at most 100 digits; placeholders past them show zeros.
+	const places = Math.min(decPh.length, 100);
 	if (expAt >= 0 && x !== 0) {
 		const step = intPh.length > 1 && intPh.some((p) => p.c === '#') ? intPh.length : 1;
 		exponent = Math.floor(Math.log10(x));
 		exponent = Math.floor(exponent / step) * step;
 		x = x / 10 ** exponent;
-		const r = roundDecimal(x, decPh.length);
+		const r = roundDecimal(x, places);
 		if (r >= 10 ** step) {
 			exponent += step;
 			x /= 10 ** step;
 		}
 	}
-	const rounded = roundDecimal(x, decPh.length);
-	const fixed = rounded.toFixed(decPh.length);
+	const rounded = roundDecimal(x, places);
+	const fixed = rounded.toFixed(places);
 	const [ip, fp = ''] = fixed.split('.');
 	let intDigits = ip === '0' && !intPh.some((p) => p.c === '0') ? '' : ip;
 	if (intPh.length === 0) intDigits = '';

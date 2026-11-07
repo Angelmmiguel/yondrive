@@ -110,3 +110,12 @@ describe('rounding', () => {
 		expect(formatGeneral(0.1 + 0.2)).toBe('0.3');
 	});
 });
+
+describe('long formats', () => {
+	it('shows more than 100 decimal placeholders without throwing', () => {
+		const code = `0.${'0'.repeat(150)}`;
+		const out = formatValue(1.5, code);
+		expect(out).toBe(`1.5${'0'.repeat(149)}`);
+		expect(formatValue(1.5, `${code}E+00`)).toBe(`1.5${'0'.repeat(149)}E+00`);
+	});
+});

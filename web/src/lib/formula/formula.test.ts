@@ -185,6 +185,7 @@ const TABLE: Row[] = [
 	['CONCATENATE("a","b",1)', 'ab1'],
 	['TEXT(1234.567,"#,##0.00")', '1,234.57'],
 	['TEXT(0.256,"0.0%")', '25.6%'],
+	[`TEXT(1.5,"0.${'0'.repeat(120)}")`, `1.5${'0'.repeat(119)}`],
 	['TEXT(45292,"yyyy-mm-dd")', '2024-01-01'],
 	['TEXT(45292,"dddd, mmmm d, yyyy")', 'Monday, January 1, 2024'],
 	['TEXT(0.5,"h:mm AM/PM")', '12:00 PM'],
