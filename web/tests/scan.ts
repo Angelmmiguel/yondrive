@@ -6,9 +6,25 @@ import type { Page } from '@playwright/test';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-/** The forms a string could be found in: as it is, and in the API's encoding. */
+/**
+ * The forms a string could be found in: as it is, percent-encoded, and in the
+ * API's base64 at each of the three alignments it can have inside a longer
+ * encoded value (and in its URL-safe alphabet). Only the characters a neighbour
+ * cannot change are kept for the shifted ones.
+ */
 function needles(text: string): Buffer[] {
-	return [Buffer.from(text), Buffer.from(Buffer.from(text).toString('base64'))];
+	const bytes = Buffer.from(text);
+	const found = new Set<string>([text, encodeURIComponent(text)]);
+	for (const lead of [0, 1, 2]) {
+		const encoded = Buffer.concat([Buffer.alloc(lead), bytes])
+			.toString('base64')
+			.replace(/=+$/, '');
+		const whole = (lead + bytes.length) % 3 === 0;
+		const stable = encoded.slice(Math.ceil((lead * 8) / 6), whole ? undefined : -1);
+		found.add(stable);
+		found.add(stable.replaceAll('+', '-').replaceAll('/', '_'));
+	}
+	return [...found].filter((s) => s !== '').map((s) => Buffer.from(s));
 }
 
 /** Which of `secrets` appear in `haystack`, named by their keys. */
@@ -29,11 +45,13 @@ export async function scanDir(dir: string, secrets: Record<string, string>): Pro
 	return hits;
 }
 
-/** Collects the address and body of every request a page sends from now on. */
+/** Collects the address, headers and body of every request a page sends from now on. */
 export function captureRequests(page: Page): string[] {
 	const sent: string[] = [];
 	page.on('request', (request) => {
-		sent.push(`${request.method()} ${request.url()}\n${request.postData() ?? ''}`);
+		sent.push(
+			`${request.method()} ${request.url()}\n${JSON.stringify(request.headers())}\n${request.postData() ?? ''}`
+		);
 	});
 	return sent;
 }
