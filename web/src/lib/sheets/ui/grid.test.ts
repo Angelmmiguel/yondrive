@@ -4,7 +4,7 @@ import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipbo
 import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
-import { cellLook } from './style';
+import { cellLook, DRAWN_CHARS, drawnText } from './style';
 import { DISTINCT_LIMIT, distinctValues, hiddenRows, statsOf } from './summary';
 import type { CellView } from '../service';
 import { DEFAULT_STYLE } from '$lib/formats/workbook';
@@ -360,6 +360,13 @@ describe('a hostile column for the filter', () => {
 });
 
 describe('cell styles', () => {
+	it('draws no more of a long text than a cell can show', () => {
+		const long = 'x'.repeat(32_767);
+		expect(drawnText(long, false)).toHaveLength(DRAWN_CHARS.line);
+		expect(drawnText(long, true)).toHaveLength(DRAWN_CHARS.wrapped);
+		expect(drawnText('short', false)).toBe('short');
+	});
+
 	it('lets only safe values through, and keeps text readable on fills', () => {
 		const s = structuredClone(DEFAULT_STYLE);
 		s.font = { name: 'Arial"; background:url(x)', bold: true, color: '#000000' };

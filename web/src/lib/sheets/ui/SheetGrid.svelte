@@ -49,7 +49,7 @@
 		type Pos,
 		type Selection
 	} from './selection';
-	import { cellLook } from './style';
+	import { cellLook, drawnText } from './style';
 
 	interface Props {
 		/** The file's id, which the clipboard memory is kept for. */
@@ -258,7 +258,7 @@
 				spill++;
 			}
 		}
-		return { text: v?.text ?? '', ...look, view: v, spill };
+		return { text: drawnText(v?.text ?? '', look.wrap), ...look, view: v, spill };
 	}
 
 	function flagsOf(v: CellView | undefined): string {

@@ -60,6 +60,19 @@ export interface CellLook {
 	wrap: boolean;
 }
 
+/**
+ * The most characters a cell lays out: more than any screen shows on one line,
+ * or in a wrapped cell of the tallest height. A cell may hold 32,767, and a
+ * screenful of those would stall the page.
+ */
+export const DRAWN_CHARS = { line: 2_000, wrapped: 20_000 };
+
+/** The part of a cell's text worth drawing. */
+export function drawnText(text: string, wrap: boolean): string {
+	const max = wrap ? DRAWN_CHARS.wrapped : DRAWN_CHARS.line;
+	return text.length > max ? text.slice(0, max) : text;
+}
+
 const looks = new WeakMap<CellStyle, Map<string, CellLook>>();
 
 export function cellLook(style: CellStyle | undefined, value: Scalar | undefined): CellLook {
