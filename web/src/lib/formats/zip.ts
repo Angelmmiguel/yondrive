@@ -8,6 +8,28 @@ const SIG_EOCD = 0x06054b50;
 
 export class ZipError extends Error {}
 
+/**
+ * Bounds on an archive nobody has vouched for. Declared sizes are checked before
+ * anything is inflated, and inflating stops as soon as an entry passes its own
+ * declared size, so a small file cannot unpack into gigabytes.
+ */
+export interface ZipLimits {
+	entries: number;
+	/** Uncompressed bytes of one entry. */
+	entrySize: number;
+	/** Uncompressed bytes of all entries together. */
+	totalSize: number;
+	/** Uncompressed to compressed, for entries over a mebibyte. */
+	ratio: number;
+}
+
+export const ZIP_LIMITS: ZipLimits = {
+	entries: 4096,
+	entrySize: 128 * 1024 * 1024,
+	totalSize: 512 * 1024 * 1024,
+	ratio: 200
+};
+
 export interface ZipEntry {
 	name: string;
 	/** 0 stored, 8 deflate. */
@@ -30,7 +52,11 @@ export interface ZipArchive {
 }
 
 /** A replacement or addition. Replacing keeps the entry's position. */
-export type ZipChange = { name: string; data: Uint8Array };
+export type ZipChange = {
+	name: string;
+	data: Uint8Array;
+	/** Without compression. */ store?: boolean;
+};
 
 const crcTable = (() => {
 	const t = new Uint32Array(256);
@@ -48,7 +74,11 @@ export function crc32(data: Uint8Array): number {
 	return (c ^ 0xffffffff) >>> 0;
 }
 
-async function pump(stream: TransformStream<Uint8Array, Uint8Array>, input: Uint8Array) {
+async function pump(
+	stream: TransformStream<Uint8Array, Uint8Array>,
+	input: Uint8Array,
+	limit = Infinity
+) {
 	const writer = stream.writable.getWriter();
 	const reader = stream.readable.getReader();
 	const write = async () => {
@@ -57,13 +87,19 @@ async function pump(stream: TransformStream<Uint8Array, Uint8Array>, input: Uint
 	};
 	const read = async () => {
 		const chunks: Uint8Array[] = [];
+		let size = 0;
 		for (;;) {
 			const { value, done } = await reader.read();
 			if (done) return chunks;
+			size += value.length;
+			if (size > limit) {
+				void reader.cancel().catch(() => {});
+				throw new ZipError('entry is larger than it says');
+			}
 			chunks.push(value);
 		}
 	};
-	const [, chunks] = await Promise.all([write(), read()]);
+	const [, chunks] = await Promise.all([write().catch(() => {}), read()]);
 	const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
 	let o = 0;
 	for (const c of chunks) {
@@ -75,21 +111,25 @@ async function pump(stream: TransformStream<Uint8Array, Uint8Array>, input: Uint
 
 export const deflateRaw = (data: Uint8Array) =>
 	pump(new CompressionStream('deflate-raw') as TransformStream<Uint8Array, Uint8Array>, data);
-export const inflateRaw = (data: Uint8Array) =>
-	pump(new DecompressionStream('deflate-raw') as TransformStream<Uint8Array, Uint8Array>, data);
+export const inflateRaw = (data: Uint8Array, limit = Infinity) =>
+	pump(
+		new DecompressionStream('deflate-raw') as TransformStream<Uint8Array, Uint8Array>,
+		data,
+		limit
+	);
 
 /** Returns the uncompressed bytes of an entry, checking its CRC. */
 export async function entryData(e: ZipEntry): Promise<Uint8Array> {
 	let out: Uint8Array;
 	if (e.method === 0) out = e.compressed;
-	else if (e.method === 8) out = await inflateRaw(e.compressed);
+	else if (e.method === 8) out = await inflateRaw(e.compressed, e.size);
 	else throw new ZipError(`unsupported compression method ${e.method}`);
 	if (out.length !== e.size || crc32(out) !== e.crc32)
 		throw new ZipError(`bad checksum: ${e.name}`);
 	return out;
 }
 
-export function readZip(buf: Uint8Array): ZipArchive {
+export function readZip(buf: Uint8Array, limits: ZipLimits = ZIP_LIMITS): ZipArchive {
 	const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
 	let eocd = -1;
 	for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 0xffff); i--) {
@@ -105,6 +145,7 @@ export function readZip(buf: Uint8Array): ZipArchive {
 	if (count === 0xffff || cdOffset === 0xffffffff || cdSize === 0xffffffff) {
 		throw new ZipError('zip64 is not supported');
 	}
+	if (count > limits.entries) throw new ZipError('too many entries');
 	const dec = new TextDecoder('utf-8', { fatal: false });
 	const raw: { e: Omit<ZipEntry, 'local' | 'compressed'>; offset: number }[] = [];
 	let p = cdOffset;
@@ -130,6 +171,14 @@ export function readZip(buf: Uint8Array): ZipArchive {
 		});
 		p = end;
 	}
+	let total = 0;
+	for (const { e } of raw) {
+		total += e.size;
+		if (e.size > limits.entrySize || total > limits.totalSize) throw new ZipError('too large');
+		if (e.size > 1024 * 1024 && e.size > e.compressedSize * limits.ratio) {
+			throw new ZipError(`compressed too far: ${e.name}`);
+		}
+	}
 	// A record runs up to the next record or the directory, which also takes in
 	// a trailing data descriptor.
 	const starts = raw.map((r) => r.offset).sort((a, b) => a - b);
@@ -147,16 +196,24 @@ export function readZip(buf: Uint8Array): ZipArchive {
 		};
 	});
 	const byName = new Map(entries.map((e) => [e.name, e]));
+	if (byName.size !== entries.length) throw new ZipError('duplicate entry names');
 	return { entries, get: (n) => byName.get(n) };
 }
 
-function localHeader(name: Uint8Array, utf8: boolean, crc: number, csize: number, size: number) {
+function localHeader(
+	name: Uint8Array,
+	utf8: boolean,
+	crc: number,
+	csize: number,
+	size: number,
+	method: number
+) {
 	const h = new Uint8Array(30 + name.length);
 	const v = new DataView(h.buffer);
 	v.setUint32(0, SIG_LOCAL, true);
 	v.setUint16(4, 20, true);
 	v.setUint16(6, utf8 ? 0x800 : 0, true);
-	v.setUint16(8, 8, true);
+	v.setUint16(8, method, true);
 	v.setUint16(10, 0, true);
 	v.setUint16(12, 0x21, true); // 1980-01-01
 	v.setUint32(14, crc, true);
@@ -198,11 +255,11 @@ export async function writeZip(
 		central.push(cd);
 		offset += local.length;
 	};
-	const build = async (name: string, data: Uint8Array) => {
+	const build = async (name: string, data: Uint8Array, store = false) => {
 		const nameBytes = enc.encode(name);
 		const utf8 = nameBytes.some((b) => b > 0x7f);
-		const comp = await deflateRaw(data);
-		const h = localHeader(nameBytes, utf8, crc32(data), comp.length, data.length);
+		const comp = store ? data : await deflateRaw(data);
+		const h = localHeader(nameBytes, utf8, crc32(data), comp.length, data.length, store ? 0 : 8);
 		const cd = centralRecord(h, offset);
 		const rec = new Uint8Array(h.length + comp.length);
 		rec.set(h);
@@ -213,14 +270,14 @@ export async function writeZip(
 		const change = pending.get(e.name);
 		if (change) {
 			pending.delete(e.name);
-			await build(e.name, change.data);
+			await build(e.name, change.data, change.store ?? e.method === 0);
 		} else {
 			const cd = e.central.slice();
 			new DataView(cd.buffer).setUint32(42, offset, true);
 			push(e.local, cd);
 		}
 	}
-	for (const c of pending.values()) await build(c.name, c.data);
+	for (const c of pending.values()) await build(c.name, c.data, c.store);
 	const cdSize = central.reduce((n, c) => n + c.length, 0);
 	const end = new Uint8Array(22);
 	const v = new DataView(end.buffer);
