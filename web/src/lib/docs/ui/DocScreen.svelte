@@ -37,7 +37,8 @@
 		type Notice,
 		type SaveFormat
 	} from '$lib/formats/document';
-	import { plainText, safeHref } from '$lib/formats/model';
+	import { safeHref } from '$lib/formats/model';
+	import { countWords } from '../words';
 	import { canChangePlace, canWrite, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { search } from '$lib/state/search.svelte';
@@ -229,7 +230,7 @@
 					rev++;
 					if (changed) {
 						docSession?.changed();
-						countWords();
+						updateWordsSoon();
 					}
 				},
 				onBlocked: () =>
@@ -245,7 +246,7 @@
 				onSave: () => void docSession?.flush(),
 				onFind: () => (findOpen = true)
 			});
-			countWords();
+			updateWords();
 			presence.start(found.id, canWrite(found));
 			void loadVersions();
 		} catch (e) {
@@ -255,12 +256,15 @@
 	}
 
 	let wordTimer: ReturnType<typeof setTimeout> | null = null;
-	function countWords() {
+	function updateWords() {
 		if (wordTimer !== null) clearTimeout(wordTimer);
-		wordTimer = setTimeout(() => {
-			const text = view ? plainText({ blocks: fromDoc(view.state.doc) }) : '';
-			words = text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
-		}, 250);
+		wordTimer = null;
+		words = view ? countWords(fromDoc(view.state.doc)) : 0;
+	}
+	/** While typing, the count waits for a pause; a document just opened is counted at once. */
+	function updateWordsSoon() {
+		if (wordTimer !== null) clearTimeout(wordTimer);
+		wordTimer = setTimeout(updateWords, 250);
 	}
 
 	async function loadVersions() {

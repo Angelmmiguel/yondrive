@@ -256,6 +256,8 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.setViewportSize({ width: 390, height: 844 });
 			try {
 				await openDoc(page, `sample-${mode}.docx`);
+				// Counted when the document opens, not at the first edit.
+				expect(await page.getByTestId('word-count').textContent()).toMatch(/^[1-9]\d* words$/);
 				const outline = page.getByRole('navigation', { name: 'Outline' });
 				const details = page.getByRole('complementary', { name: 'Document details' });
 				const scrim = page.getByRole('button', { name: 'Close the panel' });
