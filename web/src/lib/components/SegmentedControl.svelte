@@ -81,4 +81,9 @@
 		color: var(--text-strong);
 		box-shadow: var(--shadow-sm);
 	}
+
+	/* The pressed one's shadow must not hide where the focus is. */
+	.seg:focus-visible {
+		box-shadow: var(--focus-ring);
+	}
 </style>

@@ -74,6 +74,7 @@
 		gap: 6px;
 		padding: 14px 6px;
 		background: var(--surface-rail);
+		--focus-ring: var(--focus-ring-rail);
 	}
 
 	.logo {

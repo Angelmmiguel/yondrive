@@ -93,6 +93,12 @@ test.describe.serial('from the keyboard', () => {
 		await server.stop();
 	});
 
+	/** Two frames on, so that a style the focus started has been drawn. */
+	const settled = (p: Page) =>
+		p.evaluate(
+			() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)))
+		);
+
 	/** The outline or ring the focused element draws, in pixels; 0 for none. */
 	const focusRing = (p: Page) =>
 		p.evaluate(() => {
@@ -126,6 +132,7 @@ test.describe.serial('from the keyboard', () => {
 		const stops: { name: string; ring: number; region: string }[] = [];
 		for (let i = 0; i < 60; i++) {
 			await page.keyboard.press('Tab');
+			await settled(page);
 			const ring = await focusRing(page);
 			const where = await page.evaluate(() => {
 				const el = document.activeElement as HTMLElement;
@@ -247,6 +254,58 @@ test.describe.serial('from the keyboard', () => {
 		await expect(page.getByTestId('save-status')).toHaveText('Saved', { timeout: 30_000 });
 		await page.goBack();
 		await expect(page.getByTestId('storage')).toBeVisible();
+	});
+
+	test('the focus ring and the edges of fields stand out 3:1 in both themes', async () => {
+		await page.goto(server.url);
+		await expect(page.getByTestId('storage')).toBeVisible();
+		for (const theme of ['light', 'dark']) {
+			await page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
+			const low: string[] = [];
+			for (let i = 0; i < 15; i++) {
+				await page.keyboard.press('Tab');
+				await settled(page);
+				const found = await page.evaluate(() => {
+					const rgb = (c: string) => (c.match(/[\d.]+/g) ?? []).slice(0, 4).map(Number);
+					const lum = ([r, g, b]: number[]) => {
+						const f = (v: number) => {
+							const s = v / 255;
+							return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+						};
+						return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+					};
+					const ratio = (a: number[], b: number[]) => {
+						const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+						return (x + 0.05) / (y + 0.05);
+					};
+					const behind = (el: Element | null): number[] => {
+						for (let p = el; p; p = p.parentElement) {
+							const c = rgb(getComputedStyle(p).backgroundColor);
+							if (c.length === 3 || c[3] === 1) return c.slice(0, 3);
+						}
+						return [255, 255, 255];
+					};
+					const el = document.activeElement as HTMLElement;
+					const ring = /rgba?\([^)]*\)/.exec(getComputedStyle(el).boxShadow)?.[0];
+					const out: string[] = [];
+					const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 20);
+					if (ring) {
+						const r = ratio(rgb(ring), behind(el.parentElement));
+						if (r < 3) out.push(`focus on ${name} ${r.toFixed(2)}:1`);
+					}
+					for (const field of document.querySelectorAll('input[type=search], input[type=text]')) {
+						const s = getComputedStyle(field);
+						if (s.borderTopWidth === '0px' || field.getBoundingClientRect().width === 0) continue;
+						const r = ratio(rgb(s.borderTopColor), behind(field.parentElement));
+						if (r < 3) out.push(`edge of ${field.getAttribute('aria-label')} ${r.toFixed(2)}:1`);
+					}
+					return out;
+				});
+				low.push(...found);
+			}
+			expect([...new Set(low)], theme).toEqual([]);
+		}
+		await page.evaluate(() => delete document.documentElement.dataset.theme);
 	});
 
 	test('motion stops when the system asks for less of it', async () => {

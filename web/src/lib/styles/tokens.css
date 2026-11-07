@@ -156,6 +156,8 @@
 	/* Semantic: borders. */
 	--border: light-dark(var(--n-6), var(--d-6));
 	--border-strong: light-dark(var(--n-7), var(--d-7));
+	/* What marks out a field to type in: 3:1 against the surfaces it sits on. */
+	--border-field: light-dark(var(--n-9), var(--d-8));
 	--divider: light-dark(var(--n-5), #222328);
 
 	/* Semantic: the accent and the primary action. */
@@ -257,7 +259,10 @@
 	--shadow-ink: light-dark(rgb(24 24 27 / 0.25), rgb(0 0 0 / 0.55));
 	--shadow-sm: 0 1px 2px var(--shadow-ink), 0 0 0 1px var(--border);
 	--shadow-lg: 0 8px 20px -12px var(--shadow-ink);
-	--focus-ring: 0 0 0 3px var(--accent-ring);
+	/* A solid accent edge for 3:1 against any surface, inside the soft halo of the boards. */
+	--focus-ring: 0 0 0 2px var(--accent), 0 0 0 4px var(--accent-ring);
+	/* The same on the rail, which is dark in both themes. */
+	--focus-ring-rail: 0 0 0 2px var(--blue-300), 0 0 0 4px var(--blue-850);
 
 	/* Type. Fonts are self-hosted by app.css. */
 	--font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;

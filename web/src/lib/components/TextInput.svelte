@@ -26,7 +26,7 @@
 		width: 100%;
 		height: 42px;
 		padding: 0 12px;
-		border: 1px solid var(--border-strong);
+		border: 1px solid var(--border-field);
 		border-radius: 10px;
 		background: var(--surface);
 		color: var(--text-strong);
