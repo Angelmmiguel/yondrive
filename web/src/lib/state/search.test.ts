@@ -79,12 +79,10 @@ describe('search state', () => {
 		const { state, core, cache, stop } = wired();
 		await cache.put('s', new Uint8Array(1));
 		state.attach(core, sealer, new Uint8Array(32), 'u');
-		state.detach();
+		const forget = state.detach();
 		expect(stop).toHaveBeenCalled();
 		expect(cache.items.size).toBe(1);
-
-		state.attach(core, sealer, new Uint8Array(32), 'u');
-		state.detach(true);
-		await vi.waitFor(() => expect(cache.items.size).toBe(0));
+		await forget();
+		expect(cache.items.size).toBe(0);
 	});
 });

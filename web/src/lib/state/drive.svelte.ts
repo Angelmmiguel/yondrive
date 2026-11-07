@@ -186,7 +186,12 @@ export class DriveState {
 		for (const stop of this.#stops) stop();
 		this.#stops = [];
 		sharing.detach();
-		search.detach(session.status === 'signed-out');
+		const forget = search.detach();
+		// This runs as an effect's teardown, which reads the state from before: a moment
+		// later the session says what really happened.
+		queueMicrotask(() => {
+			if (session.status === 'signed-out') void forget();
+		});
 		this.core?.stop();
 		this.core = null;
 		this.status = 'idle';

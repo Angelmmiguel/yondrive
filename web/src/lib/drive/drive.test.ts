@@ -279,6 +279,8 @@ describe('uploads the server holds', () => {
 			const fixture = wired(suite);
 			const { drive, server } = fixture;
 			const file = await withFile(fixture, patterned(10));
+			// Nothing this tab has in hand: its own upload is done, and cleared.
+			drive.queue.clearFinished();
 			expect(await drive.strayUploads()).toEqual([]);
 
 			const created = await server.api.createUpload({

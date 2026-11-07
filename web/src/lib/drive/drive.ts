@@ -207,12 +207,14 @@ export class Drive {
 	async strayUploads(): Promise<StrayUpload[]> {
 		const { api } = this.#deps;
 		const known = this.queue.knownUploads;
+		// A file this tab is busy with, or has just cancelled while its abort is on the way.
+		const handled = new Set(this.queue.items.map((item) => item.nodeId));
 		const strays: StrayUpload[] = [];
 		let cursor: string | undefined;
 		do {
 			const page = await api.listUploads({ cursor });
 			for (const upload of page.uploads) {
-				if (known.has(upload.id)) continue;
+				if (known.has(upload.id) || handled.has(upload.node_id)) continue;
 				const node = await this.tree.resolve(upload.node_id).catch(() => undefined);
 				strays.push({
 					...upload,

@@ -88,17 +88,21 @@ export class SearchState {
 		void this.#service?.fileCommitted(id, blob);
 	}
 
-	/** A lock or sign-out. On signing out, this device forgets its copy too. */
-	detach(signedOut = false): void {
+	/**
+	 * A lock or sign-out: the index goes. Returns what forgets this device's copy as well,
+	 * for a sign-out, which a lock keeps for the next unlock.
+	 */
+	detach(): () => Promise<void> {
 		if (this.#timer !== null) clearTimeout(this.#timer);
 		this.#timer = null;
 		this.#asked++;
-		if (signedOut) void this.#service?.forget().catch(() => {});
-		this.#service?.stop();
+		const service = this.#service;
+		service?.stop();
 		this.#service = null;
 		this.open = false;
 		this.status = IDLE;
 		this.reset();
+		return () => service?.forget().catch(() => {}) ?? Promise.resolve();
 	}
 
 	/** Forgets the question and the answer. */
