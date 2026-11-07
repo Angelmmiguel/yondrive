@@ -279,6 +279,39 @@ describe('odt', () => {
 		expect(new Set(paths).size).toBe(paths.length);
 	});
 
+	it('gives new text a span style of others only when it says no more than its marks', async () => {
+		const saved = await writeOdt({
+			blocks: [
+				{ type: 'paragraph', style: 'normal', content: [{ type: 'text', text: 'x', marks: {} }] }
+			],
+			images: {}
+		});
+		const xml = (await content(saved))
+			.replace(
+				/<office:automatic-styles\/>|<office:automatic-styles>[\s\S]*?<\/office:automatic-styles>/,
+				'<office:automatic-styles>' +
+					'<style:style style:name="B" style:family="text"><style:text-properties fo:font-weight="bold" style:font-weight-asian="bold"/></style:style>' +
+					'<style:style style:name="Sup" style:family="text"><style:text-properties fo:font-style="italic" style:text-position="super 58%"/></style:style>' +
+					'</office:automatic-styles>'
+			)
+			.replace(
+				/<text:p [^>]*>x<\/text:p>/,
+				'<text:p text:style-name="Standard"><text:span text:style-name="B">bold </text:span><text:span text:style-name="Sup">sup</text:span></text:p>'
+			);
+		const bytes = await writeZip(readZip(saved), [{ name: 'content.xml', data: enc.encode(xml) }]);
+		const { model } = await readOdt(bytes);
+		paras(model)[0].content.push(
+			{ type: 'text', text: ' more bold', marks: { bold: true } },
+			{ type: 'text', text: ' more italic', marks: { italic: true } }
+		);
+		const out = await content(await writeOdt(model, bytes));
+		expect(out.split('text:style-name="B"').length).toBe(3);
+		expect(out.split('text:style-name="Sup"').length).toBeLessThanOrEqual(2);
+		expect(textOf(paras((await readOdt(await writeOdt(model, bytes))).model)[0])).toBe(
+			'bold sup more bold more italic'
+		);
+	});
+
 	it('makes a template that reads back empty', async () => {
 		expect((await readOdt(await odtTemplate())).model.blocks).toEqual([]);
 	});

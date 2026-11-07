@@ -66,6 +66,31 @@ const GAPS = new Set([
 	'text:bookmark-start',
 	'text:bookmark-end'
 ]);
+/** Text properties the marks stand for, with their Asian and complex-script twins. */
+const MARK_PROPS = new Set([
+	'fo:font-weight',
+	'fo:font-style',
+	'fo:font-family',
+	'fo:font-size',
+	'fo:color',
+	'fo:background-color',
+	'style:use-window-font-color',
+	'style:font-family-generic',
+	'style:font-pitch',
+	'officeooo:rsid',
+	'officeooo:paragraph-rsid',
+	...['underline', 'line-through'].flatMap((d) =>
+		['style', 'type', 'width', 'color', 'mode'].map((p) => `style:text-${d}-${p}`)
+	),
+	...['', '-asian', '-complex'].flatMap((s) => [
+		`style:font-name${s}`,
+		`style:font-weight${s}`,
+		`style:font-style${s}`,
+		`style:font-size${s}`,
+		`style:font-family${s}`
+	])
+]);
+
 const ANCHORS = new Set([
 	'text:bookmark',
 	'text:bookmark-start',
@@ -116,7 +141,8 @@ type Source =
 			tag: string;
 			styleName?: string;
 			anchors: string;
-			spans: Map<string, string>;
+			/** Span styles by the key of the marks they give, if every such span had the same; null to make one. */
+			spans: Map<string, string | null>;
 			unit: number;
 			checkByText: boolean;
 	  }
@@ -520,8 +546,8 @@ class Reader {
 		const styleName = el.attrs['text:style-name'];
 		const content: Inline[] = [];
 		const anchors: string[] = [];
-		const spans = new Map<string, string>();
-		const walk = async (e: XElement, marks: Marks) => {
+		const spans = new Map<string, string | null>();
+		const walk = async (e: XElement, marks: Marks, inSpan = false) => {
 			for (const c of e.children) {
 				if (!isElement(c)) {
 					content.push({ type: 'text', text: c.text.replace(/[ \t\r\n]+/g, ' '), marks });
@@ -529,16 +555,27 @@ class Reader {
 				}
 				switch (c.name) {
 					case 'text:span': {
-						const m = this.#marks(c.attrs['text:style-name'], marks);
+						const name = c.attrs['text:style-name'];
+						const m = this.#marks(name, marks);
 						const key = spanKey(m);
-						if (c.attrs['text:style-name'] && key !== '{}' && !spans.has(key)) {
-							spans.set(key, c.attrs['text:style-name']);
+						// Other text with these marks takes this style only if it holds nothing the
+						// marks do not say, such as a superscript or hidden text, nor anything from
+						// a span around it, and no span with the same marks has another style.
+						const own =
+							name !== undefined &&
+							!inSpan &&
+							this.#chain(name).every((s) => Object.keys(s.props).every((p) => MARK_PROPS.has(p)))
+								? name
+								: null;
+						if (key !== '{}') {
+							if (!spans.has(key)) spans.set(key, own);
+							else if (spans.get(key) !== own) spans.set(key, null);
 						}
-						await walk(c, m);
+						await walk(c, m, true);
 						break;
 					}
 					case 'text:a':
-						await walk(c, { ...marks, link: c.attrs['xlink:href'] ?? '' });
+						await walk(c, { ...marks, link: c.attrs['xlink:href'] ?? '' }, inSpan);
 						break;
 					case 'text:s':
 						content.push({
@@ -950,7 +987,11 @@ const ALIGN: Record<Align, string> = {
 	justify: 'justify'
 };
 
-function genInlines(content: readonly Inline[], w: Writer, spans?: Map<string, string>): string {
+function genInlines(
+	content: readonly Inline[],
+	w: Writer,
+	spans?: Map<string, string | null>
+): string {
 	let out = '';
 	let i = 0;
 	while (i < content.length) {
@@ -993,7 +1034,7 @@ function genText(text: string): string {
 	return out;
 }
 
-function genInline(it: Inline, w: Writer, spans?: Map<string, string>): string {
+function genInline(it: Inline, w: Writer, spans?: Map<string, string | null>): string {
 	if (it.type === 'break') return '<text:line-break/>';
 	if (it.type === 'image') return genImage(it, w);
 	const style = spans?.get(spanKey(it.marks)) ?? w.textStyle(it.marks);

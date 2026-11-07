@@ -321,6 +321,52 @@ describe('docx', () => {
 		});
 	});
 
+	/** A document whose one paragraph is `p`. */
+	async function withParagraph(p: string): Promise<Uint8Array> {
+		const saved = await writeDocx({
+			blocks: [
+				{ type: 'paragraph', style: 'normal', content: [{ type: 'text', text: 'x', marks: {} }] }
+			],
+			images: {}
+		});
+		const xml = (await part(saved, 'word/document.xml')).replace(/<w:p[ >][\s\S]*?<\/w:p>/, p);
+		return writeZip(readZip(saved), [
+			{ name: 'word/document.xml', data: new TextEncoder().encode(xml) }
+		]);
+	}
+
+	it('gives new text the run properties of others only when they say no more than its marks', async () => {
+		const bytes = await withParagraph(
+			'<w:p><w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>bold </w:t></w:r>' +
+				'<w:r><w:rPr><w:i/><w:vertAlign w:val="superscript"/></w:rPr><w:t>sup</w:t></w:r>' +
+				'<w:r><w:rPr><w:u w:val="single"/><w:lang w:val="fr-FR"/></w:rPr><w:t> un</w:t></w:r>' +
+				'<w:r><w:rPr><w:u w:val="single"/></w:rPr><w:t>der</w:t></w:r></w:p>'
+		);
+		const { model } = await readDocx(bytes);
+		const p = paras(model)[0];
+		p.content.push(
+			{ type: 'text', text: ' more bold', marks: { bold: true } },
+			{ type: 'text', text: ' more italic', marks: { italic: true } }
+		);
+		const xml = await part(await writeDocx(model, bytes), 'word/document.xml');
+		// The bold run's properties say only what the mark does, so new bold text takes them.
+		expect(xml.split('<w:rPr><w:b/><w:bCs/></w:rPr>').length).toBe(3);
+		// A superscript or a language is never carried to other text.
+		expect(xml.split('superscript').length).toBeLessThanOrEqual(2);
+		expect(xml.split('fr-FR').length).toBeLessThanOrEqual(2);
+		const back = paras((await readDocx(await writeDocx(model, bytes))).model)[0];
+		expect(textOf(back)).toBe('bold sup under more bold more italic');
+	});
+
+	it('locks a paragraph whose runs hold what the editor would drop', async () => {
+		for (const inner of ['<w:pgNum/>', '<w:footnoteRef/>', '<w:separator/>', '<w:dayLong/>']) {
+			const bytes = await withParagraph(`<w:p><w:r><w:t>Page </w:t>${inner}</w:r></w:p>`);
+			const { model } = await readDocx(bytes);
+			expect(model.blocks[0], inner).toMatchObject({ type: 'locked' });
+			expect(await writeDocx(model, bytes)).toEqual(bytes);
+		}
+	});
+
 	it('makes a minimal document that reads back empty', async () => {
 		const t = await docxTemplate();
 		expect((await readDocx(t)).model.blocks).toEqual([]);

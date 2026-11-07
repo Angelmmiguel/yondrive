@@ -104,6 +104,33 @@ const LOCKING: Record<string, string> = {
 	'w:contentPart': 'Ink'
 };
 
+/** Run properties the marks stand for, with their complex-script twins. */
+const MARK_PROPS = new Set([
+	'w:rStyle',
+	'w:rFonts',
+	'w:b',
+	'w:bCs',
+	'w:i',
+	'w:iCs',
+	'w:u',
+	'w:strike',
+	'w:dstrike',
+	'w:sz',
+	'w:szCs',
+	'w:color',
+	'w:highlight',
+	'w:shd'
+]);
+/** Run children the model holds; a paragraph with any other is locked, so as not to lose it. */
+const RUN_CONTENT = new Set([
+	'w:t',
+	'w:tab',
+	'w:noBreakHyphen',
+	'w:softHyphen',
+	'w:br',
+	'w:cr',
+	'w:drawing'
+]);
 /** Paragraph children that are copied into a regenerated paragraph as they were. */
 const ANCHORS = new Set(['w:bookmarkStart', 'w:bookmarkEnd', 'w:permStart', 'w:permEnd']);
 /** Paragraph and run children that carry nothing the model needs. */
@@ -176,8 +203,8 @@ type Source =
 			startTag: string;
 			pPr: string;
 			anchors: string;
-			/** Run properties by the key of the marks they give. */
-			runProps: Map<string, string>;
+			/** Run properties by the key of the marks they give, if every such run had the same; null to write them afresh. */
+			runProps: Map<string, string | null>;
 			numId?: string;
 			numKind?: NumKind;
 			/** A check item whose box is in its text rather than its numbering. */
@@ -391,6 +418,13 @@ class BodyReader {
 					return 'Unrecognised content';
 			}
 		}
+		// A page number, a footnote mark or a date part in a run would be dropped on a save.
+		const runs = [...kids(el, 'w:r'), ...kids(el, 'w:hyperlink').flatMap((h) => kids(h, 'w:r'))];
+		for (const r of runs) {
+			for (const c of kids(r)) {
+				if (!RUN_CONTENT.has(c.name) && !IGNORED.has(c.name)) return 'Unrecognised content';
+			}
+		}
 		return null;
 	}
 
@@ -413,7 +447,7 @@ class BodyReader {
 				ilvl = s.ilvl ?? 0;
 			}
 		}
-		const runProps = new Map<string, string>();
+		const runProps = new Map<string, string | null>();
 		const content: Inline[] = [];
 		const anchors: string[] = [];
 		for (const c of kids(el)) {
@@ -521,12 +555,21 @@ class BodyReader {
 	async #run(
 		r: XElement,
 		link: string | undefined,
-		runProps: Map<string, string>
+		runProps: Map<string, string | null>
 	): Promise<Inline[]> {
 		const rPr = child(r, 'w:rPr');
 		const marks = this.#marksOf(rPr, link);
 		const key = propsKey(marks);
-		if (rPr && !runProps.has(key)) runProps.set(key, this.#p.xml.slice(rPr.start, rPr.end));
+		// Another run with the same marks takes these properties only if they hold nothing
+		// the marks do not say, such as hidden text or a superscript, and no run differs.
+		const props =
+			rPr === undefined
+				? ''
+				: kids(rPr).every((k) => MARK_PROPS.has(k.name))
+					? this.#p.xml.slice(rPr.start, rPr.end)
+					: null;
+		if (!runProps.has(key)) runProps.set(key, props);
+		else if (runProps.get(key) !== props) runProps.set(key, null);
 		const out: Inline[] = [];
 		let buf = '';
 		const flush = () => {
@@ -1171,7 +1214,11 @@ export function imageSize(b: Uint8Array): { width: number; height: number } | nu
 	return null;
 }
 
-function genRuns(content: readonly Inline[], w: Writer, runProps?: Map<string, string>): string {
+function genRuns(
+	content: readonly Inline[],
+	w: Writer,
+	runProps?: Map<string, string | null>
+): string {
 	let out = '';
 	let i = 0;
 	while (i < content.length) {
@@ -1200,7 +1247,7 @@ function genRuns(content: readonly Inline[], w: Writer, runProps?: Map<string, s
 	return out;
 }
 
-function genInline(it: Inline, w: Writer, runProps?: Map<string, string>): string {
+function genInline(it: Inline, w: Writer, runProps?: Map<string, string | null>): string {
 	if (it.type === 'break')
 		return it.page ? '<w:r><w:br w:type="page"/></w:r>' : '<w:r><w:br/></w:r>';
 	if (it.type === 'image') return genImage(it, w);
