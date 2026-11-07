@@ -87,12 +87,17 @@
 	}
 
 	.preview {
+		position: relative;
+		flex: none;
 		height: 128px;
 		display: grid;
 		place-items: center;
+		overflow: hidden;
 	}
 
 	.preview img {
+		position: absolute;
+		inset: 0;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
@@ -103,6 +108,7 @@
 		flex-direction: column;
 		gap: 6px;
 		padding: 12px 14px 14px;
+		background: var(--surface);
 		border-top: 1px solid var(--divider);
 	}
 

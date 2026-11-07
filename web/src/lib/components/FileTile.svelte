@@ -120,13 +120,18 @@
 	}
 
 	.preview {
+		position: relative;
+		flex: none;
 		width: 100%;
 		height: 116px;
 		display: grid;
 		place-items: center;
+		overflow: hidden;
 	}
 
 	.preview img {
+		position: absolute;
+		inset: 0;
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
@@ -152,6 +157,7 @@
 		gap: 2px;
 		min-width: 0;
 		padding: 10px 12px 12px;
+		background: var(--surface);
 	}
 
 	.title {
