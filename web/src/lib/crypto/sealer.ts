@@ -72,7 +72,15 @@ import {
 import { fingerprint, openPins, safetyNumber, sealPins } from './pinning';
 import { constantTimeEqual, zero } from './random';
 import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from './recovery';
-import { openIndexSegment, openThumbnail, sealIndexSegment, sealThumbnail } from './small-blob';
+import {
+	indexKey,
+	openIndexSegment,
+	openIndexSegmentWith,
+	openThumbnail,
+	sealIndexSegment,
+	sealIndexSegmentWith,
+	sealThumbnail
+} from './small-blob';
 
 export type { GrantFields };
 
@@ -119,6 +127,12 @@ export interface Sealer {
 	readonly encrypted: boolean;
 	/** Stored bytes per frame on top of its plaintext; frame `i` starts at `i * (frameSize + frameOverhead)`. */
 	readonly frameOverhead: number;
+	/**
+	 * Whether an account that signs in through a provider has a passphrase of its own,
+	 * to unlock and to prove a current credential with. Without one, a recent sign-in
+	 * through the provider stands in, and the key it sends is empty.
+	 */
+	readonly ssoHasPassphrase: boolean;
 
 	createUser(kek: Uint8Array, recoveryKek: Uint8Array): { keys: UserKeys; record: UserKeyRecord };
 	wrapMaster(masterKey: Uint8Array, kek: Uint8Array, purpose: WrapPurpose): Bytes;
@@ -211,6 +225,10 @@ export interface Sealer {
 	openThumbnail(nodeKey: Uint8Array, nodeId: string, blobId: string, stored: Uint8Array): Bytes;
 	sealIndexSegment(masterKey: Uint8Array, blobId: string, segment: Uint8Array): Bytes;
 	openIndexSegment(masterKey: Uint8Array, blobId: string, stored: Uint8Array): Bytes;
+	/** What seals index segments and nothing else, to hand to a worker. Empty in suite `none`. */
+	indexKey(masterKey: Uint8Array): Bytes;
+	sealIndexSegmentWith(key: Uint8Array, blobId: string, segment: Uint8Array): Bytes;
+	openIndexSegmentWith(key: Uint8Array, blobId: string, stored: Uint8Array): Bytes;
 }
 
 function frameDigest(data: Uint8Array): Bytes {
@@ -241,6 +259,7 @@ const e2eSealer: Sealer = {
 	suite: SUITE_E2E,
 	encrypted: true,
 	frameOverhead: OVERHEAD,
+	ssoHasPassphrase: true,
 
 	createUser(kek, recoveryKek) {
 		const masterKey = generateMasterKey();
@@ -312,7 +331,10 @@ const e2eSealer: Sealer = {
 	sealThumbnail,
 	openThumbnail,
 	sealIndexSegment,
-	openIndexSegment
+	openIndexSegment,
+	indexKey,
+	sealIndexSegmentWith,
+	openIndexSegmentWith
 };
 
 const empty = (): Bytes => new Uint8Array(0);
@@ -346,6 +368,7 @@ const noneSealer: Sealer = {
 	suite: SUITE_NONE,
 	encrypted: false,
 	frameOverhead: 0,
+	ssoHasPassphrase: false,
 
 	createUser() {
 		return {
@@ -415,7 +438,10 @@ const noneSealer: Sealer = {
 	sealThumbnail: (_nodeKey, _nodeId, _blobId, image) => image.slice() as Bytes,
 	openThumbnail: (_nodeKey, _nodeId, _blobId, stored) => stored.slice() as Bytes,
 	sealIndexSegment: (_masterKey, _blobId, segment) => segment.slice() as Bytes,
-	openIndexSegment: (_masterKey, _blobId, stored) => stored.slice() as Bytes
+	openIndexSegment: (_masterKey, _blobId, stored) => stored.slice() as Bytes,
+	indexKey: empty,
+	sealIndexSegmentWith: (_key, _blobId, segment) => segment.slice() as Bytes,
+	openIndexSegmentWith: (_key, _blobId, stored) => stored.slice() as Bytes
 };
 
 /** The sealer of a suite. */

@@ -43,6 +43,24 @@ export function openThumbnail(
 	return under(nodeKey, 'yondrive/thumb/v1', (key) => open(key, stored, thumbAad(nodeId, blobId)));
 }
 
+/**
+ * The subkey of index segments, for the worker that holds the index: it never needs
+ * the master key, and with that everything else this user can open.
+ */
+export function indexKey(masterKey: Uint8Array): Bytes {
+	return expand(masterKey, 'yondrive/index/v1');
+}
+
+/** Seals a search index segment under the index subkey. */
+export function sealIndexSegmentWith(key: Uint8Array, blobId: string, segment: Uint8Array): Bytes {
+	return seal(key, segment, indexAad(blobId));
+}
+
+/** Opens a search index segment stored as this blob, under the index subkey. */
+export function openIndexSegmentWith(key: Uint8Array, blobId: string, stored: Uint8Array): Bytes {
+	return open(key, stored, indexAad(blobId));
+}
+
 /** Seals a search index segment under the master key's index subkey. */
 export function sealIndexSegment(
 	masterKey: Uint8Array,

@@ -20,8 +20,9 @@ export default defineConfig({
 		// The browser only ever talks to Vite, which forwards /api to the Go
 		// server: one origin, so `Sec-Fetch-Site: same-origin` reaches Go
 		// unchanged and cookies behave exactly as in production. No
-		// changeOrigin and no rewrite, for the same reason.
-		proxy: { '/api': apiTarget }
+		// changeOrigin and no rewrite, for the same reason. /auth is where an
+		// identity provider sends a browser back to.
+		proxy: { '/api': apiTarget, '/auth': apiTarget }
 	},
 	test: {
 		environment: 'node',

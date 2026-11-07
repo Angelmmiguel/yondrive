@@ -145,8 +145,9 @@ export function deriveLinkRoot(password: string, params: KdfParams): Bytes {
 }
 
 /**
- * The KEK alone, for SSO accounts, where nothing derived from the unlock
- * passphrase may reach the server.
+ * The KEK alone. It never leaves the device. An SSO account derives its auth key
+ * from the unlock passphrase with `expandRoot` as well, and sends it only as a
+ * `current_auth_key`, to prove a current credential, never to sign in.
  */
 export function deriveKek(root: Uint8Array): Bytes {
 	return expand(root, KEK_INFO);
@@ -154,8 +155,8 @@ export function deriveKek(root: Uint8Array): Bytes {
 
 /**
  * Splits a root (or a recovery key, which is already uniformly random) into
- * the two purpose-bound keys of a local account. HKDF is one-way, so the auth
- * key the server sees says nothing about the KEK.
+ * the two purpose-bound keys of an account. HKDF is one-way, so the auth key the
+ * server sees says nothing about the KEK.
  */
 export function expandRoot(root: Uint8Array): { kek: Bytes; authKey: Bytes } {
 	return { kek: deriveKek(root), authKey: expand(root, AUTH_INFO) };

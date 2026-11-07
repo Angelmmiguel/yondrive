@@ -379,11 +379,11 @@ export class DriveTree {
 	/**
 	 * Reads every folder, breadth first, so that favorites, recent, tags and the
 	 * storage bar fill in. It never gets in the way: a folder someone opens is read
-	 * at once through `loadFolder`, and shared with this.
+	 * at once through `loadFolder`, and shared with this. `from` walks a share's folder.
 	 */
-	async walk(signal?: AbortSignal): Promise<void> {
-		if (this.rootId === null) return;
-		const queue = [this.rootId];
+	async walk(signal?: AbortSignal, from: string | null = this.rootId): Promise<void> {
+		if (from === null) return;
+		const queue = [from];
 		while (queue.length > 0 && !signal?.aborted && !this.#stopped) {
 			const id = queue.shift() as string;
 			await this.loadFolder(id);
@@ -391,6 +391,11 @@ export class DriveTree {
 				if (this.nodes.get(child)?.kind === 'folder') queue.push(child);
 			}
 		}
+	}
+
+	/** Every folder's list counts as out of date, so that the next walk reads them all. */
+	invalidate(): void {
+		this.#loaded.clear();
 	}
 
 	/** Takes a node and what is under it out of what is known here. */

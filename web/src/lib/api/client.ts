@@ -9,6 +9,8 @@ import {
 	parseErrorCode,
 	type Account,
 	type AdminHealth,
+	type AuditPage,
+	type AuthMethods,
 	type ChangePage,
 	type CommitUploadRequest,
 	type CompletePasswordResetRequest,
@@ -28,6 +30,7 @@ import {
 	type DeviceToken,
 	type DisableTotpRequest,
 	type EmptiedTrash,
+	type EnrolRequest,
 	type Grant,
 	type GrantPage,
 	type Health,
@@ -42,6 +45,10 @@ import {
 	type NodeAccessList,
 	type NodePage,
 	type NotificationList,
+	type OidcStart,
+	type OidcStartRequest,
+	type OidcTestRequest,
+	type OidcTestResult,
 	type Profile,
 	type PublicLink,
 	type PublicNode,
@@ -68,6 +75,7 @@ import {
 	type UpdateSettingsRequest,
 	type UpdateUserRequest,
 	type Upload,
+	type UploadPage,
 	type UserKeys,
 	type UserLookup,
 	type ValidatedUrl,
@@ -99,6 +107,11 @@ function query(params: Record<string, string | number | undefined>): string {
 	}
 	const text = search.toString();
 	return text === '' ? '' : `?${text}`;
+}
+
+/** Where a browser navigates, top level, to leave for the identity provider. */
+export function oidcStartUrl(fresh = false): string {
+	return `${base}/auth/oidc/start${fresh ? '?fresh=true' : ''}`;
 }
 
 /** Where a paged list goes on from. */
@@ -151,6 +164,14 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		completeSetup: (setupToken: string, body: SetupRequest) =>
 			json<CreatedUser>('POST', '/setup/complete', { setupToken, body }),
 
+		getAuthMethods: () => json<AuthMethods>('GET', '/auth/methods'),
+		startOidcWithInvite: (body: OidcStartRequest) =>
+			json<OidcStart>('POST', '/auth/oidc/start', { body }),
+		enrolOidc: (body: EnrolRequest) => json<Account>('POST', '/auth/oidc/enrol', { body }),
+		/** Takes the setup token before setup, and an admin's session after it. */
+		testOidc: (body: OidcTestRequest, setupToken?: string) =>
+			json<OidcTestResult>('POST', '/oidc/test', { body, setupToken }),
+
 		getKdf: (username: string) => json<Kdf>('GET', `/auth/kdf?username=${id(username)}`),
 		login: (body: LoginRequest) => json<Account>('POST', '/auth/login', { body }),
 		logout: () => empty('POST', '/auth/logout'),
@@ -185,10 +206,14 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 			empty('DELETE', `/admin/users/${id(userId)}`, { body }),
 		createPasswordReset: (userId: string, body: CurrentCredential) =>
 			json<CreatedPasswordReset>('POST', `/admin/users/${id(userId)}/password-reset`, { body }),
+		unlinkIdentity: (userId: string, body: CurrentCredential) =>
+			empty('DELETE', `/admin/users/${id(userId)}/identity`, { body }),
 		getSettings: () => json<ServerSettings>('GET', '/admin/settings'),
 		updateSettings: (body: UpdateSettingsRequest) =>
 			json<ServerSettings>('PATCH', '/admin/settings', { body }),
 		getAdminHealth: () => json<AdminHealth>('GET', '/admin/health'),
+		listAudit: (page: PageOptions = {}) =>
+			json<AuditPage>('GET', `/admin/audit${query({ ...page })}`),
 
 		getMyStorage: () => json<Storage>('GET', '/me/storage'),
 		getRootNode: () => json<Node>('GET', '/nodes/root'),
@@ -216,6 +241,8 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		restoreVersion: (nodeId: string, versionId: string, body: RestoreVersionRequest) =>
 			json<Version>('POST', `/nodes/${id(nodeId)}/versions/${id(versionId)}/restore`, { body }),
 
+		listUploads: (page: PageOptions = {}) =>
+			json<UploadPage>('GET', `/uploads${query({ ...page })}`),
 		createUpload: (body: CreateUploadRequest) => json<Upload>('POST', '/uploads', { body }),
 		getUpload: (uploadId: string) => json<Upload>('GET', `/uploads/${id(uploadId)}`),
 		abortUpload: (uploadId: string) => empty('DELETE', `/uploads/${id(uploadId)}`),

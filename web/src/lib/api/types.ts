@@ -84,6 +84,21 @@ export type PublicNodePage = Schemas['PublicNodePage'];
 export type PublicLink = Schemas['PublicLink'];
 export type PublicVersion = Schemas['PublicVersion'];
 export type UnlockLinkRequest = Schemas['UnlockLinkRequest'];
+export type AuthMethods = Schemas['AuthMethods'];
+export type OidcStart = Schemas['OIDCStart'];
+export type OidcStartRequest = Schemas['OIDCStartRequest'];
+export type EnrolRequest = Schemas['EnrolRequest'];
+export type OidcSettings = Schemas['OIDCSettings'];
+export type OidcSettingsInput = Schemas['OIDCSettingsInput'];
+export type OidcMatchMode = Schemas['OIDCMatchMode'];
+export type OidcNewUsers = Schemas['OIDCNewUsers'];
+export type SignInSettingsInput = Schemas['SignInSettingsInput'];
+export type OidcTestRequest = Schemas['OIDCTestRequest'];
+export type OidcTestResult = Schemas['OIDCTestResult'];
+export type AuditEntry = Schemas['AuditEntry'];
+export type AuditPage = Schemas['AuditPage'];
+export type UploadSummary = Schemas['UploadSummary'];
+export type UploadPage = Schemas['UploadPage'];
 
 /** The JSON body of every failed response. */
 export type ErrorBody = Schemas['Error'];
@@ -178,6 +193,27 @@ export type ErrorCode =
 	| 'link_token_required'
 	| 'link_token_invalid'
 	| 'link_password_invalid'
+	| 'sso_disabled'
+	| 'sso_required'
+	| 'sso_only'
+	| 'local_accounts_disabled'
+	| 'local_accounts_lockout'
+	| 'already_enrolled'
+	| 'totp_local_only'
+	| 'reauth_required'
+	| 'invalid_issuer'
+	| 'invalid_oidc_settings'
+	| 'oidc_discovery_failed'
+	| 'oidc_issuer_mismatch'
+	| 'oidc_keys_failed'
+	| 'sso_state_invalid'
+	| 'sso_denied'
+	| 'sso_provider_error'
+	| 'sso_token_invalid'
+	| 'sso_identity_conflict'
+	| 'sso_email_unverified'
+	| 'sso_not_invited'
+	| 'cursor_expired'
 	| 'network'
 	| 'unknown'
 	| (string & {});
