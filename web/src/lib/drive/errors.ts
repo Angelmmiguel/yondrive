@@ -37,7 +37,8 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
 	version_current: 'The current version cannot be deleted.',
 	root_immutable: 'Your top folder cannot be changed.',
 	upload_incomplete: 'Part of this file did not arrive. Try uploading it again.',
-	too_many_uploads: 'Too many uploads are unfinished. Let some finish, or cancel them, and try again.',
+	too_many_uploads:
+		'Too many uploads are unfinished. Let some finish, or cancel them, and try again.',
 	suite_mismatch: 'This client and the server disagree about how files are stored.',
 	too_large: 'That is too large for the server to accept.',
 	forbidden: 'You do not have the role this takes.',
