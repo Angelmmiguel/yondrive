@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
 	import { undo, redo, undoDepth, redoDepth } from 'prosemirror-history';
+	import { MediaQuery } from 'svelte/reactivity';
 	import type { EditorView } from 'prosemirror-view';
 	import { Icon, Menu, type IconName, type MenuItem } from '$lib/components';
 	import type { Caps } from '$lib/formats/document';
@@ -49,6 +50,19 @@
 		ontoggleoutline,
 		ontogglepanel
 	}: Props = $props();
+
+	/** The phone layout: one scrolling row, with font and size in a popover. Same breakpoint as the screen. */
+	const narrow = new MediaQuery('max-width: 720px');
+
+	function placeAa(event: Event) {
+		const aaPanel = event.currentTarget as HTMLElement;
+		const aaButton = aaPanel.previousElementSibling;
+		if ((event as ToggleEvent).newState !== 'open' || !aaButton) return;
+		const at = aaButton.getBoundingClientRect();
+		const width = aaPanel.getBoundingClientRect().width;
+		aaPanel.style.left = `${Math.max(8, Math.min(at.left, window.innerWidth - width - 8))}px`;
+		aaPanel.style.top = `${at.bottom + 6}px`;
+	}
 
 	const state = $derived.by(() => {
 		void rev;
@@ -247,7 +261,84 @@
 	const styles = $derived(STYLES.filter((s) => caps.styles.has(s.id)));
 </script>
 
+{#snippet styleSelect()}
+	{#if styles.length > 1}
+		<label class="sr" for="doc-style">Paragraph style</label>
+		<select
+			id="doc-style"
+			class="pick"
+			value={para?.style ?? 'normal'}
+			onchange={(e) => run(setStyle(e.currentTarget.value as BlockStyle))}
+		>
+			{#each styles as s (s.id)}<option value={s.id}>{s.label}</option>{/each}
+			{#if para && !styles.some((s) => s.id === para.style)}<option value={para.style}
+					>{para.style}</option
+				>{/if}
+		</select>
+	{/if}
+{/snippet}
+
+{#snippet fontAndSize()}
+	{#if caps.marks.has('font')}
+		<label class="sr" for="doc-font">Font</label>
+		<select
+			id="doc-font"
+			class="pick font"
+			value={font}
+			onchange={(e) =>
+				run(
+					setMarkValue(
+						schema.marks.font,
+						e.currentTarget.value ? { family: e.currentTarget.value } : null
+					)
+				)}
+		>
+			<option value="">Default font</option>
+			{#each FONTS as f (f)}<option value={f}>{f}</option>{/each}
+			{#if font && !FONTS.includes(font)}<option value={font}>{font}</option>{/if}
+		</select>
+	{/if}
+
+	{#if caps.marks.has('size')}
+		<label class="sr" for="doc-size">Font size</label>
+		<select
+			id="doc-size"
+			class="pick size"
+			value={size}
+			onchange={(e) =>
+				run(
+					setMarkValue(
+						schema.marks.size,
+						e.currentTarget.value ? { pt: Number(e.currentTarget.value) } : null
+					)
+				)}
+		>
+			<option value="">Size</option>
+			{#each SIZES as s (s)}<option value={String(s)}>{s}</option>{/each}
+			{#if size && !SIZES.includes(Number(size))}<option value={size}>{size}</option>{/if}
+		</select>
+	{/if}
+{/snippet}
+
 <div class="toolbar" role="toolbar" aria-label="Formatting">
+	{#if narrow.current}
+		{@render styleSelect()}
+		{#if caps.marks.has('font') || caps.marks.has('size')}
+			<button
+				type="button"
+				class="tb wide"
+				popovertarget="doc-aa"
+				aria-label="Font and size"
+				title="Font and size"
+			>
+				Aa
+			</button>
+			<div id="doc-aa" class="aa" popover="auto" ontoggle={placeAa}>
+				{@render fontAndSize()}
+			</div>
+		{/if}
+		<span class="sep" aria-hidden="true"></span>
+	{/if}
 	<button
 		type="button"
 		class="tb"
@@ -268,59 +359,10 @@
 	>
 		<Icon name="redo" />
 	</button>
-	<span class="sep" aria-hidden="true"></span>
-
-	{#if styles.length > 1}
-		<label class="sr" for="doc-style">Paragraph style</label>
-		<select
-			id="doc-style"
-			class="pick"
-			value={para?.style ?? 'normal'}
-			onchange={(e) => run(setStyle(e.currentTarget.value as BlockStyle))}
-		>
-			{#each styles as s (s.id)}<option value={s.id}>{s.label}</option>{/each}
-			{#if para && !styles.some((s) => s.id === para.style)}<option value={para.style}
-					>{para.style}</option
-				>{/if}
-		</select>
-	{/if}
-	{#if caps.marks.has('font')}
-		<label class="sr" for="doc-font">Font</label>
-		<select
-			id="doc-font"
-			class="pick font"
-			value={font}
-			onchange={(e) =>
-				run(
-					setMarkValue(
-						schema.marks.font,
-						e.currentTarget.value ? { family: e.currentTarget.value } : null
-					)
-				)}
-		>
-			<option value="">Default font</option>
-			{#each FONTS as f (f)}<option value={f}>{f}</option>{/each}
-			{#if font && !FONTS.includes(font)}<option value={font}>{font}</option>{/if}
-		</select>
-	{/if}
-	{#if caps.marks.has('size')}
-		<label class="sr" for="doc-size">Font size</label>
-		<select
-			id="doc-size"
-			class="pick size"
-			value={size}
-			onchange={(e) =>
-				run(
-					setMarkValue(
-						schema.marks.size,
-						e.currentTarget.value ? { pt: Number(e.currentTarget.value) } : null
-					)
-				)}
-		>
-			<option value="">Size</option>
-			{#each SIZES as s (s)}<option value={String(s)}>{s}</option>{/each}
-			{#if size && !SIZES.includes(Number(size))}<option value={size}>{size}</option>{/if}
-		</select>
+	{#if !narrow.current}
+		<span class="sep" aria-hidden="true"></span>
+		{@render styleSelect()}
+		{@render fontAndSize()}
 	{/if}
 
 	{#each groups as group, g (g)}
@@ -345,6 +387,7 @@
 			{#if caps.marks.has('color')}
 				<Menu
 					label="Text color"
+					floating
 					items={COLORS}
 					width={180}
 					onselect={(id) => run(setMarkValue(schema.marks.color, id ? { value: id } : null))}
@@ -360,6 +403,7 @@
 			{#if caps.marks.has('highlight')}
 				<Menu
 					label="Highlight"
+					floating
 					items={HIGHLIGHTS}
 					width={160}
 					onselect={(id) => run(setMarkValue(schema.marks.highlight, id ? { value: id } : null))}
@@ -377,7 +421,7 @@
 
 	{#if inTable}
 		<span class="sep" aria-hidden="true"></span>
-		<Menu label="Table" items={TABLE_ITEMS} width={200} onselect={tableAction}>
+		<Menu label="Table" floating items={TABLE_ITEMS} width={200} onselect={tableAction}>
 			{#snippet trigger(attrs)}
 				<button type="button" class="tb wide" {...attrs}><Icon name="table" /> Table</button>
 			{/snippet}
@@ -494,6 +538,24 @@
 		font-size: 13px;
 	}
 
+	.aa:popover-open {
+		inset: auto;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		padding: 10px;
+		border: 1px solid var(--border-strong);
+		border-radius: 10px;
+		background: var(--surface);
+		box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 0.18));
+	}
+
+	.aa .pick {
+		max-width: none;
+		width: 180px;
+	}
+
 	.pick.size {
 		max-width: 76px;
 	}
@@ -503,6 +565,28 @@
 		display: flex;
 		align-items: center;
 		gap: 2px;
+	}
+
+	@media (max-width: 720px) {
+		.toolbar {
+			flex-wrap: nowrap;
+			overflow-x: auto;
+			overscroll-behavior-x: contain;
+			scrollbar-width: none;
+			padding: 6px 12px;
+		}
+
+		.toolbar::-webkit-scrollbar {
+			display: none;
+		}
+
+		.toolbar > :global(*) {
+			flex-shrink: 0;
+		}
+
+		.end {
+			margin-left: 0;
+		}
 	}
 
 	.sr {

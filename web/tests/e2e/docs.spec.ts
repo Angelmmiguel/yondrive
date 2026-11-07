@@ -258,6 +258,22 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 				await openDoc(page, `sample-${mode}.docx`);
 				// Counted when the document opens, not at the first edit.
 				expect(await page.getByTestId('word-count').textContent()).toMatch(/^[1-9]\d* words$/);
+				const bar = page.getByRole('toolbar', { name: 'Formatting' });
+				// One scrolling row, no scrollbar, the paragraph style first in the order of the page.
+				expect((await bar.boundingBox())!.height).toBeLessThan(64);
+				expect(await bar.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+				expect(await bar.evaluate((el) => (el as HTMLElement).offsetHeight - el.clientHeight)).toBe(
+					0
+				);
+				expect(await bar.evaluate((el) => el.querySelector('select, button')?.id)).toBe(
+					'doc-style'
+				);
+				await expect(page.getByLabel('Font', { exact: true })).toBeHidden();
+				await page.getByRole('button', { name: 'Font and size' }).click();
+				await page.getByLabel('Font size').selectOption('18');
+				await page.getByLabel('Font', { exact: true }).selectOption('Georgia');
+				await page.mouse.click(200, 700);
+				await expect(page.getByLabel('Font', { exact: true })).toBeHidden();
 				const outline = page.getByRole('navigation', { name: 'Outline' });
 				const details = page.getByRole('complementary', { name: 'Document details' });
 				const scrim = page.getByRole('button', { name: 'Close the panel' });
