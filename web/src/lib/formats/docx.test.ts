@@ -268,6 +268,31 @@ describe('docx', () => {
 		expect(keys.map((k) => read.images[k].bytes)).toEqual([a, b]);
 	});
 
+	it('writes a picture that shares a run with text once, and the text once', async () => {
+		const bytes = fixture('docs/sample.docx');
+		const xml = (await part(bytes, 'word/document.xml')).replace(
+			'<w:r><w:drawing>',
+			'<w:r><w:rPr><w:b/></w:rPr><w:t xml:space="preserve">Zebra </w:t><w:drawing>'
+		);
+		const mixed = await writeZip(readZip(bytes), [
+			{ name: 'word/document.xml', data: new TextEncoder().encode(xml) }
+		]);
+		const { model } = await readDocx(mixed);
+		const p = paras(model).find((x) => x.content.some((i) => i.type === 'image'))!;
+		const before = textOf(p);
+		expect(before.split('Zebra').length).toBe(2);
+		p.content.push({ type: 'text', text: ' after', marks: {} });
+		const out = await writeDocx(model, mixed);
+		const written = await part(out, 'word/document.xml');
+		expect(written.split('Zebra').length).toBe(2);
+		expect(written.split('<w:drawing>').length).toBe(2);
+		const back = paras((await readDocx(out)).model).find((x) =>
+			x.content.some((i) => i.type === 'image')
+		)!;
+		expect(textOf(back)).toBe(`${before} after`);
+		expect(back.content[0]).toEqual({ type: 'text', text: 'Zebra ', marks: { bold: true } });
+	});
+
 	it('makes a minimal document that reads back empty', async () => {
 		const t = await docxTemplate();
 		expect((await readDocx(t)).model.blocks).toEqual([]);

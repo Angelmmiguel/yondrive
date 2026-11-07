@@ -592,10 +592,13 @@ class BodyReader {
 			image.height = Math.round(cy / 9525);
 		}
 		if (link !== undefined) image.link = link;
+		// Only the drawing: the run's text and other drawings are inlines of their own.
+		const rPr = child(run, 'w:rPr');
+		const src = this.#p.xml;
 		this.#p.sources.set(ref, {
 			kind: 'image',
 			item: this.#item(run, ref),
-			run: this.#p.xml.slice(run.start, run.end),
+			run: `<w:r>${rPr ? src.slice(rPr.start, rPr.end) : ''}${src.slice(drawing.start, drawing.end)}</w:r>`,
 			key
 		});
 		return image;
