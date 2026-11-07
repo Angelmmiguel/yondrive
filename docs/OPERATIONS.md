@@ -13,6 +13,17 @@ the data directory is the whole state. Back it up and you have the server.
 
 ### Docker
 
+The image is `ghcr.io/angelmmiguel/yondrive`, on GitHub's container registry.
+Its tags:
+
+- **A version** (`1.0.0`), and `1.0` and `1` for the newest release of that line.
+  Built by the release workflow, signed by digest and with build provenance
+  ([RELEASE.md](RELEASE.md)). Run one of these.
+- **`latest`** follows the main branch: every commit whose CI passes, for
+  `linux/amd64` only, unsigned. It reports a version such as
+  `0.0.0-main+abc123def456` or `1.0.0-4-gabc123def456` (four commits past 1.0.0).
+  For trying what is next, not for data you rely on.
+
 ```bash
 mkdir -p /srv/yondrive/data && chown 99:100 /srv/yondrive/data
 docker run -d --name yondrive --restart unless-stopped \
@@ -23,7 +34,7 @@ docker run -d --name yondrive --restart unless-stopped \
   ghcr.io/angelmmiguel/yondrive:1.0.0
 ```
 
-Or with Compose:
+Or with Compose (the same as [`deploy/compose.yaml`](../deploy/compose.yaml)):
 
 ```yaml
 services:
@@ -37,8 +48,10 @@ services:
       YONDRIVE_TRUSTED_PROXIES: 172.18.0.0/16
 ```
 
-- The image is `linux/amd64` and `linux/arm64`, built `FROM scratch`: the binary,
-  a CA bundle and an empty `/data`, nothing else. There is no shell inside it.
+- A release image is `linux/amd64` and `linux/arm64` (`latest` is `linux/amd64`),
+  built `FROM scratch`: the binary, a CA bundle and an empty `/data`, nothing
+  else. There is no shell inside it. `docker inspect` shows its version, commit,
+  licence and source in the `org.opencontainers.image.*` labels.
 - It runs as **uid 99, gid 100** (`nobody:users`, as Unraid's appdata). The data
   directory is written with modes 0700 and 0600, so the mounted directory must
   belong to 99:100, or the server cannot open it.
@@ -54,6 +67,11 @@ Community Applications once it is listed). It maps the web port to 8990 and
 Fill in the public URL and the trusted proxies if YonDrive sits behind a proxy.
 Prefer a pool (cache) path for appdata: the database does many small writes,
 which are slow on the parity array.
+
+The template's Repository is `ghcr.io/angelmmiguel/yondrive:latest`, which follows
+the main branch. Once a release is out, pin it: edit the container and set
+Repository to `ghcr.io/angelmmiguel/yondrive:1.0.0` (or `:1` to follow 1.x), and
+change that tag to update.
 
 ### The binary
 
@@ -248,6 +266,12 @@ end-to-end mode.
    migrations, each in a transaction, before it listens. With the server stopped,
    `yondrive migrate` does the same and reports the result, if you would rather
    see it happen.
+
+   With Compose, change the tag in `compose.yaml`, then
+   `docker compose pull && docker compose up -d`. With `docker run`, `docker pull`
+   the new tag, `docker stop yondrive && docker rm yondrive`, and run it again with
+   the same volume and settings. On Unraid, edit the container and change the tag
+   in Repository.
 
 There is **no downgrade**. A database migrated by a newer release is refused by
 an older one (`database schema is newer than this binary`). To go back, restore

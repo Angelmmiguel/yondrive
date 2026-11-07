@@ -1,0 +1,24 @@
+# YonDrive with Docker Compose. Copy this file, set the public URL and, behind
+# a reverse proxy, its address, then:
+#
+#   mkdir -p data && sudo chown 99:100 data
+#   docker compose up -d
+#   docker compose logs yondrive | grep setup
+#
+# Pin a release (1.0.0) and update by changing the tag; `latest` follows the
+# main branch and is not signed. docs/OPERATIONS.md has the rest.
+services:
+  yondrive:
+    image: ghcr.io/angelmmiguel/yondrive:latest
+    restart: unless-stopped
+    ports:
+      - "8990:8080"
+    volumes:
+      # Owned by uid 99, gid 100, the user the image runs as.
+      - ./data:/data
+    environment:
+      # The address people use, with https:// behind a proxy. The setup link
+      # and share links are built from it.
+      YONDRIVE_PUBLIC_URL: http://localhost:8990
+      # The reverse proxy's address or range, if there is one.
+      # YONDRIVE_TRUSTED_PROXIES: 172.18.0.0/16

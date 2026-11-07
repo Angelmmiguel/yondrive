@@ -232,16 +232,31 @@ In both modes the server only stores data. It never processes your content:
 
 ## Deployment
 
+The image is `ghcr.io/angelmmiguel/yondrive`:
+
 ```bash
-mkdir -p data && chown 99:100 data
-docker run -d --name yondrive \
+mkdir -p data && sudo chown 99:100 data
+docker run -d --name yondrive --restart unless-stopped \
   -p 8990:8080 \
   -v "$PWD/data:/data" \
-  ghcr.io/angelmmiguel/yondrive
+  -e YONDRIVE_PUBLIC_URL=http://localhost:8990 \
+  ghcr.io/angelmmiguel/yondrive:latest
+docker logs yondrive 2>&1 | grep setup
 ```
 
+Or with Docker Compose, from [`deploy/compose.yaml`](deploy/compose.yaml):
+`docker compose up -d`.
+
 The container logs a one-time setup link. Open it to choose the encryption mode
-and create the first administrator.
+and create the first administrator. Without `YONDRIVE_PUBLIC_URL` it logs the
+path, `/setup#…`, to open on the address and port you mapped.
+
+**Which tag.** `latest` follows the main branch: every commit that passes CI,
+unsigned. A version tag (`1.0.0`, or `1.0` and `1` for the newest of that line)
+is a release, signed and with build provenance, and is what to run for anything
+you rely on. To update, change the tag, pull and recreate the container
+(`docker compose pull && docker compose up -d`); [the operator
+guide](docs/OPERATIONS.md#upgrades) has the steps, including the backup first.
 
 The image holds everything YonDrive needs and never downloads anything at
 runtime: one Go binary with the web app embedded.

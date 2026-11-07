@@ -7,7 +7,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/Angelmmiguel/yondrive/issues</Support>
   <Project>https://github.com/Angelmmiguel/yondrive</Project>
-  <Overview>Self-hosted files, documents and notes with zero-knowledge encryption. By default everything is encrypted in the browser before it is uploaded, so the server holds only ciphertext. One container, one data directory; open the web app and follow the setup wizard. The container logs a one-time setup link on first start.</Overview>
+  <Overview>Self-hosted files, documents and notes with zero-knowledge encryption. By default everything is encrypted in the browser before it is uploaded, so the server holds only ciphertext. One container, one data directory; open the web app and follow the setup wizard. On first start the container logs a one-time setup link, or with no public URL set, the path to open on the Web UI address (/setup#...). The latest tag follows the main branch; set Repository to a version tag such as ghcr.io/angelmmiguel/yondrive:1.0.0 to run a signed release.</Overview>
   <Category>Productivity: Cloud:</Category>
   <WebUI>http://[IP]:[PORT:8080]</WebUI>
   <Icon>https://raw.githubusercontent.com/Angelmmiguel/yondrive/main/unraid/yondrive.png</Icon>
