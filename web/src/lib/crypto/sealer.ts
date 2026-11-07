@@ -133,6 +133,8 @@ export interface Sealer {
 	 * through the provider stands in, and the key it sends is empty.
 	 */
 	readonly ssoHasPassphrase: boolean;
+	/** How a file in this format is kept on the server, in words for a screen: "Markdown, encrypted". */
+	storedAs(format: string): string;
 
 	createUser(kek: Uint8Array, recoveryKek: Uint8Array): { keys: UserKeys; record: UserKeyRecord };
 	wrapMaster(masterKey: Uint8Array, kek: Uint8Array, purpose: WrapPurpose): Bytes;
@@ -260,6 +262,7 @@ const e2eSealer: Sealer = {
 	encrypted: true,
 	frameOverhead: OVERHEAD,
 	ssoHasPassphrase: true,
+	storedAs: (format) => `${format}, encrypted`,
 
 	createUser(kek, recoveryKek) {
 		const masterKey = generateMasterKey();
@@ -369,6 +372,7 @@ const noneSealer: Sealer = {
 	encrypted: false,
 	frameOverhead: 0,
 	ssoHasPassphrase: false,
+	storedAs: (format) => format,
 
 	createUser() {
 		return {

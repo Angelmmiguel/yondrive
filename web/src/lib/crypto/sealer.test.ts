@@ -146,6 +146,11 @@ describe('suite none', () => {
 		expect(e2e.encrypted).toBe(true);
 	});
 
+	it('says how a file is kept, in words', () => {
+		expect(none.storedAs('Markdown')).toBe('Markdown');
+		expect(e2e.storedAs('Markdown')).toBe('Markdown, encrypted');
+	});
+
 	it('stores the original bytes, byte for byte', () => {
 		const plaintext = utf8('the original file');
 		const frame = none
