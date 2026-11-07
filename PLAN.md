@@ -175,12 +175,14 @@ such as Unraid's array.
 | Table | Holds | Server can read in end-to-end mode |
 | --- | --- | --- |
 | `users` | Username, email, role, quota, KDF parameters, auth hashes, public keys, TOTP secret | Yes, apart from the sealed blobs: wrapped master key and sealed private keys |
-| `nodes` | Id, owner, parent, file or folder, trashed time, sealed metadata, wrapped node key, name HMAC | Structure only |
-| `versions` | Node, author, stored size, frame count, author signature | Sizes and timing |
-| `blobs` | Id, size, ref count | Sizes |
+| `nodes` | Id, owner, parent, file or folder, suite, trashed, purged and removal times, sealed metadata, wrapped node key, name tag, current version | Structure only |
+| `versions` | Node, blob, author, sealed-as id and signer, stored size, frame count and size, frame hashes, author signature, manifest as sent | Sizes and timing |
+| `blobs` | Id, owner, node if any, kind (content, thumbnail, index), suite, size, ref count | Sizes |
+| `uploads`, `upload_frames` | Uploads in progress: target, reservation, the digest of each frame that arrived | Sizes and timing |
 | `grants` | Node, grantee, role, node key sealed to the grantee | The share graph |
 | `links` | Id, node, role, expiry, revoked time, password KDF parameters, sealed key | Settings only |
-| `changes` | Sequence, node, operation | Timing and which node changed |
+| `changes` | Sequence, owner, node, operation | Timing and which node changed |
+| `file_removals` | Files whose rows are gone, waiting to be unlinked | Ids |
 | `edit_status` | Node, user, device, last heartbeat | Who is editing what |
 | `sessions`, `tokens`, `password_resets`, `recovery_codes` | Hashes, expiry | Yes |
 | `invites`, `settings`, `audit` | Admin data, including the fixed encryption mode | Yes |

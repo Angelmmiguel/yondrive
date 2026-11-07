@@ -198,10 +198,13 @@ form as other Community Applications templates.
 
 **Backups.** In end-to-end mode the data directory holds only ciphertext and
 non-secret metadata, so it can be copied to any backup destination without
-trusting that destination. `yondrive backup` takes a consistent snapshot while
-the server is running. The directory is an internal format in both modes, not a
-browsable folder tree, so export your files from the app to get them back as a
-normal folder.
+trusting that destination. `yondrive backup <dest>` takes a consistent snapshot while
+the server is running, into an empty directory, and the admin area shows when it
+last finished. To restore, stop the server and use that directory as the data
+directory. On the same filesystem the files of a backup are hard links, which
+cost no space but do not survive a failing disk, so point it at another disk. The
+directory is an internal format in both modes, not a browsable folder tree, so
+export your files from the app to get them back as a normal folder.
 
 ### Configuration
 

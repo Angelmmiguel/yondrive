@@ -31,6 +31,8 @@ fields(label, f1..fn) = LP(utf8(label)) || LP(f1) || ... || LP(fn)
 **Ids.** A node or version id is an opaque non-empty string, bound as `utf8(id)`, exactly
 as the API spells it. An implementation MUST refuse an empty id. Ids are known before
 sealing, since they enter the AAD.
+The API spells a node, version or small blob id as 32 lowercase hex characters from 16
+random bytes, chosen by the client, and refuses any other form or an id already in use.
 
 **HKDF** is HKDF-SHA256 (RFC 5869) with no salt (that is, `HashLen` zero bytes) and
 `L = 32`, written `HKDF(key, info)`. `info` is either `utf8(label)` for a plain label, or
@@ -209,6 +211,7 @@ version key = HKDF(content subkey,
 
 A version is cut into frames of `frameSize` plaintext bytes. `frameSize` is recorded per
 version and MUST be between 1024 and 67108864 bytes. New versions use 4194304 (4 MiB).
+A YonDrive server takes frames of up to 16777216 bytes (16 MiB).
 
 Each file has exactly one framing:
 
@@ -262,6 +265,13 @@ and `S` not below the group order. A client MUST verify the signature against an
 who holds edit rights, and refuse a manifest whose `frameCount` disagrees with `size` and
 `frameSize`, or whose suite differs from the server's. After a full read, it MUST compare
 the size and the content hash.
+
+Restoring a version makes a new version over the same stored frames, without touching them.
+Those frames stay sealed and signed under the id they were written with, so the API gives
+each version a `content_version_id` and a `content_author_id` next to its `id` and author.
+A reader MUST use `content_version_id` as the version id in the version key, the frame AAD
+and the manifest, and verify the signature against `content_author_id`. The two differ from
+the version's own id and author only on a restored version.
 
 ## 13. Suite `none`
 

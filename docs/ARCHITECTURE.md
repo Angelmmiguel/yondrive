@@ -10,10 +10,11 @@ the threat model in [SECURITY.md](SECURITY.md). The contract is
 | Package | Holds |
 | --- | --- |
 | `internal/store` | SQLite and migrations. Reads and writes records atomically and decides nothing. |
+| `internal/blobs` | Stored files: ids to paths, frames at offsets, atomic moves. No database and no HTTP. |
 | `internal/auth` | Hashing, tokens, fake KDF salts, session keys, rate limits, TOTP. No database and no HTTP. |
 | `internal/api` | Generated from the spec. Never edited. |
 | `internal/server` | Handlers, middleware, and what each route is allowed to do. |
-| `cmd/yondrive` | `serve` and `admin`. |
+| `cmd/yondrive` | `serve`, `backup` and `admin`. |
 
 ## Storage
 
@@ -21,13 +22,17 @@ Everything is in the data directory, set through the environment and never
 through the API:
 
 ```
-yondrive.db    SQLite in WAL mode: accounts, settings, audit trail
-lock           advisory lock against a second process
+yondrive.db       SQLite in WAL mode: accounts, settings, audit trail, the tree, the journal
+blobs/ab/<id>     one stored file per version, thumbnail or index segment
+uploads/<id>      versions being uploaded
+uploads/tmp-*     small files on their way in, removed at startup
+lock              advisory lock against a second process
 ```
 
 - **Lock.** `store.Open` takes an exclusive `flock` and fails with `ErrLocked` if
   it cannot, so `yondrive admin` refuses to run beside a live server. That also
-  lets the server keep the fixed mode in memory.
+  lets the server keep the fixed mode in memory. `yondrive backup` alone does not
+  take it, and only reads and records the time of the backup.
 - **Connections.** One writer connection serialises writes, with immediate
   transactions, so a write never fails on a lock held by another. Reads use their
   own `query_only` pool and see the last commit. Foreign keys are on, with a
@@ -39,7 +44,7 @@ lock           advisory lock against a second process
 
 | Table | Holds |
 | --- | --- |
-| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, the mode and the server secret. Triggers refuse any change to `mode` once written. |
+| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, grace period, trash retention, last backup, the mode and the server secret. Triggers refuse any change to `mode` once written. |
 | `users` | Identity, role, quota, KDF parameters, auth key hashes, opaque blobs, TOTP state. The KDF and auth columns are nullable and `oidc_issuer` and `oidc_subject` are present for accounts that will sign in through a provider. |
 | `recovery_codes` | SHA-256 of each unused TOTP recovery code. |
 | `sessions` | SHA-256 of the cookie, user, idle and absolute deadlines. |
@@ -47,6 +52,12 @@ lock           advisory lock against a second process
 | `invites` | SHA-256 of the token, email, role, quota, expiry and use. |
 | `password_resets` | SHA-256 of the token, user and expiry. At most one per user. |
 | `audit` | Time, action, actor id, target id, address. Survives deleting the user. |
+| `nodes` | Owner, parent, kind, suite, opaque metadata, wrapped key and name tag, current version, trash and removal times. |
+| `versions` | Node, blob, author, the id it was sealed as and its signer, sizes, frame hashes, opaque signature and manifest. |
+| `blobs` | Owner, node if any, kind, suite, size, ref count. |
+| `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. |
+| `changes` | The journal: sequence, owner, node, operation, time. |
+| `file_removals` | Files whose rows have gone, waiting to be unlinked. |
 
 Session keys are not in this list. They are memory only.
 
@@ -88,7 +99,36 @@ POST   /admin/invites                   -> token and link, once; admin role need
                                         the current auth key
 DELETE /admin/invites/{id}
 GET    /admin/settings
-PATCH  /admin/settings                  everything but the mode
+PATCH  /admin/settings                  everything but the mode; shortening the grace
+                                        period needs the current auth key
+GET    /admin/health                    storage, free space, last backup
+GET    /me/storage                      quota, used, reserved
+GET    /nodes/root
+POST   /nodes/root                      make it, or get the one that exists
+POST   /nodes                           client-chosen id
+GET    /nodes/{id}
+PATCH  /nodes/{id}                      metadata, name tag
+GET    /nodes/{id}/children?cursor=     by id
+POST   /nodes/{id}/move                 parent, wrapped key, name tag
+POST   /nodes/{id}/trash
+POST   /nodes/{id}/restore              also cancels a purge
+POST   /nodes/{id}/purge                marks; the grace period follows
+GET    /trash?cursor=
+POST   /trash/empty
+GET    /nodes/{id}/versions?cursor=     newest first
+GET    /nodes/{id}/versions/{vid}       with frame hashes, signature, manifest
+DELETE /nodes/{id}/versions/{vid}       not the current one; marks
+POST   /nodes/{id}/versions/{vid}/restore
+POST   /uploads
+GET    /uploads/{id}
+DELETE /uploads/{id}
+PUT    /uploads/{id}/frames/{n}
+POST   /uploads/{id}/commit
+GET    /blobs/{id}                      Range
+PUT    /blobs/{id}?kind=&suite=&node_id=  thumbnail or index segment
+DELETE /blobs/{id}                      thumbnail or index segment
+GET    /me/index?cursor=                index segments
+GET    /changes?cursor=
 ```
 
 **Who may call what.** `guard` is a middleware on every generated operation, and
@@ -97,8 +137,9 @@ missing from the table needs a session, so a new route cannot become public by
 being forgotten.
 
 **Middleware**, outermost first: panic recovery, a request log (never bodies or
-query strings), a deadline on the request body, security headers, the same-origin
-check for state-changing requests, a cap on the body. The same-origin check skips
+query strings), a deadline on the request body (per frame on the frame and small blob
+routes, 5 minutes, instead of 2), security headers, the same-origin check for
+state-changing requests, a cap on the body (16 MiB and overhead on those routes, 1 MiB elsewhere). The same-origin check skips
 requests with an `Authorization: Bearer` header. Such a request is then
 authenticated by that header alone, even if it also carries a cookie, so a forged
 header cannot reach the cookie past the check.
@@ -129,6 +170,100 @@ addresses cannot clear the limits on anyone else.
 **Audit.** Security events only: ids, the action and the address. Never content or
 secrets, and never the username typed at a failed sign-in, since people type
 passwords there. A failed audit write is logged and undoes nothing.
+
+## Drive
+
+Everything here is opaque to the server in both modes. It checks sizes, encodings and that
+every item's suite is the one of its mode, and parses nothing.
+
+**Ids.** Nodes, versions and small blobs have ids that the client chooses, because they enter
+the AAD before sealing. Each is checked for its form before anything else, and refused if it
+is in use, with `id_taken`. Uploads get theirs from the server, which is also the id of the
+blob they become. Every path on disk is built by `internal/blobs` from an id it has checked
+itself.
+
+**The tree.** A root is made on demand by a client, since only a client can wrap its key under
+the master key, and the first device to ask wins. A name tag is unique among the siblings
+outside the trash. A move replaces the wrapped key and the name tag in the transaction that
+moves the node, and checks for cycles in it, so that two crossing moves cannot both succeed.
+A tree stops at 256 levels: deleting one relies on foreign key cascades, which SQLite limits
+to 1000 levels, and a deeper tree could never be deleted, nor could its owner.
+
+**Who may do what.** `canAccess` is the one place that decides: today the owner, and grants
+go there in the next phase. What it refuses answers exactly as what does not exist, `404`,
+and blobs and uploads are reached through their node.
+
+**Trash, purge and the grace period.** Trashing sets a time on the root of the subtree alone,
+and what is under it stays readable and frozen. A client's purge only marks: it sets
+`remove_at`, the grace period from now, and that time is fixed then, so shortening the setting
+later hastens nothing already marked. Until then the bytes stay and count, and restoring cancels
+it. So a stolen session cannot destroy anything sooner than that, and a stolen admin session
+needs a current auth key to shorten the setting. Deleting a version works the same way. Deleting
+a user is immediate.
+
+**Versions and blobs.** A version points at a blob, whose `ref_count` triggers maintain. Restoring
+adds a version over the same blob. Because the frames stay sealed under the id they were written
+with, a version carries that id and its signer too (CRYPTO.md, section 12). `current_version`
+moves under an optimistic check: `expected_version` answers `412 version_conflict` on a mismatch.
+
+**Quota.** `used_bytes` and `reserved_bytes` on the user are kept by triggers on `blobs` and `uploads`,
+so a row removed by a cascade releases its bytes like any other. An upload reserves its size when
+created, and the commit changes reserved to used in one transaction. The owner of the node is charged.
+
+**Uploads.** Create, then send frames in any order, then commit:
+
+```
+POST   /uploads                        reserve; the file is made at its full size, sparse
+PUT    /uploads/{id}/frames/{n}        checks length and SHA-256, writes at its offset, syncs, records
+GET    /uploads/{id}                   which frames are present
+POST   /uploads/{id}/commit            signature and manifest; moves the file, adds the version
+DELETE /uploads/{id}                   release
+```
+
+A frame's length follows from the framing, with 41 bytes of overhead in `e2e` mode. A frame that
+has been recorded never changes: the same digest again is a retry and another digest is
+`frame_conflict`. A per-frame lock keeps two writers off the same offset. So no writer can be
+touching a file whose frames are all recorded, which is what makes the commit safe. The commit
+runs its checks, moves the file and adds the rows inside one write transaction.
+
+**Removing files.** Triggers queue each deleted blob and upload in `file_removals`, in the
+transaction that deletes it, however it got deleted. Files are unlinked from that queue, so that a
+crash cannot lose one. The write connection runs with `synchronous=FULL` because files move and go
+on the strength of commits.
+
+**Sweeper.** Once an hour, and at startup: it purges what the trash has held for
+`trash_retention_days`, removes what has reached `remove_at`, drops uploads untouched for a week,
+and works through `file_removals`.
+
+**Startup.** Before serving, the server brings the files into line with the database. It removes
+temporary files; moves back a file whose commit never finished, for the client to commit again;
+removes other files with no row; and forgets uploads whose file is gone, which also releases
+what they reserved. Uploads in progress survive a restart.
+
+**Downloads.** `http.ServeContent` with `Range`, always `application/octet-stream` as an attachment,
+`private, no-store`, `nosniff` and a sandboxing CSP, since these bytes come from a user. Frame hashes
+come with the version.
+
+**Small blobs.** Thumbnails and index segments use the same files, up to 16 MiB, in one request. A
+thumbnail hangs off its node and replaces the last one, and an index segment off its user. Both
+count against quota. A client can make them again, so they have no grace period.
+
+**Journal.** `changes` holds a sequence, owner, node, operation and time. Writes are serialised, so
+sequence numbers appear in commit order and a stored cursor misses nothing. An operation on a
+subtree appears once, on its root.
+
+## Backup
+
+`yondrive backup [--data dir] <dest>` works beside a running server, which holds the directory's
+lock, so it opens the database with no lock and refuses a schema other than its own. It takes a
+snapshot with `VACUUM INTO`, as of one moment, then hard-links the files that snapshot names, or copies
+them across filesystems. A blob never changes and is unlinked only after its row has gone, so a
+missing file means the server removed it after the snapshot, and the backup starts over with a newer
+one, up to five times. The database takes its final name last: a directory without `yondrive.db`
+is an unfinished backup. The time goes in the settings, and `GET /admin/health` shows it.
+
+To restore, stop the server and use the directory as the data directory. Uploads in progress are not
+in a backup; the server forgets them on startup, and clients start them again.
 
 ## Account flows
 
