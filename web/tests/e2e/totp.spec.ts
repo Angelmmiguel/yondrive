@@ -107,6 +107,7 @@ test('the recovery words ask for the second factor and take a recovery code', as
 		await expectSignedOut(page);
 
 		await page.getByRole('link', { name: 'Forgot your passphrase?' }).click();
+		await expect(page.getByRole('heading', { name: 'Recover your account' })).toBeVisible();
 		await page.getByLabel(/^Username/).fill('admin');
 		await page.getByLabel(/^Recovery key/).fill(words.join(' '));
 		await page.getByRole('button', { name: 'Continue' }).click();
