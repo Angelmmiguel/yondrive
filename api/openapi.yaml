@@ -38,6 +38,12 @@ tags:
     description: The tree of opaque nodes, its versions, uploads, downloads and journal.
   - name: sharing
     description: Grants to other users, key rotation, and the notifications they make.
+  - name: links
+    description: Public links, as their owner sees them.
+  - name: public
+    description: |
+      What anyone with a public link may read. Nothing here looks at a cookie or a
+      bearer token: a link token in `X-Link-Token` is the only authority.
   - name: admin
     description: Server administration. Admins only.
 paths:
@@ -1431,7 +1437,7 @@ paths:
       tags: [sharing]
       summary: Replace a node's key, after revoking someone
       description: |
-        Owner only. CRYPTO.md, section 8, says what to send. One transaction swaps the
+        Owner only. CRYPTO.md, section 8, says how each field is made. One transaction swaps the
         key, the old key's link in the chain, the metadata, the wraps and tags of all
         children and the sealed grants, and removes the thumbnail. Versions stay as
         they are, and `key_chain` reaches their keys.
@@ -1506,6 +1512,263 @@ paths:
       responses:
         "204":
           description: Marked. Ids that are not the caller's are ignored.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/links:
+    get:
+      operationId: listLinks
+      tags: [links]
+      summary: List the signed-in user's links
+      description: With the grants made, this is the "shared by me" page. Revoked and expired links stay until deleted.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkPage"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createLink
+      tags: [links]
+      summary: Make a public link to a node
+      description: |
+        Owner only, and it covers the subtree. Answers `id_taken`, `invalid_link`,
+        `invalid_kdf`, `root_immutable`, `node_trashed` or `key_generation_conflict`.
+        CRYPTO.md, section 19, says how the keys are made.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateLinkRequest"
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    delete:
+      operationId: deleteLink
+      tags: [links]
+      summary: Forget a link
+      description: After this its id answers `not_found`.
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/links/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: revokeLink
+      tags: [links]
+      summary: End a link, keeping its row
+      description: After this its id answers `link_revoked`, and tokens already given stop working.
+      responses:
+        "200":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Link"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getPublicLink
+      tags: [public]
+      summary: Open a public link
+      description: |
+        With no password, the link's node and a token. With a password, its KDF
+        parameters: derive, then call `unlockPublicLink`. A valid `X-Link-Token` for this
+        link goes straight to `open` and renews the token within its session, which lasts
+        at most a day. Limited per address, and on a password per link as well
+        (`rate_limited`). Answers `not_found` for what does not exist, or whose node is in
+        the trash, `link_expired`, `link_revoked`, or `link_limit_reached` to someone
+        new once the limit has been reached.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "200":
+          description: The state of the link.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicLink"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}/unlock:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: unlockPublicLink
+      tags: [public]
+      summary: Prove the password of a link
+      description: |
+        Compares the hash in constant time, and answers `link_password_invalid` if it is
+        wrong. Every attempt counts against the address and the link, right or wrong
+        (`rate_limited`). The answer is the same as an open link's.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnlockLinkRequest"
+      responses:
+        "200":
+          description: The link, open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicLink"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}/nodes/{node_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/LinkNodeID"
+    get:
+      operationId: getPublicNode
+      tags: [public]
+      summary: Read a node under a link
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicNode"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}/nodes/{node_id}/children:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/LinkNodeID"
+    get:
+      operationId: listPublicChildren
+      tags: [public]
+      summary: List a folder's children under a link
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order, without what is in the trash.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicNodePage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}/nodes/{node_id}/version:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/LinkNodeID"
+    get:
+      operationId: getPublicVersion
+      tags: [public]
+      summary: Read a file's current version under a link
+      description: A link shows no history. Answers `not_found` until a file's first commit.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "200":
+          description: The version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicVersion"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/links/{id}/blobs/{blob_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        description: The current version or the thumbnail of a node at or under the link's.
+    get:
+      operationId: getPublicBlob
+      tags: [public]
+      summary: Read a stored file under a link
+      description: |
+        As `getBlob`. Content counts against the download limit the first time a session
+        fetches any of it, whatever the range, so reading a file by frames counts once;
+        a new session counts again, as does one that lost its token and started over. A
+        file that was started counts whether or not it finished. Thumbnails do not count.
+        Answers `link_limit_reached` when nothing is left.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+        - name: Range
+          in: header
+          schema:
+            type: string
+        - name: If-Range
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The whole file.
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: The range.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "416":
+          description: The range does not fit the file.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
         default:
           $ref: "#/components/responses/Error"
 components:
@@ -1600,6 +1863,11 @@ components:
             - `grant_exists`, `invalid_grant`
             - `invalid_rotation`: a sealed field of a rotation is the wrong size
             - `rotate_conflict`: a rotation does not name what the node has now
+            - `invalid_link`: a field of a new link is the wrong size, or in the past
+            - `link_expired`, `link_revoked`: the link has ended (410)
+            - `link_limit_reached`: the link has given all its downloads (410)
+            - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
+            - `link_password_invalid`: wrong password, or wrong proof of it (401)
           examples: [not_found]
     KDF:
       type: object
@@ -2783,6 +3051,17 @@ components:
           type: string
           format: byte
           description: 64 bytes, over the new generation. Empty in `none` mode.
+    RotatedLink:
+      type: object
+      required: [id, sealed_key]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        sealed_key:
+          type: string
+          format: byte
+          description: The new key sealed under the link key, which `owner_sealed_key` holds, 73 bytes. Empty in `none` mode.
     RotateNodeRequest:
       type: object
       required: [key_generation, parent_key_generation, wrapped_key, previous_key, sealed_metadata, children, grants]
@@ -2817,6 +3096,266 @@ components:
           description: Every grant on this node. Grants above and below it are not affected.
           items:
             $ref: "#/components/schemas/RotatedGrant"
+        links:
+          type: array
+          description: |
+            Every live link on this node, as `listLinks` shows them: not revoked and not
+            expired. One that has ended since is ignored. Absent means none.
+          items:
+            $ref: "#/components/schemas/RotatedLink"
+    LinkRole:
+      type: string
+      description: Links only ever give read access.
+      enum: [view]
+    LinkPassword:
+      type: object
+      required: [kdf, auth_key]
+      properties:
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        auth_key:
+          type: string
+          format: byte
+          description: |
+            32 bytes, stored only as a hash (CRYPTO.md, section 19). In `e2e` mode it comes
+            from the link key, and shows the client has opened `wrapped_key`. In `none`
+            mode it comes from the password.
+        wrapped_key:
+          type: string
+          format: byte
+          description: The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+    CreateLinkRequest:
+      type: object
+      required: [id, node_id, role, key_generation, sealed_key, owner_sealed_key]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Chosen by the client, since it enters the AAD. It is what the URL carries.
+        node_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        role:
+          $ref: "#/components/schemas/LinkRole"
+        key_generation:
+          type: integer
+          format: int64
+          description: The node's current generation, of the key being sealed.
+        sealed_key:
+          type: string
+          format: byte
+          description: The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+        owner_sealed_key:
+          type: string
+          format: byte
+          description: The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+        expires_at:
+          type: string
+          format: date-time
+        download_limit:
+          type: integer
+          format: int64
+          minimum: 1
+          description: How many files may be fetched in all. See `getPublicBlob` for what counts.
+        password:
+          $ref: "#/components/schemas/LinkPassword"
+    Link:
+      type: object
+      required: [id, node_id, role, key_generation, sealed_key, owner_sealed_key, has_password, download_count, created_at]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        role:
+          $ref: "#/components/schemas/LinkRole"
+        key_generation:
+          type: integer
+          format: int64
+        sealed_key:
+          type: string
+          format: byte
+        owner_sealed_key:
+          type: string
+          format: byte
+        has_password:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+        download_limit:
+          type: integer
+          format: int64
+        download_count:
+          type: integer
+          format: int64
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    LinkedNode:
+      type: object
+      required: [link, node]
+      properties:
+        link:
+          $ref: "#/components/schemas/Link"
+        node:
+          $ref: "#/components/schemas/Node"
+    LinkPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/LinkedNode"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    PublicNode:
+      type: object
+      description: |
+        A node as a link shows it: no owner and no trash. The link's own node has no
+        `parent_id`, and an empty `wrapped_key`: its key comes from `sealed_key`.
+      required: [id, kind, suite, sealed_metadata, wrapped_key, key_generation, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        parent_id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/NodeKind"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_metadata:
+          type: string
+          format: byte
+        wrapped_key:
+          type: string
+          format: byte
+          description: This node's key wrapped under its parent's. Empty in `none` mode.
+        key_generation:
+          type: integer
+          format: int64
+        current_version:
+          type: string
+        thumb_blob_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PublicNodePage:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PublicNode"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    PublicLink:
+      type: object
+      description: |
+        `password_required` carries `kdf`, and `password_wrapped_key` in `e2e` mode.
+        `open` carries `node`, `sealed_key`, `key_generation`, `token` and
+        `token_expires_at`, with `sealed_key` empty in `none` mode.
+      required: [id, state]
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          enum: [open, password_required]
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        password_wrapped_key:
+          type: string
+          format: byte
+        node:
+          $ref: "#/components/schemas/PublicNode"
+        sealed_key:
+          type: string
+          format: byte
+          description: The link's node's key, sealed under the link key.
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key that `sealed_key` holds.
+        token:
+          type: string
+          description: Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicLink` before it ends.
+        token_expires_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        downloads_remaining:
+          type: integer
+          format: int64
+          description: Absent if the link has no limit.
+    UnlockLinkRequest:
+      type: object
+      required: [auth_key]
+      properties:
+        auth_key:
+          type: string
+          format: byte
+          description: 32 bytes. See `LinkPassword`.
+    PublicVersion:
+      type: object
+      description: |
+        What a reader needs to read a node's current version, and no more. The signer
+        is named by their key alone. `author_public_key` is absent in `none` mode and if
+        the account has gone.
+      required: [id, node_id, blob_id, suite, content_version_id, key_generation, stored_size, frame_count, frame_size, frame_hashes, signature, manifest]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        blob_id:
+          type: string
+        suite:
+          $ref: "#/components/schemas/Suite"
+        content_version_id:
+          type: string
+        key_generation:
+          type: integer
+          format: int64
+        key_chain:
+          type: array
+          description: As on `Version`.
+          items:
+            $ref: "#/components/schemas/KeyLink"
+        stored_size:
+          type: integer
+          format: int64
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        frame_hashes:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+        manifest:
+          type: string
+          format: byte
+        author_public_key:
+          type: string
+          format: byte
     AdminHealth:
       type: object
       required: [version, mode, blobs, stored_bytes, uploads, reserved_bytes, pending_removals]
@@ -2881,6 +3420,23 @@ components:
         maximum: 1000
         default: 200
       description: The most to return. Anything above the maximum is treated as it.
+    LinkToken:
+      name: X-Link-Token
+      in: header
+      schema:
+        type: string
+      description: |
+        The token of an open link. Bound to one link and its node, and good for 15 minutes.
+        Anything missing answers `link_token_required`, anything else wrong
+        `link_token_invalid`.
+    LinkNodeID:
+      name: node_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+      description: A node at or under the link's. Anything else answers `not_found`.
     ContentSHA256:
       name: X-Content-SHA256
       in: header

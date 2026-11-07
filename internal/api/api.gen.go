@@ -120,6 +120,21 @@ func (e KDFName) Valid() bool {
 	}
 }
 
+// Defines values for LinkRole.
+const (
+	View LinkRole = "view"
+)
+
+// Valid indicates whether the value is a known member of the LinkRole enum.
+func (e LinkRole) Valid() bool {
+	switch e {
+	case View:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Mode.
 const (
 	ModeE2e  Mode = "e2e"
@@ -171,6 +186,24 @@ func (e NodeRole) Valid() bool {
 	case NodeRoleOwner:
 		return true
 	case NodeRoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicLinkState.
+const (
+	Open             PublicLinkState = "open"
+	PasswordRequired PublicLinkState = "password_required"
+)
+
+// Valid indicates whether the value is a known member of the PublicLinkState enum.
+func (e PublicLinkState) Valid() bool {
+	switch e {
+	case Open:
+		return true
+	case PasswordRequired:
 		return true
 	default:
 		return false
@@ -377,6 +410,30 @@ type CreateInviteRequest struct {
 	Role             *Role  `json:"role,omitempty"`
 }
 
+// CreateLinkRequest defines model for CreateLinkRequest.
+type CreateLinkRequest struct {
+	// DownloadLimit How many files may be fetched in all. See `getPublicBlob` for what counts.
+	DownloadLimit *int64     `json:"download_limit,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+
+	// Id Chosen by the client, since it enters the AAD. It is what the URL carries.
+	Id string `json:"id"`
+
+	// KeyGeneration The node's current generation, of the key being sealed.
+	KeyGeneration int64  `json:"key_generation"`
+	NodeId        string `json:"node_id"`
+
+	// OwnerSealedKey The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+	OwnerSealedKey []byte        `json:"owner_sealed_key"`
+	Password       *LinkPassword `json:"password,omitempty"`
+
+	// Role Links only ever give read access.
+	Role LinkRole `json:"role"`
+
+	// SealedKey The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+	SealedKey []byte `json:"sealed_key"`
+}
+
 // CreateNodeRequest defines model for CreateNodeRequest.
 type CreateNodeRequest struct {
 	Id   string   `json:"id"`
@@ -561,6 +618,11 @@ type Error struct {
 	// - `grant_exists`, `invalid_grant`
 	// - `invalid_rotation`: a sealed field of a rotation is the wrong size
 	// - `rotate_conflict`: a rotation does not name what the node has now
+	// - `invalid_link`: a field of a new link is the wrong size, or in the past
+	// - `link_expired`, `link_revoked`: the link has ended (410)
+	// - `link_limit_reached`: the link has given all its downloads (410)
+	// - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
+	// - `link_password_invalid`: wrong password, or wrong proof of it (401)
 	//
 	//
 	// Examples: not_found
@@ -675,6 +737,59 @@ type KeyLink struct {
 
 	// SealedKey The key of this generation, sealed under the next one (CRYPTO.md, section 8).
 	SealedKey []byte `json:"sealed_key"`
+}
+
+// Link defines model for Link.
+type Link struct {
+	CreatedAt      time.Time  `json:"created_at"`
+	DownloadCount  int64      `json:"download_count"`
+	DownloadLimit  *int64     `json:"download_limit,omitempty"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+	HasPassword    bool       `json:"has_password"`
+	Id             string     `json:"id"`
+	KeyGeneration  int64      `json:"key_generation"`
+	NodeId         string     `json:"node_id"`
+	OwnerSealedKey []byte     `json:"owner_sealed_key"`
+	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
+
+	// Role Links only ever give read access.
+	Role      LinkRole `json:"role"`
+	SealedKey []byte   `json:"sealed_key"`
+}
+
+// LinkPage defines model for LinkPage.
+type LinkPage struct {
+	Items []LinkedNode `json:"items"`
+
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// LinkPassword defines model for LinkPassword.
+type LinkPassword struct {
+	// AuthKey 32 bytes, stored only as a hash (CRYPTO.md, section 19). In `e2e` mode it comes
+	// from the link key, and shows the client has opened `wrapped_key`. In `none`
+	// mode it comes from the password.
+	AuthKey []byte `json:"auth_key"`
+
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf KDF `json:"kdf"`
+
+	// WrappedKey The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+	WrappedKey *[]byte `json:"wrapped_key,omitempty"`
+}
+
+// LinkRole Links only ever give read access.
+type LinkRole string
+
+// LinkedNode defines model for LinkedNode.
+type LinkedNode struct {
+	Link Link `json:"link"`
+
+	// Node A file or folder. The server cannot read the sealed fields. On the node of
+	// a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
+	// and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
+	Node Node `json:"node"`
 }
 
 // LoginRequest defines model for LoginRequest.
@@ -872,6 +987,91 @@ type PublicKeys struct {
 	X25519 []byte `json:"x25519"`
 }
 
+// PublicLink `password_required` carries `kdf`, and `password_wrapped_key` in `e2e` mode.
+// `open` carries `node`, `sealed_key`, `key_generation`, `token` and
+// `token_expires_at`, with `sealed_key` empty in `none` mode.
+type PublicLink struct {
+	// DownloadsRemaining Absent if the link has no limit.
+	DownloadsRemaining *int64     `json:"downloads_remaining,omitempty"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	Id                 string     `json:"id"`
+
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf *KDF `json:"kdf,omitempty"`
+
+	// KeyGeneration The generation of the node's key that `sealed_key` holds.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
+
+	// Node A node as a link shows it: no owner and no trash. The link's own node has no
+	// `parent_id`, and an empty `wrapped_key`: its key comes from `sealed_key`.
+	Node               *PublicNode `json:"node,omitempty"`
+	PasswordWrappedKey *[]byte     `json:"password_wrapped_key,omitempty"`
+
+	// SealedKey The link's node's key, sealed under the link key.
+	SealedKey *[]byte         `json:"sealed_key,omitempty"`
+	State     PublicLinkState `json:"state"`
+
+	// Token Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicLink` before it ends.
+	Token          *string    `json:"token,omitempty"`
+	TokenExpiresAt *time.Time `json:"token_expires_at,omitempty"`
+}
+
+// PublicLinkState defines model for PublicLink.State.
+type PublicLinkState string
+
+// PublicNode A node as a link shows it: no owner and no trash. The link's own node has no
+// `parent_id`, and an empty `wrapped_key`: its key comes from `sealed_key`.
+type PublicNode struct {
+	CreatedAt      time.Time `json:"created_at"`
+	CurrentVersion *string   `json:"current_version,omitempty"`
+	Id             string    `json:"id"`
+	KeyGeneration  int64     `json:"key_generation"`
+	Kind           NodeKind  `json:"kind"`
+	ParentId       *string   `json:"parent_id,omitempty"`
+	SealedMetadata []byte    `json:"sealed_metadata"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite       Suite     `json:"suite"`
+	ThumbBlobId *string   `json:"thumb_blob_id,omitempty"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// WrappedKey This node's key wrapped under its parent's. Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// PublicNodePage defines model for PublicNodePage.
+type PublicNodePage struct {
+	// NextCursor Present if there may be more.
+	NextCursor *string      `json:"next_cursor,omitempty"`
+	Nodes      []PublicNode `json:"nodes"`
+}
+
+// PublicVersion What a reader needs to read a node's current version, and no more. The signer
+// is named by their key alone. `author_public_key` is absent in `none` mode and if
+// the account has gone.
+type PublicVersion struct {
+	AuthorPublicKey  *[]byte `json:"author_public_key,omitempty"`
+	BlobId           string  `json:"blob_id"`
+	ContentVersionId string  `json:"content_version_id"`
+	FrameCount       int64   `json:"frame_count"`
+	FrameHashes      []byte  `json:"frame_hashes"`
+	FrameSize        int64   `json:"frame_size"`
+	Id               string  `json:"id"`
+
+	// KeyChain As on `Version`.
+	KeyChain      *[]KeyLink `json:"key_chain,omitempty"`
+	KeyGeneration int64      `json:"key_generation"`
+	Manifest      []byte     `json:"manifest"`
+	NodeId        string     `json:"node_id"`
+	Signature     []byte     `json:"signature"`
+	StoredSize    int64      `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+}
+
 // RecoveryCodes defines model for RecoveryCodes.
 type RecoveryCodes struct {
 	RecoveryCodes []string `json:"recovery_codes"`
@@ -925,6 +1125,10 @@ type RotateNodeRequest struct {
 	// KeyGeneration The node's current generation, the one being replaced.
 	KeyGeneration int64 `json:"key_generation"`
 
+	// Links Every live link on this node, as `listLinks` shows them: not revoked and not
+	// expired. One that has ended since is ignored. Absent means none.
+	Links *[]RotatedLink `json:"links,omitempty"`
+
 	// ParentKeyGeneration The generation of the parent's key that `wrapped_key` is wrapped under.
 	ParentKeyGeneration int64 `json:"parent_key_generation"`
 
@@ -958,6 +1162,14 @@ type RotatedGrant struct {
 
 	// Signature 64 bytes, over the new generation. Empty in `none` mode.
 	Signature []byte `json:"signature"`
+}
+
+// RotatedLink defines model for RotatedLink.
+type RotatedLink struct {
+	Id string `json:"id"`
+
+	// SealedKey The new key sealed under the link key, which `owner_sealed_key` holds, 73 bytes. Empty in `none` mode.
+	SealedKey []byte `json:"sealed_key"`
 }
 
 // ServerSettings defines model for ServerSettings.
@@ -1081,6 +1293,12 @@ type TOTPEnrolment struct {
 
 	// Uri The `otpauth://` address, to show as a QR code.
 	Uri string `json:"uri"`
+}
+
+// UnlockLinkRequest defines model for UnlockLinkRequest.
+type UnlockLinkRequest struct {
+	// AuthKey 32 bytes. See `LinkPassword`.
+	AuthKey []byte `json:"auth_key"`
 }
 
 // UpdateGrantRequest defines model for UpdateGrantRequest.
@@ -1281,6 +1499,12 @@ type IDCursor = string
 // Limit defines model for Limit.
 type Limit = int
 
+// LinkNodeID defines model for LinkNodeID.
+type LinkNodeID = string
+
+// LinkToken defines model for LinkToken.
+type LinkToken = string
+
 // VersionID defines model for VersionID.
 type VersionID = string
 
@@ -1327,6 +1551,15 @@ type ListGrantsMadeParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListLinksParams defines parameters for ListLinks.
+type ListLinksParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListIndexBlobsParams defines parameters for ListIndexBlobs.
 type ListIndexBlobsParams struct {
 	// Cursor The `next_cursor` of the previous page.
@@ -1352,6 +1585,54 @@ type ListVersionsParams struct {
 
 	// Limit The most to return. Anything above the maximum is treated as it.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetPublicLinkParams defines parameters for GetPublicLink.
+type GetPublicLinkParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// GetPublicBlobParams defines parameters for GetPublicBlob.
+type GetPublicBlobParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+	Range      *string    `json:"Range,omitempty"`
+	IfRange    *string    `json:"If-Range,omitempty"`
+}
+
+// GetPublicNodeParams defines parameters for GetPublicNode.
+type GetPublicNodeParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// ListPublicChildrenParams defines parameters for ListPublicChildren.
+type ListPublicChildrenParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// GetPublicVersionParams defines parameters for GetPublicVersion.
+type GetPublicVersionParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
 }
 
 // ListSharedWithMeParams defines parameters for ListSharedWithMe.
@@ -1425,6 +1706,9 @@ type CreateGrantJSONRequestBody = CreateGrantRequest
 // UpdateGrantJSONRequestBody defines body for UpdateGrant for application/json ContentType.
 type UpdateGrantJSONRequestBody = UpdateGrantRequest
 
+// CreateLinkJSONRequestBody defines body for CreateLink for application/json ContentType.
+type CreateLinkJSONRequestBody = CreateLinkRequest
+
 // CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
 type CreateTokenJSONRequestBody = CreateTokenRequest
 
@@ -1448,6 +1732,9 @@ type RestoreVersionJSONRequestBody = RestoreVersionRequest
 
 // MarkNotificationsReadJSONRequestBody defines body for MarkNotificationsRead for application/json ContentType.
 type MarkNotificationsReadJSONRequestBody = MarkNotificationsReadRequest
+
+// UnlockPublicLinkJSONRequestBody defines body for UnlockPublicLink for application/json ContentType.
+type UnlockPublicLinkJSONRequestBody = UnlockLinkRequest
 
 // PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
 type PutSessionKeyJSONRequestBody = SessionKey
@@ -1553,6 +1840,18 @@ type ServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListLinks List the signed-in user's links
+	// (GET /api/v1/links)
+	ListLinks(w http.ResponseWriter, r *http.Request, params ListLinksParams)
+	// CreateLink Make a public link to a node
+	// (POST /api/v1/links)
+	CreateLink(w http.ResponseWriter, r *http.Request)
+	// DeleteLink Forget a link
+	// (DELETE /api/v1/links/{id})
+	DeleteLink(w http.ResponseWriter, r *http.Request, id ID)
+	// RevokeLink End a link, keeping its row
+	// (POST /api/v1/links/{id}/revoke)
+	RevokeLink(w http.ResponseWriter, r *http.Request, id ID)
 	// GetMe Fetch the signed-in account
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -1625,6 +1924,24 @@ type ServerInterface interface {
 	// MarkNotificationsRead Mark notifications as read
 	// (POST /api/v1/notifications/read)
 	MarkNotificationsRead(w http.ResponseWriter, r *http.Request)
+	// GetPublicLink Open a public link
+	// (GET /api/v1/public/links/{id})
+	GetPublicLink(w http.ResponseWriter, r *http.Request, id ID, params GetPublicLinkParams)
+	// GetPublicBlob Read a stored file under a link
+	// (GET /api/v1/public/links/{id}/blobs/{blob_id})
+	GetPublicBlob(w http.ResponseWriter, r *http.Request, id ID, blobId string, params GetPublicBlobParams)
+	// GetPublicNode Read a node under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id})
+	GetPublicNode(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params GetPublicNodeParams)
+	// ListPublicChildren List a folder's children under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id}/children)
+	ListPublicChildren(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params ListPublicChildrenParams)
+	// GetPublicVersion Read a file's current version under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id}/version)
+	GetPublicVersion(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params GetPublicVersionParams)
+	// UnlockPublicLink Prove the password of a link
+	// (POST /api/v1/public/links/{id}/unlock)
+	UnlockPublicLink(w http.ResponseWriter, r *http.Request, id ID)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(w http.ResponseWriter, r *http.Request)
@@ -2391,6 +2708,118 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// ListLinks operation middleware
+func (siw *ServerInterfaceWrapper) ListLinks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListLinksParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLinks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLink operation middleware
+func (siw *ServerInterfaceWrapper) CreateLink(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLink(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteLink operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLink(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeLink operation middleware
+func (siw *ServerInterfaceWrapper) RevokeLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeLink(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
@@ -3012,6 +3441,382 @@ func (siw *ServerInterfaceWrapper) MarkNotificationsRead(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// GetPublicLink operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicLinkParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicLink(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicBlob operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicBlob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "blob_id" -------------
+	var blobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "blob_id", r.PathValue("blob_id"), &blobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "blob_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicBlobParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	// ------------- Optional header parameter "If-Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Range")]; found {
+		var IfRange string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Range", valueList[0], &IfRange, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Range", Err: err})
+			return
+		}
+
+		params.IfRange = &IfRange
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicBlob(w, r, id, blobId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicNode operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId LinkNodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicNodeParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicNode(w, r, id, nodeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListPublicChildren operation middleware
+func (siw *ServerInterfaceWrapper) ListPublicChildren(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId LinkNodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPublicChildrenParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPublicChildren(w, r, id, nodeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPublicVersion operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId LinkNodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicVersionParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicVersion(w, r, id, nodeId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnlockPublicLink operation middleware
+func (siw *ServerInterfaceWrapper) UnlockPublicLink(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlockPublicLink(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSessionKey operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSessionKey(w http.ResponseWriter, r *http.Request) {
 
@@ -3605,6 +4410,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/shared-with-me", wrapper.ListSharedWithMe)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/notifications", wrapper.ListNotifications)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/notifications/read", wrapper.MarkNotificationsRead)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/links", wrapper.ListLinks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/links", wrapper.CreateLink)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/links/{id}", wrapper.DeleteLink)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/links/{id}/revoke", wrapper.RevokeLink)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}", wrapper.GetPublicLink)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/public/links/{id}/unlock", wrapper.UnlockPublicLink)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/nodes/{node_id}", wrapper.GetPublicNode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/nodes/{node_id}/children", wrapper.ListPublicChildren)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/nodes/{node_id}/version", wrapper.GetPublicVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/blobs/{blob_id}", wrapper.GetPublicBlob)
 
 	return m
 }
@@ -4785,6 +5600,156 @@ func (response GetHealthdefaultJSONResponse) VisitGetHealthResponse(w http.Respo
 	return err
 }
 
+type ListLinksRequestObject struct {
+	Params ListLinksParams
+}
+
+type ListLinksResponseObject interface {
+	VisitListLinksResponse(w http.ResponseWriter) error
+}
+
+type ListLinks200JSONResponse LinkPage
+
+func (response ListLinks200JSONResponse) VisitListLinksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListLinksdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListLinksdefaultJSONResponse) VisitListLinksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateLinkRequestObject struct {
+	Body *CreateLinkJSONRequestBody
+}
+
+type CreateLinkResponseObject interface {
+	VisitCreateLinkResponse(w http.ResponseWriter) error
+}
+
+type CreateLink201JSONResponse Link
+
+func (response CreateLink201JSONResponse) VisitCreateLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateLinkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateLinkdefaultJSONResponse) VisitCreateLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteLinkRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type DeleteLinkResponseObject interface {
+	VisitDeleteLinkResponse(w http.ResponseWriter) error
+}
+
+type DeleteLink204Response struct {
+}
+
+func (response DeleteLink204Response) VisitDeleteLinkResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteLinkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteLinkdefaultJSONResponse) VisitDeleteLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeLinkRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type RevokeLinkResponseObject interface {
+	VisitRevokeLinkResponse(w http.ResponseWriter) error
+}
+
+type RevokeLink200JSONResponse Link
+
+func (response RevokeLink200JSONResponse) VisitRevokeLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeLinkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RevokeLinkdefaultJSONResponse) VisitRevokeLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMeRequestObject struct {
 }
 
@@ -5727,6 +6692,317 @@ func (response MarkNotificationsReaddefaultJSONResponse) VisitMarkNotificationsR
 	return err
 }
 
+type GetPublicLinkRequestObject struct {
+	Id     ID `json:"id"`
+	Params GetPublicLinkParams
+}
+
+type GetPublicLinkResponseObject interface {
+	VisitGetPublicLinkResponse(w http.ResponseWriter) error
+}
+
+type GetPublicLink200JSONResponse PublicLink
+
+func (response GetPublicLink200JSONResponse) VisitGetPublicLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicLinkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPublicLinkdefaultJSONResponse) VisitGetPublicLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicBlobRequestObject struct {
+	Id     ID     `json:"id"`
+	BlobId string `json:"blob_id"`
+	Params GetPublicBlobParams
+}
+
+type GetPublicBlobResponseObject interface {
+	VisitGetPublicBlobResponse(w http.ResponseWriter) error
+}
+
+type GetPublicBlob200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetPublicBlob200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetPublicBlob200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetPublicBlob200ApplicationoctetStreamResponse) VisitGetPublicBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetPublicBlob206ResponseHeaders struct {
+	ContentRange *string
+	ETag         *string
+}
+
+type GetPublicBlob206ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetPublicBlob206ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetPublicBlob206ApplicationoctetStreamResponse) VisitGetPublicBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ContentRange != nil {
+		w.Header().Set("Content-Range", fmt.Sprint(*response.Headers.ContentRange))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetPublicBlob416ResponseHeaders struct {
+	ContentRange *string
+}
+
+type GetPublicBlob416TextResponse struct {
+	Body    string
+	Headers GetPublicBlob416ResponseHeaders
+}
+
+func (response GetPublicBlob416TextResponse) VisitGetPublicBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	if response.Headers.ContentRange != nil {
+		w.Header().Set("Content-Range", fmt.Sprint(*response.Headers.ContentRange))
+	}
+	w.WriteHeader(416)
+
+	_, err := w.Write([]byte(fmt.Sprint(response.Body)))
+	return err
+}
+
+type GetPublicBlobdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPublicBlobdefaultJSONResponse) VisitGetPublicBlobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicNodeRequestObject struct {
+	Id     ID         `json:"id"`
+	NodeId LinkNodeID `json:"node_id"`
+	Params GetPublicNodeParams
+}
+
+type GetPublicNodeResponseObject interface {
+	VisitGetPublicNodeResponse(w http.ResponseWriter) error
+}
+
+type GetPublicNode200JSONResponse PublicNode
+
+func (response GetPublicNode200JSONResponse) VisitGetPublicNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPublicNodedefaultJSONResponse) VisitGetPublicNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicChildrenRequestObject struct {
+	Id     ID         `json:"id"`
+	NodeId LinkNodeID `json:"node_id"`
+	Params ListPublicChildrenParams
+}
+
+type ListPublicChildrenResponseObject interface {
+	VisitListPublicChildrenResponse(w http.ResponseWriter) error
+}
+
+type ListPublicChildren200JSONResponse PublicNodePage
+
+func (response ListPublicChildren200JSONResponse) VisitListPublicChildrenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPublicChildrendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListPublicChildrendefaultJSONResponse) VisitListPublicChildrenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicVersionRequestObject struct {
+	Id     ID         `json:"id"`
+	NodeId LinkNodeID `json:"node_id"`
+	Params GetPublicVersionParams
+}
+
+type GetPublicVersionResponseObject interface {
+	VisitGetPublicVersionResponse(w http.ResponseWriter) error
+}
+
+type GetPublicVersion200JSONResponse PublicVersion
+
+func (response GetPublicVersion200JSONResponse) VisitGetPublicVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPublicVersiondefaultJSONResponse) VisitGetPublicVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnlockPublicLinkRequestObject struct {
+	Id   ID `json:"id"`
+	Body *UnlockPublicLinkJSONRequestBody
+}
+
+type UnlockPublicLinkResponseObject interface {
+	VisitUnlockPublicLinkResponse(w http.ResponseWriter) error
+}
+
+type UnlockPublicLink200JSONResponse PublicLink
+
+func (response UnlockPublicLink200JSONResponse) VisitUnlockPublicLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnlockPublicLinkdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UnlockPublicLinkdefaultJSONResponse) VisitUnlockPublicLinkResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteSessionKeyRequestObject struct {
 }
 
@@ -6416,6 +7692,18 @@ type StrictServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListLinks List the signed-in user's links
+	// (GET /api/v1/links)
+	ListLinks(ctx context.Context, request ListLinksRequestObject) (ListLinksResponseObject, error)
+	// CreateLink Make a public link to a node
+	// (POST /api/v1/links)
+	CreateLink(ctx context.Context, request CreateLinkRequestObject) (CreateLinkResponseObject, error)
+	// DeleteLink Forget a link
+	// (DELETE /api/v1/links/{id})
+	DeleteLink(ctx context.Context, request DeleteLinkRequestObject) (DeleteLinkResponseObject, error)
+	// RevokeLink End a link, keeping its row
+	// (POST /api/v1/links/{id}/revoke)
+	RevokeLink(ctx context.Context, request RevokeLinkRequestObject) (RevokeLinkResponseObject, error)
 	// GetMe Fetch the signed-in account
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -6488,6 +7776,24 @@ type StrictServerInterface interface {
 	// MarkNotificationsRead Mark notifications as read
 	// (POST /api/v1/notifications/read)
 	MarkNotificationsRead(ctx context.Context, request MarkNotificationsReadRequestObject) (MarkNotificationsReadResponseObject, error)
+	// GetPublicLink Open a public link
+	// (GET /api/v1/public/links/{id})
+	GetPublicLink(ctx context.Context, request GetPublicLinkRequestObject) (GetPublicLinkResponseObject, error)
+	// GetPublicBlob Read a stored file under a link
+	// (GET /api/v1/public/links/{id}/blobs/{blob_id})
+	GetPublicBlob(ctx context.Context, request GetPublicBlobRequestObject) (GetPublicBlobResponseObject, error)
+	// GetPublicNode Read a node under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id})
+	GetPublicNode(ctx context.Context, request GetPublicNodeRequestObject) (GetPublicNodeResponseObject, error)
+	// ListPublicChildren List a folder's children under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id}/children)
+	ListPublicChildren(ctx context.Context, request ListPublicChildrenRequestObject) (ListPublicChildrenResponseObject, error)
+	// GetPublicVersion Read a file's current version under a link
+	// (GET /api/v1/public/links/{id}/nodes/{node_id}/version)
+	GetPublicVersion(ctx context.Context, request GetPublicVersionRequestObject) (GetPublicVersionResponseObject, error)
+	// UnlockPublicLink Prove the password of a link
+	// (POST /api/v1/public/links/{id}/unlock)
+	UnlockPublicLink(ctx context.Context, request UnlockPublicLinkRequestObject) (UnlockPublicLinkResponseObject, error)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(ctx context.Context, request DeleteSessionKeyRequestObject) (DeleteSessionKeyResponseObject, error)
@@ -7399,6 +8705,115 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListLinks operation middleware
+func (sh *strictHandler) ListLinks(w http.ResponseWriter, r *http.Request, params ListLinksParams) {
+	var request ListLinksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListLinks(ctx, request.(ListLinksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListLinks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListLinksResponseObject); ok {
+		if err := validResponse.VisitListLinksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateLink operation middleware
+func (sh *strictHandler) CreateLink(w http.ResponseWriter, r *http.Request) {
+	var request CreateLinkRequestObject
+
+	var body CreateLinkJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateLink(ctx, request.(CreateLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateLinkResponseObject); ok {
+		if err := validResponse.VisitCreateLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteLink operation middleware
+func (sh *strictHandler) DeleteLink(w http.ResponseWriter, r *http.Request, id ID) {
+	var request DeleteLinkRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteLink(ctx, request.(DeleteLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteLinkResponseObject); ok {
+		if err := validResponse.VisitDeleteLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeLink operation middleware
+func (sh *strictHandler) RevokeLink(w http.ResponseWriter, r *http.Request, id ID) {
+	var request RevokeLinkRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeLink(ctx, request.(RevokeLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeLinkResponseObject); ok {
+		if err := validResponse.VisitRevokeLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMe operation middleware
 func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	var request GetMeRequestObject
@@ -8059,6 +9474,178 @@ func (sh *strictHandler) MarkNotificationsRead(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MarkNotificationsReadResponseObject); ok {
 		if err := validResponse.VisitMarkNotificationsReadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPublicLink operation middleware
+func (sh *strictHandler) GetPublicLink(w http.ResponseWriter, r *http.Request, id ID, params GetPublicLinkParams) {
+	var request GetPublicLinkRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicLink(ctx, request.(GetPublicLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicLinkResponseObject); ok {
+		if err := validResponse.VisitGetPublicLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPublicBlob operation middleware
+func (sh *strictHandler) GetPublicBlob(w http.ResponseWriter, r *http.Request, id ID, blobId string, params GetPublicBlobParams) {
+	var request GetPublicBlobRequestObject
+
+	request.Id = id
+	request.BlobId = blobId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicBlob(ctx, request.(GetPublicBlobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicBlob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicBlobResponseObject); ok {
+		if err := validResponse.VisitGetPublicBlobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPublicNode operation middleware
+func (sh *strictHandler) GetPublicNode(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params GetPublicNodeParams) {
+	var request GetPublicNodeRequestObject
+
+	request.Id = id
+	request.NodeId = nodeId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicNode(ctx, request.(GetPublicNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicNodeResponseObject); ok {
+		if err := validResponse.VisitGetPublicNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPublicChildren operation middleware
+func (sh *strictHandler) ListPublicChildren(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params ListPublicChildrenParams) {
+	var request ListPublicChildrenRequestObject
+
+	request.Id = id
+	request.NodeId = nodeId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPublicChildren(ctx, request.(ListPublicChildrenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPublicChildren")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPublicChildrenResponseObject); ok {
+		if err := validResponse.VisitListPublicChildrenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPublicVersion operation middleware
+func (sh *strictHandler) GetPublicVersion(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params GetPublicVersionParams) {
+	var request GetPublicVersionRequestObject
+
+	request.Id = id
+	request.NodeId = nodeId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicVersion(ctx, request.(GetPublicVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicVersionResponseObject); ok {
+		if err := validResponse.VisitGetPublicVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnlockPublicLink operation middleware
+func (sh *strictHandler) UnlockPublicLink(w http.ResponseWriter, r *http.Request, id ID) {
+	var request UnlockPublicLinkRequestObject
+
+	request.Id = id
+
+	var body UnlockPublicLinkJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnlockPublicLink(ctx, request.(UnlockPublicLinkRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnlockPublicLink")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnlockPublicLinkResponseObject); ok {
+		if err := validResponse.VisitUnlockPublicLinkResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

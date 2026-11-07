@@ -360,6 +360,17 @@ func (s *Server) RotateNode(ctx context.Context, req oapi.RotateNodeRequestObjec
 		}
 		rotation.Grants = append(rotation.Grants, store.RotatedGrant{GranteeID: g.GranteeId, SealedKey: g.SealedKey, Signature: g.Signature})
 	}
+	if in.Links != nil {
+		for _, l := range *in.Links {
+			if !blobs.ValidID(l.Id) {
+				return nil, badRequest(codeInvalidID)
+			}
+			if !s.checkSealed(l.SealedKey, sealedKeyLen) {
+				return nil, badRequest(codeInvalidRotation)
+			}
+			rotation.Links = append(rotation.Links, store.RotatedLink{ID: l.Id, SealedKey: l.SealedKey})
+		}
+	}
 	if _, err := s.authorizeNode(ctx, req.Id, permOwn); err != nil {
 		return nil, err
 	}

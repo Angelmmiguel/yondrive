@@ -1206,7 +1206,7 @@ export interface paths {
         put?: never;
         /**
          * Replace a node's key, after revoking someone
-         * @description Owner only. CRYPTO.md, section 8, says what to send. One transaction swaps the
+         * @description Owner only. CRYPTO.md, section 8, says how each field is made. One transaction swaps the
          *     key, the old key's link in the chain, the metadata, the wraps and tags of all
          *     children and the sealed grants, and removes the thumbnail. Versions stay as
          *     they are, and `key_chain` reaches their keys.
@@ -1276,6 +1276,230 @@ export interface paths {
         put?: never;
         /** Mark notifications as read */
         post: operations["markNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in user's links
+         * @description With the grants made, this is the "shared by me" page. Revoked and expired links stay until deleted.
+         */
+        get: operations["listLinks"];
+        put?: never;
+        /**
+         * Make a public link to a node
+         * @description Owner only, and it covers the subtree. Answers `id_taken`, `invalid_link`,
+         *     `invalid_kdf`, `root_immutable`, `node_trashed` or `key_generation_conflict`.
+         *     CRYPTO.md, section 19, says how the keys are made.
+         */
+        post: operations["createLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Forget a link
+         * @description After this its id answers `not_found`.
+         */
+        delete: operations["deleteLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/links/{id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a link, keeping its row
+         * @description After this its id answers `link_revoked`, and tokens already given stop working.
+         */
+        post: operations["revokeLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Open a public link
+         * @description With no password, the link's node and a token. With a password, its KDF
+         *     parameters: derive, then call `unlockPublicLink`. A valid `X-Link-Token` for this
+         *     link goes straight to `open` and renews the token within its session, which lasts
+         *     at most a day. Limited per address, and on a password per link as well
+         *     (`rate_limited`). Answers `not_found` for what does not exist, or whose node is in
+         *     the trash, `link_expired`, `link_revoked`, or `link_limit_reached` to someone
+         *     new once the limit has been reached.
+         */
+        get: operations["getPublicLink"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prove the password of a link
+         * @description Compares the hash in constant time, and answers `link_password_invalid` if it is
+         *     wrong. Every attempt counts against the address and the link, right or wrong
+         *     (`rate_limited`). The answer is the same as an open link's.
+         */
+        post: operations["unlockPublicLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}/nodes/{node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        /** Read a node under a link */
+        get: operations["getPublicNode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}/nodes/{node_id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        /** List a folder's children under a link */
+        get: operations["listPublicChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}/nodes/{node_id}/version": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a file's current version under a link
+         * @description A link shows no history. Answers `not_found` until a file's first commit.
+         */
+        get: operations["getPublicVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/links/{id}/blobs/{blob_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description The current version or the thumbnail of a node at or under the link's. */
+                blob_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a stored file under a link
+         * @description As `getBlob`. Content counts against the download limit the first time a session
+         *     fetches any of it, whatever the range, so reading a file by frames counts once;
+         *     a new session counts again, as does one that lost its token and started over. A
+         *     file that was started counts whether or not it finished. Thumbnails do not count.
+         *     Answers `link_limit_reached` when nothing is left.
+         */
+        get: operations["getPublicBlob"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1352,6 +1576,11 @@ export interface components {
              *     - `grant_exists`, `invalid_grant`
              *     - `invalid_rotation`: a sealed field of a rotation is the wrong size
              *     - `rotate_conflict`: a rotation does not name what the node has now
+             *     - `invalid_link`: a field of a new link is the wrong size, or in the past
+             *     - `link_expired`, `link_revoked`: the link has ended (410)
+             *     - `link_limit_reached`: the link has given all its downloads (410)
+             *     - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
+             *     - `link_password_invalid`: wrong password, or wrong proof of it (401)
              * @example not_found
              */
             code: string;
@@ -2216,6 +2445,14 @@ export interface components {
              */
             signature: string;
         };
+        RotatedLink: {
+            id: string;
+            /**
+             * Format: byte
+             * @description The new key sealed under the link key, which `owner_sealed_key` holds, 73 bytes. Empty in `none` mode.
+             */
+            sealed_key: string;
+        };
         RotateNodeRequest: {
             /**
              * Format: int64
@@ -2246,6 +2483,193 @@ export interface components {
             children: components["schemas"]["RotatedChild"][];
             /** @description Every grant on this node. Grants above and below it are not affected. */
             grants: components["schemas"]["RotatedGrant"][];
+            /**
+             * @description Every live link on this node, as `listLinks` shows them: not revoked and not
+             *     expired. One that has ended since is ignored. Absent means none.
+             */
+            links?: components["schemas"]["RotatedLink"][];
+        };
+        /**
+         * @description Links only ever give read access.
+         * @enum {string}
+         */
+        LinkRole: "view";
+        LinkPassword: {
+            kdf: components["schemas"]["KDF"];
+            /**
+             * Format: byte
+             * @description 32 bytes, stored only as a hash (CRYPTO.md, section 19). In `e2e` mode it comes
+             *     from the link key, and shows the client has opened `wrapped_key`. In `none`
+             *     mode it comes from the password.
+             */
+            auth_key: string;
+            /**
+             * Format: byte
+             * @description The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+             */
+            wrapped_key?: string;
+        };
+        CreateLinkRequest: {
+            /** @description Chosen by the client, since it enters the AAD. It is what the URL carries. */
+            id: string;
+            node_id: string;
+            role: components["schemas"]["LinkRole"];
+            /**
+             * Format: int64
+             * @description The node's current generation, of the key being sealed.
+             */
+            key_generation: number;
+            /**
+             * Format: byte
+             * @description The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+             */
+            sealed_key: string;
+            /**
+             * Format: byte
+             * @description The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+             */
+            owner_sealed_key: string;
+            /** Format: date-time */
+            expires_at?: string;
+            /**
+             * Format: int64
+             * @description How many files may be fetched in all. See `getPublicBlob` for what counts.
+             */
+            download_limit?: number;
+            password?: components["schemas"]["LinkPassword"];
+        };
+        Link: {
+            id: string;
+            node_id: string;
+            role: components["schemas"]["LinkRole"];
+            /** Format: int64 */
+            key_generation: number;
+            /** Format: byte */
+            sealed_key: string;
+            /** Format: byte */
+            owner_sealed_key: string;
+            has_password: boolean;
+            /** Format: date-time */
+            expires_at?: string;
+            /** Format: int64 */
+            download_limit?: number;
+            /** Format: int64 */
+            download_count: number;
+            /** Format: date-time */
+            revoked_at?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        LinkedNode: {
+            link: components["schemas"]["Link"];
+            node: components["schemas"]["Node"];
+        };
+        LinkPage: {
+            items: components["schemas"]["LinkedNode"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        /**
+         * @description A node as a link shows it: no owner and no trash. The link's own node has no
+         *     `parent_id`, and an empty `wrapped_key`: its key comes from `sealed_key`.
+         */
+        PublicNode: {
+            id: string;
+            parent_id?: string;
+            kind: components["schemas"]["NodeKind"];
+            suite: components["schemas"]["Suite"];
+            /** Format: byte */
+            sealed_metadata: string;
+            /**
+             * Format: byte
+             * @description This node's key wrapped under its parent's. Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /** Format: int64 */
+            key_generation: number;
+            current_version?: string;
+            thumb_blob_id?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        PublicNodePage: {
+            nodes: components["schemas"]["PublicNode"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        /**
+         * @description `password_required` carries `kdf`, and `password_wrapped_key` in `e2e` mode.
+         *     `open` carries `node`, `sealed_key`, `key_generation`, `token` and
+         *     `token_expires_at`, with `sealed_key` empty in `none` mode.
+         */
+        PublicLink: {
+            id: string;
+            /** @enum {string} */
+            state: "open" | "password_required";
+            kdf?: components["schemas"]["KDF"];
+            /** Format: byte */
+            password_wrapped_key?: string;
+            node?: components["schemas"]["PublicNode"];
+            /**
+             * Format: byte
+             * @description The link's node's key, sealed under the link key.
+             */
+            sealed_key?: string;
+            /**
+             * Format: int64
+             * @description The generation of the node's key that `sealed_key` holds.
+             */
+            key_generation?: number;
+            /** @description Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicLink` before it ends. */
+            token?: string;
+            /** Format: date-time */
+            token_expires_at?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            /**
+             * Format: int64
+             * @description Absent if the link has no limit.
+             */
+            downloads_remaining?: number;
+        };
+        UnlockLinkRequest: {
+            /**
+             * Format: byte
+             * @description 32 bytes. See `LinkPassword`.
+             */
+            auth_key: string;
+        };
+        /**
+         * @description What a reader needs to read a node's current version, and no more. The signer
+         *     is named by their key alone. `author_public_key` is absent in `none` mode and if
+         *     the account has gone.
+         */
+        PublicVersion: {
+            id: string;
+            node_id: string;
+            blob_id: string;
+            suite: components["schemas"]["Suite"];
+            content_version_id: string;
+            /** Format: int64 */
+            key_generation: number;
+            /** @description As on `Version`. */
+            key_chain?: components["schemas"]["KeyLink"][];
+            /** Format: int64 */
+            stored_size: number;
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /** Format: byte */
+            frame_hashes: string;
+            /** Format: byte */
+            signature: string;
+            /** Format: byte */
+            manifest: string;
+            /** Format: byte */
+            author_public_key?: string;
         };
         AdminHealth: {
             version: string;
@@ -2295,6 +2719,14 @@ export interface components {
         IDCursor: string;
         /** @description The most to return. Anything above the maximum is treated as it. */
         Limit: number;
+        /**
+         * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+         *     Anything missing answers `link_token_required`, anything else wrong
+         *     `link_token_invalid`.
+         */
+        LinkToken: string;
+        /** @description A node at or under the link's. Anything else answers `not_found`. */
+        LinkNodeID: string;
         /** @description The SHA-256 of the body, in padded standard base64. */
         ContentSHA256: string;
     };
@@ -4018,6 +4450,323 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listLinks: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Link"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Link"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicLink: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of the link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLink"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    unlockPublicLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The link, open. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicLink"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicNode: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicNode"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listPublicChildren: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order, without what is in the trash. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicNodePage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicVersion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A node at or under the link's. Anything else answers `not_found`. */
+                node_id: components["parameters"]["LinkNodeID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicVersion"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicBlob: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+                Range?: string;
+                "If-Range"?: string;
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description The current version or the thumbnail of a node at or under the link's. */
+                blob_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole file. */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range. */
+            206: {
+                headers: {
+                    ETag?: string;
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range does not fit the file. */
+            416: {
+                headers: {
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
             };
             default: components["responses"]["Error"];
         };

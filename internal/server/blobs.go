@@ -181,3 +181,8 @@ func (s *Server) ListIndexBlobs(ctx context.Context, req oapi.ListIndexBlobsRequ
 	}
 	return oapi.ListIndexBlobs200JSONResponse(out), nil
 }
+
+// VisitGetPublicBlobResponse implements oapi.GetPublicBlobResponseObject.
+func (b blobResponse) VisitGetPublicBlobResponse(w http.ResponseWriter) error {
+	return b.VisitGetBlobResponse(w)
+}

@@ -117,7 +117,14 @@ type Server struct {
 	usernameLimiter *auth.RateLimiter
 	totpLimiter     *auth.RateLimiter
 	lookupLimiter   *auth.RateLimiter
-	keys            *auth.SessionKeys
+	// A link's password is limited by address and, higher up for the same reason
+	// as usernameLimiter, by link. Opening any link is limited by address alone.
+	linkPasswordLimiter *auth.RateLimiter
+	linkLimiter         *auth.RateLimiter
+	linkOpenLimiter     *auth.RateLimiter
+	// linkTokenKey signs link tokens.
+	linkTokenKey []byte
+	keys         *auth.SessionKeys
 	// secret keys the fake KDF parameters.
 	secret  []byte
 	handler http.Handler
@@ -183,18 +190,22 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		cfg:             cfg,
-		log:             cfg.Logger,
-		store:           st,
-		files:           files,
-		frames:          newFrameLocks(),
-		limiter:         auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		kdfLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		usernameLimiter: auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		totpLimiter:     auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
-		lookupLimiter:   auth.NewRateLimiter(lookupAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		keys:            auth.NewSessionKeys(),
-		secret:          secret,
+		cfg:                 cfg,
+		log:                 cfg.Logger,
+		store:               st,
+		files:               files,
+		frames:              newFrameLocks(),
+		limiter:             auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		kdfLimiter:          auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		usernameLimiter:     auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		totpLimiter:         auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
+		lookupLimiter:       auth.NewRateLimiter(lookupAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkPasswordLimiter: auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkLimiter:         auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkOpenLimiter:     auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkTokenKey:        deriveLinkTokenKey(secret),
+		keys:                auth.NewSessionKeys(),
+		secret:              secret,
 	}
 	settings, err := st.Settings(context.Background())
 	switch {

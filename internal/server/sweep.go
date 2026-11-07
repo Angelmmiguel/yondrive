@@ -62,6 +62,9 @@ func (s *Server) Sweep(ctx context.Context) error {
 			break
 		}
 	}
+	if err := s.store.RemoveStaleLinkDownloads(ctx, now.Add(-linkSessionLifetime)); err != nil {
+		return err
+	}
 	return s.drainRemovals(ctx)
 }
 
