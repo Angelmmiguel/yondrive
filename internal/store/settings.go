@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 // Keys of the settings table.
@@ -20,6 +21,18 @@ const (
 	keyTimeZone     = "time_zone"
 	keyOpenSignup   = "open_signup"
 	keyServerSecret = "server_secret"
+	keyPurgeGrace   = "purge_grace_days"
+	keyTrashKeep    = "trash_retention_days"
+	keyLastBackup   = "last_backup_at"
+)
+
+// Defaults of the settings that setup does not ask about.
+const (
+	// DefaultPurgeGraceDays is how long purged data stays before its bytes go.
+	DefaultPurgeGraceDays = 30
+	// DefaultTrashRetentionDays is how long the trash keeps a node before
+	// purging it.
+	DefaultTrashRetentionDays = 30
 )
 
 // serverSecretLen is the size in bytes of the persisted server secret.
@@ -34,17 +47,26 @@ type Settings struct {
 	Language          string
 	TimeZone          string
 	OpenSignup        bool
+	// PurgeGraceDays is how long purged data stays before its bytes go.
+	PurgeGraceDays int
+	// TrashRetentionDays is how long the trash keeps a node before purging it.
+	// Zero keeps it until someone purges it.
+	TrashRetentionDays int
+	// LastBackupAt is when `yondrive backup` last finished, if ever.
+	LastBackupAt time.Time
 }
 
 // SettingsPatch changes the settings whose fields are set. The mode has no
 // field on purpose: it is written once, at setup.
 type SettingsPatch struct {
-	Name              *string
-	PublicURL         *string
-	DefaultQuotaBytes *int64
-	Language          *string
-	TimeZone          *string
-	OpenSignup        *bool
+	Name               *string
+	PublicURL          *string
+	DefaultQuotaBytes  *int64
+	Language           *string
+	TimeZone           *string
+	OpenSignup         *bool
+	PurgeGraceDays     *int
+	TrashRetentionDays *int
 }
 
 // Settings returns the configuration, or ErrNotConfigured before setup.
@@ -54,7 +76,7 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 		return Settings{}, fmt.Errorf("store: read settings: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	var out Settings
+	out := Settings{PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays}
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err != nil {
@@ -77,6 +99,20 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 			out.TimeZone = value
 		case keyOpenSignup:
 			out.OpenSignup = value == "1"
+		case keyPurgeGrace:
+			if out.PurgeGraceDays, err = strconv.Atoi(value); err != nil {
+				return Settings{}, fmt.Errorf("store: read settings: %w", err)
+			}
+		case keyTrashKeep:
+			if out.TrashRetentionDays, err = strconv.Atoi(value); err != nil {
+				return Settings{}, fmt.Errorf("store: read settings: %w", err)
+			}
+		case keyLastBackup:
+			at, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return Settings{}, fmt.Errorf("store: read settings: %w", err)
+			}
+			out.LastBackupAt = time.Unix(at, 0).UTC()
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -127,7 +163,15 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			}
 			return putSetting(ctx, tx, key, *value)
 		}
-		var quota, signup *string
+		var quota, signup, grace, keep *string
+		if patch.PurgeGraceDays != nil {
+			v := strconv.Itoa(*patch.PurgeGraceDays)
+			grace = &v
+		}
+		if patch.TrashRetentionDays != nil {
+			v := strconv.Itoa(*patch.TrashRetentionDays)
+			keep = &v
+		}
 		if patch.DefaultQuotaBytes != nil {
 			v := strconv.FormatInt(*patch.DefaultQuotaBytes, 10)
 			quota = &v
@@ -143,6 +187,8 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			put(keyLanguage, patch.Language),
 			put(keyTimeZone, patch.TimeZone),
 			put(keyOpenSignup, signup),
+			put(keyPurgeGrace, grace),
+			put(keyTrashKeep, keep),
 		)
 	})
 	if err != nil {

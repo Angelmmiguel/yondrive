@@ -38,6 +38,9 @@ var (
 	ErrLocked = errors.New("store: data directory is in use by another process")
 	// ErrSchemaTooNew means the database was written by a newer binary.
 	ErrSchemaTooNew = errors.New("store: database schema is newer than this binary")
+	// ErrSchemaTooOld means the database has migrations yet to apply, which only
+	// a server does.
+	ErrSchemaTooOld = errors.New("store: database schema is older than this binary")
 	// ErrNotFound means the record does not exist.
 	ErrNotFound = errors.New("store: not found")
 	// ErrNotConfigured means setup has not been completed.
@@ -61,6 +64,7 @@ var migrations embed.FS
 // write transaction never waits on another; reads use their own pool and see
 // the last committed state.
 type Store struct {
+	dir   string
 	write *sql.DB
 	read  *sql.DB
 	lock  *os.File
@@ -77,7 +81,7 @@ func Open(dir string) (_ *Store, err error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &Store{lock: lock}
+	st := &Store{dir: dir, lock: lock}
 	defer func() {
 		if err != nil {
 			_ = st.Close()
@@ -93,7 +97,9 @@ func Open(dir string) (_ *Store, err error) {
 	if err := f.Close(); err != nil {
 		return nil, fmt.Errorf("store: create database: %w", err)
 	}
-	if st.write, err = sql.Open("sqlite", dsn(path, "_txlock=immediate", "_pragma=journal_mode(WAL)", "_pragma=synchronous(NORMAL)")); err != nil {
+	// Commits reach the disk before they return: files move and go on the strength
+	// of them, so losing one to a power cut would leave the two disagreeing.
+	if st.write, err = sql.Open("sqlite", dsn(path, "_txlock=immediate", "_pragma=journal_mode(WAL)", "_pragma=synchronous(FULL)")); err != nil {
 		return nil, fmt.Errorf("store: open database: %w", err)
 	}
 	st.write.SetMaxOpenConns(1)
@@ -105,6 +111,9 @@ func Open(dir string) (_ *Store, err error) {
 	}
 	return st, nil
 }
+
+// Dir returns the data directory.
+func (s *Store) Dir() string { return s.dir }
 
 // Close releases the database and the lock.
 func (s *Store) Close() error {
@@ -134,7 +143,12 @@ func acquireLock(path string) (*os.File, error) {
 	return f, nil
 }
 
+// dsn returns the address of a database file. The path is made absolute, because a
+// relative one would read as the authority of the file: URI.
 func dsn(path string, options ...string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
 	query := "_pragma=busy_timeout(" + strconv.Itoa(busyTimeoutMillis) + ")&_pragma=foreign_keys(1)"
 	for _, o := range options {
 		query += "&" + o

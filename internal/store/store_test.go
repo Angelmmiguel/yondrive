@@ -71,7 +71,7 @@ func addToken(t *testing.T, st *Store, userID, name string) Token {
 }
 
 func settings() Settings {
-	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC"}
+	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC", PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays}
 }
 
 func TestOpenAppliesPragmasAndPermissions(t *testing.T) {
@@ -136,7 +136,8 @@ func TestMigrationsAreVersionedAndIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := st.read.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
+	entries, _ := migrations.ReadDir("migrations")
+	if err := st.read.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(entries) {
 		t.Fatalf("user_version = %d, %v", version, err)
 	}
 	u := addUser(t, st, "alice")
