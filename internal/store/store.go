@@ -99,7 +99,9 @@ func Open(dir string) (_ *Store, err error) {
 	}
 	// Commits reach the disk before they return: files move and go on the strength
 	// of them, so losing one to a power cut would leave the two disagreeing.
-	if st.write, err = sql.Open("sqlite", dsn(path, "_txlock=immediate", "_pragma=journal_mode(WAL)", "_pragma=synchronous(FULL)")); err != nil {
+	// Deleted rows are overwritten, so a TOTP secret or an old client secret is not
+	// left in a free page for a copy of the file to find.
+	if st.write, err = sql.Open("sqlite", dsn(path, "_txlock=immediate", "_pragma=journal_mode(WAL)", "_pragma=synchronous(FULL)", "_pragma=secure_delete(1)")); err != nil {
 		return nil, fmt.Errorf("store: open database: %w", err)
 	}
 	st.write.SetMaxOpenConns(1)

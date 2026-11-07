@@ -93,6 +93,10 @@ func TestOpenAppliesPragmasAndPermissions(t *testing.T) {
 	if err := st.read.QueryRow("PRAGMA busy_timeout").Scan(&busy); err != nil || busy != busyTimeoutMillis {
 		t.Errorf("busy_timeout = %d, %v", busy, err)
 	}
+	var secureDelete int
+	if err := st.write.QueryRow("PRAGMA secure_delete").Scan(&secureDelete); err != nil || secureDelete != 1 {
+		t.Errorf("secure_delete = %d, %v", secureDelete, err)
+	}
 	if st.write.Stats().MaxOpenConnections != 1 {
 		t.Error("the writer pool holds more than one connection")
 	}

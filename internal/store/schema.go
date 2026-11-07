@@ -3,9 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -54,23 +52,10 @@ func RestoreDatabase(ctx context.Context, backupDir, dataDir string) error {
 	if check != "ok" {
 		return fmt.Errorf("store: the backup's database is damaged: %s", check)
 	}
-	tmp := filepath.Join(dataDir, dbFile+snapshotSuffix)
-	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("store: clear restore: %w", err)
-	}
-	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
-		return fmt.Errorf("store: copy database: %w", err)
-	}
-	// A backup taken before backups left the secret out still has it.
-	if err := forgetServerSecret(ctx, tmp); err != nil {
+	// A backup taken before backups left the secret out still has it, and the
+	// copy takes it out.
+	if err := copyDatabase(ctx, db, filepath.Join(dataDir, dbFile+snapshotSuffix)); err != nil {
 		return err
-	}
-	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
-	if err != nil {
-		return fmt.Errorf("store: open restored database: %w", err)
-	}
-	if err := errors.Join(f.Chmod(0o600), f.Sync(), f.Close()); err != nil {
-		return fmt.Errorf("store: sync restored database: %w", err)
 	}
 	return FinishSnapshot(dataDir)
 }

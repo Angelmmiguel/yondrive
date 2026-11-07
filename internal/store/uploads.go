@@ -19,7 +19,14 @@ var (
 	ErrFrameConflict = errors.New("store: frame arrived with another digest")
 	// ErrBlobKept means the blob is content, which goes with its versions.
 	ErrBlobKept = errors.New("store: blob belongs to a version")
+	// ErrTooManyUploads means the user has MaxOpenUploads uploads in progress.
+	ErrTooManyUploads = errors.New("store: too many uploads in progress")
 )
+
+// MaxOpenUploads is how many uploads one user may have in progress at once. Each
+// holds an open file and a row that every frame writes to, and an account with
+// no quota could otherwise reserve the disk with uploads it never finishes.
+const MaxOpenUploads = 100
 
 // Kinds of blob.
 const (
@@ -126,6 +133,13 @@ func (s *Store) CreateUpload(ctx context.Context, u Upload) (Upload, error) {
 		}
 		if err := checkVersionIDFree(ctx, tx, u.VersionID); err != nil {
 			return err
+		}
+		var open int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM uploads WHERE user_id = ?", u.UserID).Scan(&open); err != nil {
+			return fmt.Errorf("store: count uploads: %w", err)
+		}
+		if open >= MaxOpenUploads {
+			return ErrTooManyUploads
 		}
 		if err := checkRoom(ctx, tx, n.OwnerID, u.StoredSize); err != nil {
 			return err

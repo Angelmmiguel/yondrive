@@ -76,22 +76,36 @@ func (l *Live) Close() error { return l.db.Close() }
 // Commits go on meanwhile and are not in it. It stays under a temporary name until
 // FinishSnapshot, so that a directory holding a database is a complete backup.
 func (l *Live) Snapshot(ctx context.Context, dir string) error {
-	tmp := filepath.Join(dir, dbFile+snapshotSuffix)
-	if err := os.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("store: clear snapshot: %w", err)
+	return copyDatabase(ctx, l.db, filepath.Join(dir, dbFile+snapshotSuffix))
+}
+
+// copyDatabase writes a copy of db at path, which is replaced if it exists, and
+// takes the server secret out of it. The file is made 0600 before anything is
+// written to it, so the copy is never readable by others, not even for a moment.
+func copyDatabase(ctx context.Context, db *sql.DB, path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("store: clear copy: %w", err)
 	}
-	if _, err := l.db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
-		return fmt.Errorf("store: snapshot database: %w", err)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("store: create copy: %w", err)
 	}
-	if err := forgetServerSecret(ctx, tmp); err != nil {
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("store: create copy: %w", err)
+	}
+	// SQLite writes into an empty file as into a new one, and keeps its mode.
+	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("store: copy database: %w", err)
+	}
+	if err := forgetServerSecret(ctx, path); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
+	f, err = os.OpenFile(path, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("store: open snapshot: %w", err)
+		return fmt.Errorf("store: open copy: %w", err)
 	}
 	if err := errors.Join(f.Chmod(0o600), f.Sync(), f.Close()); err != nil {
-		return fmt.Errorf("store: sync snapshot: %w", err)
+		return fmt.Errorf("store: sync copy: %w", err)
 	}
 	return nil
 }

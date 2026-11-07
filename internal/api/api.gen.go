@@ -764,6 +764,7 @@ type Error struct {
 	// - `frame_length`, `frame_hash`, `frame_conflict`: a frame was refused
 	// - `invalid_commit`: the signature or manifest is the wrong size
 	// - `upload_incomplete`: frames are missing
+	// - `too_many_uploads`: the user has 100 uploads in progress
 	// - `quota_exceeded`: the owner's quota has no room (413)
 	// - `storage_full`: the server's disk has no room (507)
 	// - `invalid_blob`: the kind and node of a small blob do not agree

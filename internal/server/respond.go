@@ -76,6 +76,7 @@ const (
 	codeFrameConflict      = "frame_conflict"
 	codeInvalidCommit      = "invalid_commit"
 	codeUploadIncomplete   = "upload_incomplete"
+	codeTooManyUploads     = "too_many_uploads"
 	codeQuotaExceeded      = "quota_exceeded"
 	codeStorageFull        = "storage_full"
 	codeInvalidBlob        = "invalid_blob"

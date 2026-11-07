@@ -175,6 +175,7 @@ func driveError(err error) error {
 		{store.ErrVersionCurrent, http.StatusConflict, codeVersionCurrent},
 		{store.ErrQuotaExceeded, http.StatusRequestEntityTooLarge, codeQuotaExceeded},
 		{store.ErrUploadIncomplete, http.StatusConflict, codeUploadIncomplete},
+		{store.ErrTooManyUploads, http.StatusConflict, codeTooManyUploads},
 		{store.ErrFrameConflict, http.StatusConflict, codeFrameConflict},
 		{store.ErrBlobKept, http.StatusConflict, codeBlobInUse},
 		{syscall.ENOSPC, http.StatusInsufficientStorage, codeStorageFull},

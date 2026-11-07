@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -1108,5 +1110,58 @@ func TestCopiesForgetTheServerSecret(t *testing.T) {
 	}
 	if _, err := again.Settings(ctx); err != nil {
 		t.Errorf("restored settings: %v", err)
+	}
+}
+
+// A copy of the database is 0600 from the moment it exists, whatever the umask:
+// made under the umask and chmod'd after, it could be read in between.
+func TestCopiesAreNeverReadableByOthers(t *testing.T) {
+	old := syscall.Umask(0)
+	defer syscall.Umask(old)
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.CompleteSetup(ctx, settings(), user("root")); err != nil {
+		t.Fatal(err)
+	}
+	// The mode is watched for as long as the snapshot takes.
+	backup := t.TempDir()
+	tmp := filepath.Join(backup, dbFile+snapshotSuffix)
+	var seen []os.FileMode
+	var mu sync.Mutex
+	var stop atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for !stop.Load() {
+			if info, err := os.Stat(tmp); err == nil {
+				mu.Lock()
+				seen = append(seen, info.Mode().Perm())
+				mu.Unlock()
+			}
+		}
+	}()
+	live, err := OpenLive(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = live.Close() }()
+	if err := live.Snapshot(ctx, backup); err != nil {
+		t.Fatal(err)
+	}
+	stop.Store(true)
+	<-done
+	info, err := os.Stat(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen = append(seen, info.Mode().Perm())
+	for _, m := range seen {
+		if m != 0o600 {
+			t.Fatalf("the snapshot was %o at some point", m)
+		}
 	}
 }

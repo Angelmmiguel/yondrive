@@ -1992,3 +1992,22 @@ func TestSealedMetadataIsChargedToTheQuota(t *testing.T) {
 		t.Errorf("after a refused rotation: used %d", used)
 	}
 }
+
+// One user may have 100 uploads in progress. The next is
+// refused with a stable code until one goes, and another user is not affected.
+func TestOpenUploadsAreCapped(t *testing.T) {
+	_, alice, bob := driveEnv(t, "none")
+	file := alice.create(alice.root().ID, "file", "f")
+	frames := alice.frames(10, 1)
+	var first uploadBody
+	for i := range store.MaxOpenUploads {
+		u := alice.startUpload(file.ID, frames)
+		if i == 0 {
+			first = u
+		}
+	}
+	alice.call(http.MethodPost, api+"/uploads", alice.uploadRequest(file.ID, frames)).wantError(t, http.StatusConflict, "too_many_uploads")
+	bob.startUpload(bob.create(bob.root().ID, "file", "f").ID, bob.frames(10, 1))
+	alice.call(http.MethodDelete, api+"/uploads/"+first.ID, nil).wantStatus(t, http.StatusNoContent)
+	alice.startUpload(file.ID, frames)
+}

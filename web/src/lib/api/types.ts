@@ -177,6 +177,7 @@ export type ErrorCode =
 	| 'frame_conflict'
 	| 'invalid_commit'
 	| 'upload_incomplete'
+	| 'too_many_uploads'
 	| 'quota_exceeded'
 	| 'storage_full'
 	| 'invalid_blob'

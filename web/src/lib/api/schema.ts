@@ -1129,6 +1129,9 @@ export interface paths {
          *     until a commit or an abort. An upload untouched for a week is dropped and
          *     its reservation released.
          *
+         *     A user has at most 100 uploads in progress at once; one more answers 409
+         *     `too_many_uploads` until one is committed or aborted.
+         *
          *     `frame_size` is the plaintext frame size of CRYPTO.md, at most 16 MiB. A
          *     stored frame is that long plus the 41 bytes of overhead in end-to-end mode.
          *     `stored_size` must agree with `frame_size` and `frame_count`, or the answer
@@ -1790,6 +1793,7 @@ export interface components {
              *     - `frame_length`, `frame_hash`, `frame_conflict`: a frame was refused
              *     - `invalid_commit`: the signature or manifest is the wrong size
              *     - `upload_incomplete`: frames are missing
+             *     - `too_many_uploads`: the user has 100 uploads in progress
              *     - `quota_exceeded`: the owner's quota has no room (413)
              *     - `storage_full`: the server's disk has no room (507)
              *     - `invalid_blob`: the kind and node of a small blob do not agree
