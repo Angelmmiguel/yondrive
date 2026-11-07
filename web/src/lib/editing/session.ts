@@ -130,8 +130,12 @@ export class EditSession<F extends string> {
 		);
 	}
 
-	/** Saves now if anything is waiting, and resolves when what was asked for is saved. */
-	async flush(): Promise<void> {
+	/**
+	 * Saves now if anything is waiting, and resolves when what was asked for is
+	 * saved. Asked during a save, it resolves only after the save that follows it,
+	 * which carries the edits made meanwhile.
+	 */
+	flush(): Promise<void> {
 		if (this.#timer !== null) {
 			(this.#deps.clearTimeout ?? ((h: unknown) => clearTimeout(h as number)))(this.#timer);
 			this.#timer = null;
@@ -140,16 +144,20 @@ export class EditSession<F extends string> {
 			this.#again = true;
 			return this.#running;
 		}
-		if (this.#status === 'saved' || this.#discarded) return;
-		this.#running = this.#save();
+		if (this.#status === 'saved' || this.#discarded) return Promise.resolve();
+		this.#running = this.#saves();
+		return this.#running;
+	}
+
+	/** Saves until no flush is waiting on edits made during the last one. */
+	async #saves(): Promise<void> {
 		try {
-			await this.#running;
+			do {
+				this.#again = false;
+				await this.#save();
+			} while (this.#again && !this.#discarded);
 		} finally {
 			this.#running = null;
-		}
-		if (this.#again) {
-			this.#again = false;
-			await this.flush();
 		}
 	}
 
@@ -225,7 +233,7 @@ export class EditSession<F extends string> {
 		await this.flush();
 	}
 
-	/** Lets go: pending saves are still made. */
+	/** Lets go: pending saves are still made, and it resolves once they are. */
 	async close(): Promise<void> {
 		this.#closed = true;
 		if (this.dirty) await this.flush();

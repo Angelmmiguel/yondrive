@@ -47,3 +47,41 @@ describe('an edit session', () => {
 		expect(d.save).not.toHaveBeenCalled();
 	});
 });
+
+describe('closing while a save runs', () => {
+	it('resolves only once the edits made during that save are saved', async () => {
+		const { d, timers } = deps();
+		let release = () => {};
+		const saved: string[] = [];
+		d.save = vi.fn(async (_f, bytes) => {
+			if (saved.length === 0) await new Promise<void>((r) => (release = r));
+			saved.push(new TextDecoder().decode(bytes));
+			return `v${saved.length + 1}`;
+		});
+		let text = 'one';
+		let alive = true;
+		const s = new EditSession(
+			d,
+			{ ...file, name: 'Book.xlsx' },
+			{ original: 'xlsx', saveAs: 'xlsx' },
+			async () => {
+				// A worker round trip, which fails once the screen has stopped the worker.
+				await new Promise((r) => setTimeout(r, 0));
+				if (!alive) throw new Error('closed');
+				return new TextEncoder().encode(text);
+			}
+		);
+		s.changed();
+		timers.splice(0).forEach((f) => f());
+		await new Promise((r) => setTimeout(r, 5));
+		text = 'two';
+		s.changed();
+		// As the screens do when leaving: close, then stop the worker.
+		const closing = s.close().finally(() => (alive = false));
+		release();
+		await closing;
+		expect(saved).toEqual(['one', 'two']);
+		expect(s.status).toBe('saved');
+		expect(s.file.version).toBe('v3');
+	});
+});
