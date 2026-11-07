@@ -351,9 +351,10 @@ export class NotesState {
 		this.#indexer?.saved(id, version, markdown);
 	}
 
+	/** Reminders are this user's: one in a note shared with them was set by someone else. */
 	#reminding() {
 		return this.items()
-			.filter((i) => !i.meta.archived)
+			.filter((i) => !i.shared && !i.meta.archived)
 			.map((i) => ({ id: i.id, title: i.title, reminder: i.meta.reminder }));
 	}
 

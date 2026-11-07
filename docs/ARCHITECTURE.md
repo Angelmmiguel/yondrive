@@ -905,7 +905,8 @@ Drive's editors open what is in it, or a note shared on its own, in Notes. **Sha
 share dialog's; Shared lists notes and notebooks that others shared and that say in their metadata that they are.
 
 **Reminders** are given by the open app: a timer set to the next one, or half a minute, gives each that is due once
-per device, as a toast and in the bell. One that came due while no tab was open is given at the next.
+per device, as a toast and in the bell. One that came due while no tab was open is given at the next. Only the
+person's own notes give reminders: one in a note shared with them was set by someone else.
 
 **Export.** A note: its Markdown, HTML escaped throughout, printing, or a `.docx` in My files through the document
 writer, without its pictures and links to nodes. Every note: a ZIP with a folder per notebook, attachments beside

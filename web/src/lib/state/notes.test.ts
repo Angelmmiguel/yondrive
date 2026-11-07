@@ -74,4 +74,22 @@ describe('notes state', () => {
 		expect(state.alerts).toEqual([]);
 		state.detach();
 	});
+
+	it('gives no reminder that someone else set on a note they shared', async () => {
+		const { drive, state } = await wired();
+		await state.ensureRoot();
+		// A note of another user's, shared on its own, with their reminder in its metadata.
+		const theirs = await state.core!.createNote(drive.tree.rootId!, 'Their plan', '', {
+			reminder: Date.now() - 1000
+		});
+		vi.spyOn(drive, 'sharedTops').mockReturnValue([theirs.id]);
+		state.treeChanged();
+		await vi.waitFor(() =>
+			expect(state.items().map((i) => [i.title, i.shared])).toEqual([['Their plan', true]])
+		);
+		state.start();
+		await new Promise((r) => setTimeout(r, 50));
+		expect(state.alerts).toEqual([]);
+		state.detach();
+	});
 });
