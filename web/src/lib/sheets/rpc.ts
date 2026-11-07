@@ -30,6 +30,12 @@ interface WireError {
 
 type Reply = { id: number; ok: true; value: unknown } | { id: number; ok: false; error: WireError };
 
+/** Sent when the worker begins a call, so its time is counted from then and not while it waits. */
+interface Started {
+	id: number;
+	started: true;
+}
+
 /** An error from the other side, as it was named there. */
 export class RemoteError extends Error {
 	readonly problem?: string;
@@ -96,6 +102,11 @@ export function expose(target: object, port: Port): void {
 			let reply: Reply;
 			let list: Transferable[] = [];
 			try {
+				port.postMessage({ id, started: true } satisfies Started);
+			} catch {
+				// The port is gone.
+			}
+			try {
 				const f = typeof method === 'string' ? callable(target, method) : null;
 				if (!f) throw new Error(`no method ${String(method)}`);
 				const value = await f.apply(target, Array.isArray(args) ? args : []);
@@ -127,7 +138,9 @@ export interface Wrapped<T> {
 /**
  * A proxy for an object exposed in a worker. A call that takes longer than
  * `timeoutMs` ends the worker, since what it held can no longer be trusted, and
- * every pending call fails; `onFail` hears about it.
+ * every pending call fails; `onFail` hears about it. The worker answers one call
+ * at a time, so a call's time counts from when the worker starts it: calls
+ * queued behind a long save do not time out with it.
  */
 export function wrap<T>(
 	start: () => Worker,
@@ -140,9 +153,10 @@ export function wrap<T>(
 		{
 			resolve: (v: unknown) => void;
 			reject: (e: Error) => void;
-			timer: ReturnType<typeof setTimeout>;
+			timer: ReturnType<typeof setTimeout> | undefined;
 		}
 	>();
+	const clock = () => setTimeout(() => fail(new RpcTimeoutError()), opts.timeoutMs);
 	const fail = (error: Error) => {
 		for (const p of pending.values()) {
 			clearTimeout(p.timer);
@@ -156,10 +170,15 @@ export function wrap<T>(
 	const get = () => {
 		if (worker) return worker;
 		const w = start();
-		w.onmessage = (event: MessageEvent<Reply>) => {
+		w.onmessage = (event: MessageEvent<Reply | Started>) => {
 			const r = event.data;
 			const p = pending.get(r.id);
 			if (!p) return;
+			if ('started' in r) {
+				clearTimeout(p.timer);
+				p.timer = clock();
+				return;
+			}
 			pending.delete(r.id);
 			clearTimeout(p.timer);
 			if (r.ok) p.resolve(r.value);
@@ -175,7 +194,9 @@ export function wrap<T>(
 			return (...args: unknown[]) =>
 				new Promise((resolve, reject) => {
 					const id = ++seq;
-					const timer = setTimeout(() => fail(new RpcTimeoutError()), opts.timeoutMs);
+					// Counted from now as well, should the worker never start it; a call
+					// behind others waits for its start.
+					const timer = pending.size === 0 ? clock() : undefined;
 					pending.set(id, { resolve, reject, timer });
 					get().postMessage({ id, method, args } satisfies Request);
 				});

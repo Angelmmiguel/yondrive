@@ -9,6 +9,10 @@ class Target {
 		await new Promise((r) => setTimeout(r, 200));
 		return 1;
 	}
+	async while(ms: number) {
+		await new Promise((r) => setTimeout(r, ms));
+		return ms;
+	}
 	fail() {
 		const e = new Error('nope') as Error & { problem: string };
 		e.name = 'FormulaInputError';
@@ -84,6 +88,17 @@ describe('rpc', () => {
 		await expect(w.api.uncloneable()).rejects.toMatchObject({ name: 'DataCloneError' });
 		await expect(w.api.moved()).rejects.toBeInstanceOf(RemoteError);
 		expect(await w.api.add(2, 2)).toBe(4);
+		w.close();
+	});
+
+	it('counts the time of a call from when the worker starts it', async () => {
+		const w = wrap<Target>(fakeWorker, { timeoutMs: 150 });
+		expect(await Promise.all([w.api.while(100), w.api.while(100), w.api.while(100)])).toEqual([
+			100, 100, 100
+		]);
+		await expect(Promise.all([w.api.while(100), w.api.slow()])).rejects.toBeInstanceOf(
+			RpcTimeoutError
+		);
 		w.close();
 	});
 
