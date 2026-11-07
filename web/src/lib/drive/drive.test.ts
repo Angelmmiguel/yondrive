@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, isApiError } from '$lib/api/types';
 import { SealError } from '$lib/crypto/aead';
+import { decodeBase64, encodeBase64 } from '$lib/crypto/encoding';
 import { sealerFor, SUITE_E2E } from '$lib/crypto/sealer';
 import {
 	fakeDriveServer,
@@ -86,6 +87,26 @@ describe.each(SUITES)('the drive in mode %s', (_, suite) => {
 
 		await expect(fixture.drive.download(node)).rejects.toThrow(SealError);
 		expect(fixture.streams.open).not.toHaveBeenCalled();
+	});
+
+	it('reads no frame of a version whose list of hashes was changed', async () => {
+		const fixture = wired(suite);
+		const node = await withFile(fixture, patterned(5000));
+		let read = 0;
+		fixture.server.state.tamperBlob = (_id, bytes) => {
+			read += 1;
+			return bytes;
+		};
+		fixture.server.state.tamperVersion = (version) => {
+			const hashes = decodeBase64(version.frame_hashes);
+			hashes[0] ^= 1;
+			return { ...version, frame_hashes: encodeBase64(hashes) };
+		};
+
+		// Every way into a version's bytes starts here: downloads, viewers, search, thumbnails.
+		await expect(fixture.drive.openVersion(node)).rejects.toThrow(SealError);
+		await expect(fixture.drive.download(node)).rejects.toThrow(SealError);
+		expect(read).toBe(0);
 	});
 
 	it('names a signer without edit rights as such', async () => {

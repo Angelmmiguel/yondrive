@@ -70,25 +70,35 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 		});
 
 		test('a changed list of hashes is refused before any frame is read', async () => {
-			const file = await box.add(`hashes-${mode}.txt`, Buffer.from('frame hashes are signed'));
+			const secret = 'frame hashes are signed';
+			const file = await box.add(`hashes-${mode}.txt`, Buffer.from(secret));
 			await upload(page, file);
 
+			// Other things read blobs in the background, such as the search index, so only
+			// requests for the content blob of this version count.
+			let contentBlob: string | null = null;
 			await page.route('**/api/v1/nodes/*/versions/*', async (route) => {
 				const response = await route.fetch();
 				const version = await response.json();
+				contentBlob = version.blob_id;
 				const hashes = Buffer.from(version.frame_hashes, 'base64');
 				hashes[0] ^= 1;
 				version.frame_hashes = hashes.toString('base64');
 				await route.fulfill({ response, json: version });
 			});
-			let fetched = 0;
+			const fetched: string[] = [];
 			await page.route('**/api/v1/blobs/**', (route) => {
-				fetched += 1;
+				const id = new URL(route.request().url()).pathname.split('/').pop();
+				if (id === contentBlob) fetched.push(route.request().url());
 				return route.continue();
 			});
 			await act(page, file.name, 'Open');
-			await expect(page.getByTestId('viewer')).toContainText('failed its integrity check');
-			expect(fetched).toBe(0);
+			const viewer = page.getByTestId('viewer');
+			await expect(viewer).toContainText('failed its integrity check');
+			expect(contentBlob).not.toBeNull();
+			expect(fetched).toEqual([]);
+			await expect(page.getByTestId('viewer-text')).toHaveCount(0);
+			await expect(viewer).not.toContainText(secret);
 			await page.getByRole('button', { name: 'Close', exact: true }).click();
 			await page.unrouteAll();
 			await expect(row(page, file.name)).toBeVisible();
