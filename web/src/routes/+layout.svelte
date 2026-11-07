@@ -44,6 +44,15 @@
 	});
 
 	const insecure = !window.isSecureContext;
+
+	/** The skip link: the focus goes to the page's main content, past the navigation. */
+	function skip(event: MouseEvent) {
+		const main = document.querySelector('main');
+		if (main === null) return;
+		event.preventDefault();
+		main.tabIndex = -1;
+		main.focus();
+	}
 	let retrying = $state(false);
 
 	async function retry() {
@@ -53,6 +62,7 @@
 	}
 </script>
 
+<a class="skip" href="#main" onclick={skip}>Skip to main content</a>
 <div class="root">
 	{#if insecure}
 		<div class="insecure">
@@ -80,6 +90,24 @@
 </ToastStack>
 
 <style>
+	.skip {
+		position: fixed;
+		top: 8px;
+		left: 8px;
+		z-index: 100;
+		padding: 10px 14px;
+		border-radius: var(--radius-md);
+		background: var(--surface);
+		color: var(--text-strong);
+		font-weight: 500;
+		box-shadow: var(--focus-ring);
+		transform: translateY(-200%);
+	}
+
+	.skip:focus {
+		transform: none;
+	}
+
 	.root {
 		min-height: 100dvh;
 		display: flex;

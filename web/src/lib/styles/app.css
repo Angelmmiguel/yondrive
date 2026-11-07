@@ -50,6 +50,11 @@ a:hover {
 	box-shadow: var(--focus-ring);
 }
 
+/* Where the skip link moves the focus: a place to read from, not a control. */
+main:focus {
+	box-shadow: none;
+}
+
 button,
 input,
 select,
