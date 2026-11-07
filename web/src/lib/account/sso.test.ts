@@ -121,7 +121,7 @@ describe('a first sign-in with keys', () => {
 
 describe('enrolment_required on an account that has keys', () => {
 	it('is a lock, and enrol refuses to replace the keys', async () => {
-		const { server, deps } = await enrolled();
+		const { server } = await enrolled();
 		const before = JSON.stringify(server.users.get('alice')?.keys);
 		const account = await server.api.getMe();
 		const flagged = testDeps(server, { session: new Session(), pin: memoryPin() });
