@@ -23,6 +23,15 @@
 </main>
 
 <style>
+	/* Links here stand on their own, under a form: room for a finger. */
+	@media (max-width: 640px), (pointer: coarse) {
+		.card :global(a[href]:not(p a)) {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+		}
+	}
+
 	.wrap {
 		flex: 1;
 		display: grid;

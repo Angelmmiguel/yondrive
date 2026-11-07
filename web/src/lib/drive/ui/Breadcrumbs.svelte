@@ -56,6 +56,14 @@
 		color: var(--accent-ink);
 	}
 
+	@media (max-width: 640px), (pointer: coarse) {
+		a {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+		}
+	}
+
 	h2 {
 		margin: 0;
 		font-size: 16px;

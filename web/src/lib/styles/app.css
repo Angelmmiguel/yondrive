@@ -74,3 +74,42 @@ textarea {
 	font: inherit;
 	color: inherit;
 }
+
+/*
+ * Room for a finger: on a phone, or wherever the pointer is coarse, every control
+ * is at least 44px each way. Checkboxes and radios get it from their label, and
+ * a link standing on its own from where it stands. Important, as a floor that a
+ * component's own size does not lower.
+ */
+@media (max-width: 640px), (pointer: coarse) {
+	button,
+	select,
+	a[href][role='button'],
+	[role='button'],
+	[role='tab'],
+	[role='menuitem'],
+	[role='menuitemradio'],
+	[role='switch'],
+	a[href][aria-label],
+	textarea,
+	input:not([type='checkbox'], [type='radio'], [type='hidden'], [type='range']) {
+		min-height: 44px !important;
+	}
+
+	/* A link with a name of its own stands alone: an icon, not a word in a sentence. */
+	button,
+	a[href][aria-label],
+	[role='button'],
+	[role='tab'],
+	[role='switch'] {
+		min-width: 44px !important;
+	}
+}
+
+/* Inside a grid of cells, a cell's own size rules: its editor and its buttons stay in it. */
+@media (max-width: 640px), (pointer: coarse) {
+	[role='grid'] :is(button, input, textarea) {
+		min-height: 0 !important;
+		min-width: 0 !important;
+	}
+}

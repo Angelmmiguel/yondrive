@@ -144,6 +144,18 @@
 		text-decoration: none;
 	}
 
+	@media (max-width: 640px), (pointer: coarse) {
+		.line {
+			align-items: center;
+		}
+
+		.line a {
+			display: inline-flex;
+			align-items: center;
+			min-height: 44px;
+		}
+	}
+
 	.files-title {
 		display: flex;
 		align-items: center;

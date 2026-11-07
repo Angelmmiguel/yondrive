@@ -289,13 +289,15 @@
 </script>
 
 {#snippet check(node: DriveNode)}
-	<input
-		type="checkbox"
-		class="pick"
-		aria-label="Select {node.name}"
-		checked={selected.includes(node.id)}
-		onchange={(event) => toggle(node.id, event.currentTarget.checked)}
-	/>
+	<label class="hit">
+		<input
+			type="checkbox"
+			class="pick"
+			aria-label="Select {node.name}"
+			checked={selected.includes(node.id)}
+			onchange={(event) => toggle(node.id, event.currentTarget.checked)}
+		/>
+	</label>
 {/snippet}
 
 {#snippet more(node: DriveNode)}
@@ -386,13 +388,15 @@
 	{:else if drive.viewMode === 'list'}
 		<FileList {label}>
 			{#snippet selectAll()}
-				<input
-					type="checkbox"
-					class="pick"
-					aria-label="Select all"
-					checked={allChosen}
-					onchange={(event) => toggleAll(event.currentTarget.checked)}
-				/>
+				<label class="hit">
+					<input
+						type="checkbox"
+						class="pick"
+						aria-label="Select all"
+						checked={allChosen}
+						onchange={(event) => toggleAll(event.currentTarget.checked)}
+					/>
+				</label>
 			{/snippet}
 			{#each shown as node (node.id)}
 				<div class="item" use:lazyThumb={node}>
@@ -495,6 +499,20 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
 		gap: 14px;
+	}
+
+	/* The checkbox's label is what a finger aims at on a phone. */
+	.hit {
+		display: inline-grid;
+		place-items: center;
+		cursor: pointer;
+	}
+
+	@media (max-width: 640px), (pointer: coarse) {
+		.hit {
+			min-width: 44px;
+			min-height: 44px;
+		}
 	}
 
 	.pick {
