@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { err } from '$lib/formula/values';
 import { readCsv } from './csv';
-import { odfToExcel, readOds, writeOds } from './ods';
-import { ROW2, ROWS34, sampleOds, TAIL } from '../../../tests/fixtures/sheet-samples';
+import { odfToExcel, ODS_LIMITS, OdsError, readOds, writeOds } from './ods';
+import { odsOf, ROW2, ROWS34, sampleOds, TAIL } from '../../../tests/fixtures/sheet-samples';
 import { entryData, readZip } from './zip';
 
 const enc = new TextEncoder();
@@ -155,5 +155,38 @@ describe('writing .ods back', () => {
 		expect(e.cell(id, 2, 1)!.value).toBe(3);
 		expect(e.cell(id, 2, 1)!.formula!.text).toBe('SUM(B1:B2)');
 		expect(again.book.display(e.cell(id, 0, 1))).toBe('100.0%');
+	});
+});
+
+describe('hostile .ods', () => {
+	const cell = (v: number) =>
+		`<table:table-cell office:value-type="float" office:value="${v}"><text:p>${v}</text:p></table:table-cell>`;
+
+	it('counts a cell once for every row its row repeats over', async () => {
+		const cells = ODS_LIMITS.cells;
+		ODS_LIMITS.cells = 1000;
+		try {
+			const bytes = await odsOf(
+				`<table:table table:name="T"><table:table-row table:number-rows-repeated="600">${cell(1)}${cell(2)}</table:table-row></table:table>`
+			);
+			await expect(readOds(bytes)).rejects.toThrow(OdsError);
+		} finally {
+			ODS_LIMITS.cells = cells;
+		}
+	});
+
+	it('counts styled empty cells against the cap', async () => {
+		const cells = ODS_LIMITS.cells;
+		ODS_LIMITS.cells = 1000;
+		try {
+			const styled = '<table:table-cell table:style-name="ce1" table:number-columns-repeated="10"/>';
+			const bytes = await odsOf(
+				`<table:table table:name="T"><table:table-row table:number-rows-repeated="60">${styled}${styled}</table:table-row></table:table>`,
+				'<style:style style:name="ce1" style:family="table-cell"><style:text-properties fo:font-weight="bold"/></style:style>'
+			);
+			await expect(readOds(bytes)).rejects.toThrow(OdsError);
+		} finally {
+			ODS_LIMITS.cells = cells;
+		}
 	});
 });

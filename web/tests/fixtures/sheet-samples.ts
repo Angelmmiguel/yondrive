@@ -55,6 +55,18 @@ export const ROWS34 =
 export const TAIL =
 	'<table:table-row table:style-name="ro1" table:number-rows-repeated="1048571"><table:table-cell table:number-columns-repeated="3"/></table:table-row>';
 
+/** A small .ods of the given tables and automatic styles. */
+export function odsOf(tables: string, automaticStyles = ''): Promise<Uint8Array> {
+	const content =
+		`<?xml version="1.0" encoding="UTF-8"?>\n<office:document-content ${NS} office:version="1.3">` +
+		`<office:automatic-styles>${automaticStyles}</office:automatic-styles>` +
+		`<office:body><office:spreadsheet>${tables}</office:spreadsheet></office:body></office:document-content>`;
+	return writeZip(null, [
+		{ name: 'mimetype', data: enc.encode('application/vnd.oasis.opendocument.spreadsheet'), store: true },
+		{ name: 'content.xml', data: enc.encode(content) }
+	]);
+}
+
 /** A spreadsheet laid out as LibreOffice writes one, built here so every byte is known. */
 export function sampleOds(): Promise<Uint8Array> {
 	const content =

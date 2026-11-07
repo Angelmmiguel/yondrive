@@ -636,7 +636,8 @@ function scanContent(xml: string, budget: { cells: number }): Scan {
 		}
 		c.content = c.value !== null || c.formula !== undefined;
 		if (c.content) {
-			budget.cells -= c.repeat;
+			// A cell stands for itself on every row its row repeats over.
+			budget.cells -= c.repeat * (row?.repeat ?? 1);
 			if (budget.cells < 0) throw new OdsError('too many cells');
 		}
 	}
@@ -670,6 +671,8 @@ export async function readOds(
 		name === undefined ? 0 : (styles.byName.get(name) ?? 0);
 	const uncached: Cell[] = [];
 	let unsupported = 0;
+	// Every cell loaded, styled empty ones too, against the cap of the whole file.
+	let loadBudget = ODS_LIMITS.cells;
 	for (const [origin, t] of scan.tables.entries()) {
 		let name = t.name;
 		for (let k = 2; engine.sheetByName(name); k++) name = `${t.name} (${k})`;
@@ -693,7 +696,8 @@ export async function readOds(
 				const style = idOf(effectiveStyle(c, r, t, c.col));
 				const small = r.repeat * c.repeat <= 1000;
 				if (!c.content && (style === 0 || !small || c.covered)) continue;
-				if (r.repeat * c.repeat > ODS_LIMITS.cells) throw new OdsError('too many cells');
+				loadBudget -= r.repeat * c.repeat;
+				if (loadBudget < 0) throw new OdsError('too many cells');
 				for (let dr = 0; dr < r.repeat; dr++) {
 					for (let dc = 0; dc < c.repeat; dc++) {
 						const cell = engine.load(info.id, r.row + dr, c.col + dc, {
