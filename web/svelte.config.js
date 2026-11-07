@@ -14,6 +14,11 @@ const config = {
 		// route. Nothing is prerendered because the app is client-only.
 		adapter: adapter({ fallback: 'index.html', precompress: false, strict: true }),
 
+		// SvelteKit names a build after the time it ran unless told otherwise,
+		// which would make every build differ. The commit names it instead, so
+		// the same commit always builds the same bytes (`just verify-reproducible`).
+		version: { name: process.env.YONDRIVE_COMMIT || 'dev' },
+
 		// The policy is authored here and delivered by the Go server, which
 		// reads the <meta http-equiv="content-security-policy"> tag out of the
 		// built index.html and appends frame-ancestors (a directive meta tags

@@ -7,6 +7,19 @@
 set dotenv-load := true
 set dotenv-filename := ".env.local"
 
+# What a build is stamped with, all from git so that the same commit always
+# builds the same bytes. The Dockerfile and the release workflow are given the
+# same values. SOURCE_DATE_EPOCH is the commit's time, for any tool that would
+# otherwise write the current one.
+export YONDRIVE_VERSION := env("YONDRIVE_VERSION", `git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null | sed 's/^v//' | grep . || echo dev`)
+export YONDRIVE_COMMIT := env("YONDRIVE_COMMIT", `git rev-parse HEAD 2>/dev/null || echo unknown`)
+export SOURCE_DATE_EPOCH := env("SOURCE_DATE_EPOCH", `git log -1 --format=%ct 2>/dev/null || echo 0`)
+
+# The flags of every release build: no cgo, no paths of the machine that built
+# it, no VCS stamp (the commit is set explicitly) and no build id. The
+# Dockerfile repeats them; `just verify-reproducible` checks the two agree.
+go_build := 'CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=$YONDRIVE_VERSION -X main.commit=$YONDRIVE_COMMIT"'
+
 default: test
 
 # Run the server against ./data.
@@ -32,15 +45,51 @@ lint: web-check
     go vet ./...
     golangci-lint run
 
-# Build the binary into bin/, with the web app embedded.
+# Build the binary into bin/, with the web app embedded, and write the hashes
+# of the files it serves beside it.
 build: web-build
-    go build -o bin/yondrive ./cmd/yondrive
+    {{go_build}} -o bin/yondrive ./cmd/yondrive
+    bin/yondrive assets > bin/web-bundle.sha256
+    bin/yondrive version
+
+# Build the committed tree twice, each in a clean directory of its own with a
+# fresh Go build cache, and fail unless the binaries and the web app's hashes
+# are identical. With docker=true, also build the Dockerfile's binary from a
+# third copy and compare it with the other two. Uncommitted changes are not in
+# any of these builds.
+verify-reproducible docker="false":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work=$(mktemp -d)
+    trap 'chmod -R u+w "$work"; rm -rf "$work"' EXIT
+    echo "commit $YONDRIVE_COMMIT, version $YONDRIVE_VERSION, SOURCE_DATE_EPOCH $SOURCE_DATE_EPOCH"
+    for side in a b; do
+        mkdir "$work/$side"
+        git archive HEAD | tar -x -C "$work/$side"
+        echo "building in $work/$side"
+        (cd "$work/$side" && GOCACHE="$work/gocache-$side" just web-install build) > "$work/$side.log" 2>&1 \
+            || { tail -n 40 "$work/$side.log"; exit 1; }
+    done
+    sha256sum "$work"/{a,b}/bin/yondrive "$work"/{a,b}/bin/web-bundle.sha256
+    cmp "$work/a/bin/web-bundle.sha256" "$work/b/bin/web-bundle.sha256"
+    cmp "$work/a/bin/yondrive" "$work/b/bin/yondrive"
+    if [ "{{docker}}" = "true" ]; then
+        mkdir "$work/c"
+        git archive HEAD | tar -x -C "$work/c"
+        docker build --platform linux/amd64 --target binary --output "type=local,dest=$work/docker" \
+            --build-arg VERSION="$YONDRIVE_VERSION" --build-arg COMMIT="$YONDRIVE_COMMIT" \
+            --build-arg SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" "$work/c"
+        sha256sum "$work/docker/yondrive"
+        cmp "$work/a/bin/yondrive" "$work/docker/yondrive"
+    fi
+    echo "reproducible: $(sha256sum < "$work/a/bin/yondrive" | cut -d' ' -f1)"
+    "$work/a/bin/yondrive" version
 
 # Build the container image for linux/amd64, the platform Unraid runs. The
 # Dockerfile builds the web app and the binary itself, so nothing here
 # depends on a prior `just build`.
 image version="latest":
-    docker build --platform linux/amd64 --build-arg VERSION={{version}} -t ghcr.io/angelmmiguel/yondrive:{{version}} -t ghcr.io/angelmmiguel/yondrive:latest .
+    docker build --platform linux/amd64 --build-arg VERSION={{version}} --build-arg COMMIT=$YONDRIVE_COMMIT --build-arg SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH -t ghcr.io/angelmmiguel/yondrive:{{version}} -t ghcr.io/angelmmiguel/yondrive:latest .
 
 # Report files that gofmt would change.
 fmt:
