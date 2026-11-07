@@ -87,11 +87,21 @@ encryption, and browsers turn off features such as the streaming of large files.
 
 ## First run
 
-On its first start, the server prints a one-time setup link:
+On its first start, the server prints a one-time setup link. With
+`YONDRIVE_PUBLIC_URL` set, it is a whole link:
 
 ```bash
 docker logs yondrive 2>&1 | grep setup
 # level=INFO msg="first-run setup required, open this link" link=https://drive.example.com/setup#…
+```
+
+Without it, a server listening on every interface (as the image does) cannot
+know the address and port you reach it at, since Docker may map its port 8080
+to any other. It prints the path instead, to open on that address:
+
+```bash
+# level=INFO msg="first-run setup required, open this path on the address you reach this server at" path=/setup#… listening=:8080 hint="…"
+# With -p 8990:8080, open http://<host>:8990/setup#…
 ```
 
 Open it. The token is in the part after `#`, which the browser never sends to a

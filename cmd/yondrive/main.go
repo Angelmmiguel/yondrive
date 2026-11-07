@@ -177,7 +177,8 @@ func serve(args []string) error {
 	var setupToken string
 	if _, err := st.Settings(context.Background()); errors.Is(err, store.ErrNotConfigured) {
 		setupToken = auth.NewToken()
-		log.Info("first-run setup required, open this link", "link", setupLink(cfg.publicURL, cfg.addr, setupToken))
+		msg, attrs := setupLog(cfg.publicURL, cfg.addr, setupToken)
+		log.Info(msg, attrs...)
 	} else if err != nil {
 		return err
 	}
@@ -259,22 +260,27 @@ func parsePublicURL(v string) (string, error) {
 	return server.ParsePublicURL(v)
 }
 
-// setupLink is the address printed for the first run. The token goes in the
-// fragment, so it stays out of proxy logs and the Referer header.
-func setupLink(publicURL, addr, token string) string {
-	base := publicURL
-	if base == "" {
-		host, port, err := net.SplitHostPort(addr)
-		if err != nil {
-			base = "http://" + addr
-		} else {
-			if host == "" {
-				host = "localhost"
-			}
-			base = "http://" + net.JoinHostPort(host, port)
-		}
+// setupLog is what the first run prints: a link to open, with the token in the
+// fragment so that it stays out of proxy logs and the Referer header. With a
+// public URL, or a listen address with a host, the link is whole. Listening on
+// every interface, as in a container, the server cannot know the address and
+// port it is reached on (a container's port may be mapped to any other), so it
+// gives the path and says so rather than print a link that would not work.
+func setupLog(publicURL, addr, token string) (msg string, attrs []any) {
+	path := "/setup#" + token
+	if publicURL != "" {
+		return "first-run setup required, open this link", []any{"link", publicURL + path}
 	}
-	return base + "/setup#" + token
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "first-run setup required, open this link", []any{"link", "http://" + addr + path}
+	}
+	if ip := net.ParseIP(host); host != "" && (ip == nil || !ip.IsUnspecified()) {
+		return "first-run setup required, open this link", []any{"link", "http://" + net.JoinHostPort(host, port) + path}
+	}
+	return "first-run setup required, open this path on the address you reach this server at",
+		[]any{"path", path, "listening", ":" + port,
+			"hint", "in a container, use the host port mapped to " + port + "; set YONDRIVE_PUBLIC_URL to print a whole link"}
 }
 
 // parsePrefixes reads a comma-separated list of addresses and CIDR ranges;

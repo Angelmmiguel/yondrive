@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/pem"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,15 +110,31 @@ func TestParseSettingsRejectsBadValues(t *testing.T) {
 	}
 }
 
-func TestSetupLink(t *testing.T) {
-	for _, tc := range []struct{ publicURL, addr, want string }{
-		{"https://drive.example.com", ":8080", "https://drive.example.com/setup#tok"},
-		{"", ":8080", "http://localhost:8080/setup#tok"},
-		{"", "127.0.0.1:8080", "http://127.0.0.1:8080/setup#tok"},
-		{"", "nonsense", "http://nonsense/setup#tok"},
+func TestSetupLog(t *testing.T) {
+	for _, tc := range []struct {
+		publicURL, addr string
+		want            []string
+	}{
+		{"https://drive.example.com", ":8080", []string{"link=https://drive.example.com/setup#tok"}},
+		{"", "127.0.0.1:8080", []string{"link=http://127.0.0.1:8080/setup#tok"}},
+		{"", "nonsense", []string{"link=http://nonsense/setup#tok"}},
+		// Every interface, as in a container whose port is mapped to another: no
+		// link that names an address the browser cannot reach.
+		{"", ":8080", []string{"path=/setup#tok", "listening=:8080", "host port mapped to 8080", "YONDRIVE_PUBLIC_URL"}},
+		{"", "0.0.0.0:9000", []string{"path=/setup#tok", "listening=:9000"}},
+		{"", "[::]:8080", []string{"path=/setup#tok"}},
 	} {
-		if got := setupLink(tc.publicURL, tc.addr, "tok"); got != tc.want {
-			t.Errorf("setupLink(%q, %q) = %q, want %q", tc.publicURL, tc.addr, got, tc.want)
+		var out bytes.Buffer
+		msg, attrs := setupLog(tc.publicURL, tc.addr, "tok")
+		slog.New(slog.NewTextHandler(&out, nil)).Info(msg, attrs...)
+		line := out.String()
+		for _, want := range tc.want {
+			if !strings.Contains(line, want) {
+				t.Errorf("%q, %q: %s lacks %q", tc.publicURL, tc.addr, line, want)
+			}
+		}
+		if strings.Contains(line, "localhost") {
+			t.Errorf("%q, %q: %s names localhost", tc.publicURL, tc.addr, line)
 		}
 	}
 }
