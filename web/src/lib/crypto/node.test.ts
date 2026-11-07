@@ -155,6 +155,13 @@ describe('sealNodeKeyTo', () => {
 		expect(() => openNodeKeyFrom(new Uint8Array(31), alice, 'n1')).toThrow(SealError);
 	});
 
+	it('refuses to open with a zeroed private key, which anyone could seal to', () => {
+		const zeroed = { publicKey: alice.publicKey, privateKey: new Uint8Array(32) };
+		const sealed = sealNodeKeyTo(nodeKey, alice.publicKey, 'n1');
+
+		expect(() => openNodeKeyFrom(sealed, zeroed, 'n1')).toThrow(ZeroKeyError);
+	});
+
 	it('refuses a zeroed node key', () => {
 		expect(() => sealNodeKeyTo(new Uint8Array(32), alice.publicKey, 'n1')).toThrow(ZeroKeyError);
 	});

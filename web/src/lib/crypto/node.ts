@@ -102,6 +102,7 @@ export function sealNodeKeyTo(nodeKey: Uint8Array, recipient: Uint8Array, nodeId
 
 /** Opens a node key sealed by `sealNodeKeyTo` with the recipient's keypair. */
 export function openNodeKeyFrom(sealed: Uint8Array, recipient: KeyPair, nodeId: string): Bytes {
+	assertKey(recipient.privateKey);
 	if (sealed.length < EPHEMERAL_LENGTH) throw new SealError('length');
 	const ephemeralPublic = sealed.subarray(0, EPHEMERAL_LENGTH);
 	const wrapKey = grantKey(
