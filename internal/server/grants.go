@@ -223,8 +223,10 @@ func (s *Server) ListSharedWithMe(ctx context.Context, req oapi.ListSharedWithMe
 	return oapi.ListSharedWithMe200JSONResponse(out), nil
 }
 
-// ListNodeAccess returns who reaches a node through a grant. Others' sealed keys
-// and signatures are for the owner, who has to replace them.
+// ListNodeAccess returns who reaches a node through a grant. The owner sees every
+// grant, with the sealed keys and signatures it has to replace. Anyone else sees
+// their own grants and the editors', which a client needs to check who may have
+// signed a version it reads, and not who else may only read.
 func (s *Server) ListNodeAccess(ctx context.Context, req oapi.ListNodeAccessRequestObject) (oapi.ListNodeAccessResponseObject, error) {
 	a, err := s.authorizeNode(ctx, req.Id, permRead)
 	if err != nil {
@@ -237,6 +239,9 @@ func (s *Server) ListNodeAccess(ctx context.Context, req oapi.ListNodeAccessRequ
 	user := principalFrom(ctx).user.ID
 	out := oapi.NodeAccessList{Access: make([]oapi.NodeAccess, 0, len(grants))}
 	for _, g := range grants {
+		if a.role != roleOwner && g.GranteeID != user && g.Role != store.RoleEditor {
+			continue
+		}
 		entry := oapi.NodeAccess{UserId: g.GranteeID, Username: g.GranteeName, Role: oapi.GrantRole(g.Role), Inherited: g.Depth > 0}
 		if g.GranteeID == user {
 			entry.GrantId = &g.ID

@@ -47,6 +47,11 @@ search index's key and bound to the index and the note, and forgotten on signing
 
 It cannot see names, types, tags, dates inside metadata, or contents.
 
+**What people a node is shared with see of each other.** The owner sees every grant on a node and
+the folders above it. Anyone else sees their own grants and the usernames of the editors there,
+since a version's signer has to be someone with edit rights for their client to check it, but not
+who else may only read.
+
 ## Limits
 
 - **The server delivers the web app.** Someone who takes control of the running server can

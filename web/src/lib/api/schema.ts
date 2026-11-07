@@ -1399,6 +1399,8 @@ export interface paths {
          * @description The grants on the node and on the folders above it, nearest first, for anyone
          *     who can read the node: a client verifies a version's signature against an
          *     author who holds edit rights, and they are the owner and the editors here.
+         *     The owner gets every grant, with its sealed key and signature. Anyone else
+         *     gets their own grants and the editors', and not who else may only read.
          */
         get: operations["listNodeAccess"];
         put?: never;

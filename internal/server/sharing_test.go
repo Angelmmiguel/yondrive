@@ -215,19 +215,45 @@ func TestStrangersCannotTellAGrantExists(t *testing.T) {
 	}
 	dave := newDriveUser(e, e.login("root"), "dave", "e2e")
 	alice.share(folder.ID, dave, "viewer")
-	resp = bob.call(http.MethodGet, api+"/nodes/"+folder.ID+"/grants", nil)
-	resp.wantStatus(t, http.StatusOK)
-	resp.decode(t, &access)
-	if len(access.Access) != 2 {
-		t.Fatalf("access %s", resp.body)
-	}
-	for _, a := range access.Access {
-		if _, ok := a["sealed_key"]; ok {
-			t.Errorf("a grantee sees a sealed key: %s", resp.body)
+	sub := alice.create(folder.ID, "folder", "sub")
+	erin := newDriveUser(e, e.login("root"), "erin", "e2e")
+	alice.share(sub.ID, erin, "viewer")
+	// Anyone but the owner sees their own grants and the editors, whose keys
+	// check the versions they read, and not who else may only read.
+	names := func(as *driveUser, node string) []string {
+		t.Helper()
+		resp := as.call(http.MethodGet, api+"/nodes/"+node+"/grants", nil)
+		resp.wantStatus(t, http.StatusOK)
+		access.Access = nil
+		resp.decode(t, &access)
+		var out []string
+		for _, a := range access.Access {
+			if as != alice {
+				if _, ok := a["sealed_key"]; ok {
+					t.Errorf("a grantee sees a sealed key: %s", resp.body)
+				}
+				_, hasID := a["grant_id"]
+				if own := a["user_id"] == as.id; hasID != own {
+					t.Errorf("grant id of %v: %s", a["username"], resp.body)
+				}
+			}
+			out = append(out, a["username"].(string))
 		}
-		_, hasID := a["grant_id"]
-		if own := a["user_id"] == bob.id; hasID != own {
-			t.Errorf("grant id of %v: %s", a["username"], resp.body)
+		slices.Sort(out)
+		return out
+	}
+	for _, c := range []struct {
+		as   *driveUser
+		node string
+		want []string
+	}{
+		{bob, folder.ID, []string{"bob"}},
+		{dave, folder.ID, []string{"bob", "dave"}},
+		{erin, sub.ID, []string{"bob", "erin"}},
+		{alice, sub.ID, []string{"bob", "dave", "erin"}},
+	} {
+		if got := names(c.as, c.node); !slices.Equal(got, c.want) {
+			t.Errorf("%s sees %v, want %v", c.as.id, got, c.want)
 		}
 	}
 	resp = alice.call(http.MethodGet, api+"/nodes/"+file.ID+"/grants", nil)

@@ -170,6 +170,8 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			access: lineage(at).flatMap((node, depth) =>
 				[...grants.values()]
 					.filter((grant) => grant.node_id === node.id)
+					// Anyone but the owner sees their own grants and the editors'.
+					.filter((grant) => owner || grant.grantee_id === asking || grant.role === 'editor')
 					.map((grant) => ({
 						user_id: grant.grantee_id,
 						username: grant.grantee_username,
