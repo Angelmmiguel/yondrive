@@ -140,6 +140,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 		});
 
 		test('forgets the device copy on signing out from the unlock screen', async ({ page }) => {
+			test.skip(mode === 'none', 'Without encryption there is nothing to lock.');
 			test.setTimeout(60_000);
 			await page.goto(server.url);
 			await page.getByLabel(/^Username/).fill('admin');
