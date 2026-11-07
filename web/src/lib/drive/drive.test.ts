@@ -271,3 +271,58 @@ describe('a journal trimmed past the cursor', () => {
 		await drive.poll();
 	});
 });
+
+describe('uploads the server holds', () => {
+	it.each(SUITES)(
+		'lists those nothing here knows of, and lets go of them, in mode %s',
+		async (_, suite) => {
+			const fixture = wired(suite);
+			const { drive, server } = fixture;
+			const file = await withFile(fixture, patterned(10));
+			expect(await drive.strayUploads()).toEqual([]);
+
+			const created = await server.api.createUpload({
+				node_id: file.id,
+				version_id: 'c'.repeat(32),
+				suite,
+				frame_size: 1024,
+				frame_count: 1,
+				stored_size: 1024 + fixture.sealer.frameOverhead,
+				key_generation: 1
+			} as never);
+			const [stray] = await drive.strayUploads();
+			expect(stray.id).toBe(created.id);
+			expect(stray.name).toBe('f.bin');
+			expect(stray.frames_received).toBe(0);
+
+			await drive.abortStray(stray);
+			expect(await drive.strayUploads()).toEqual([]);
+			// The file had content before all this, and it stays.
+			expect(drive.tree.nodes.get(file.id)?.trashedAt).toBeNull();
+		}
+	);
+
+	it('takes a file with it that never had any content', async () => {
+		const fixture = wired(SUITE_E2E);
+		const { drive, server } = fixture;
+		await drive.start();
+		const node = await drive.tree.createFile(drive.tree.rootId as string, {
+			name: 'empty.bin',
+			type: '',
+			size: 10,
+			modified: 1
+		});
+		await server.api.createUpload({
+			node_id: node.id,
+			version_id: 'c'.repeat(32),
+			suite: SUITE_E2E,
+			frame_size: 1024,
+			frame_count: 1,
+			stored_size: 1024 + fixture.sealer.frameOverhead,
+			key_generation: 1
+		} as never);
+		const [stray] = await drive.strayUploads();
+		await drive.abortStray(stray);
+		expect(drive.tree.nodes.has(node.id)).toBe(false);
+	});
+});

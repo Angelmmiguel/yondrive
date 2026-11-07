@@ -198,6 +198,7 @@ export type ErrorCode =
 	| 'sso_only'
 	| 'local_accounts_disabled'
 	| 'local_accounts_lockout'
+	| 'identity_not_relinkable'
 	| 'already_enrolled'
 	| 'totp_local_only'
 	| 'reauth_required'

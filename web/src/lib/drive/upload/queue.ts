@@ -90,6 +90,15 @@ export class UploadQueue {
 		this.#deps = deps;
 	}
 
+	/** The uploads this queue knows of on the server, moving or interrupted. */
+	get knownUploads(): Set<string> {
+		const known = new Set<string>();
+		for (const job of this.#jobs.values()) {
+			if (job.record !== undefined) known.add(job.record.uploadId);
+		}
+		return known;
+	}
+
 	get active(): boolean {
 		return this.items.some((i) => i.status === 'queued' || i.status === 'uploading');
 	}

@@ -98,6 +98,8 @@ const API_MESSAGES: Partial<Record<ErrorCode, string>> = {
 	local_accounts_disabled: 'Signing in with a passphrase is turned off on this server.',
 	local_accounts_lockout:
 		'That would leave nobody able to sign in. Local accounts can only go off with single sign-on on and a local administrator left.',
+	identity_not_relinkable:
+		'Their next sign-in could not find this account under the match mode, so it would make an empty one. Give the account an email address or change the match mode first.',
 	already_enrolled: 'This account already has its keys.',
 	totp_local_only: 'Your identity provider handles the second factor of this account.',
 	reauth_required: 'Sign in again through your identity provider, and try that again.',

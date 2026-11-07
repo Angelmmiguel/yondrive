@@ -9,12 +9,13 @@
 	import type { UploadItem, UploadStatus } from '../upload/queue';
 
 	const items = $derived(drive.uploads);
+	const strays = $derived(drive.strays);
 	const moving = $derived(items.filter((i) => i.status === 'uploading' || i.status === 'queued'));
 	const finished = $derived(items.some((i) => i.status === 'done' || i.status === 'cancelled'));
 	let folded = $state(false);
 
 	$effect(() => {
-		uploadPanel.sync(items);
+		uploadPanel.sync(items, strays.length);
 	});
 	$effect(() => () => uploadPanel.dispose());
 	let picker = $state<HTMLInputElement>();
@@ -64,7 +65,7 @@
 		<Icon name="check" size={16} strokeWidth={2} />
 		{uploadPanel.count} uploaded
 	</button>
-{:else if items.length > 0}
+{:else if items.length > 0 || strays.length > 0}
 	<section class="panel" aria-label="Uploads" data-testid="upload-panel">
 		<header class="head">
 			<h2>{heading}</h2>
@@ -125,6 +126,20 @@
 							{:else}
 								{STATUS[item.status]}
 							{/if}
+						</span>
+					</li>
+				{/each}
+				{#each strays as upload (upload.id)}
+					<li data-status="elsewhere" data-testid="stray-upload">
+						<div class="row">
+							<span class="name" title={upload.name}>{upload.name}</span>
+							<Button size="sm" variant="ghost" onclick={() => drive.abortStray(upload)}>
+								Abort
+							</Button>
+						</div>
+						<span class="status">
+							Started elsewhere · {upload.frames_received} of {upload.frame_count} parts · holding
+							{formatBytes(upload.stored_size)}
 						</span>
 					</li>
 				{/each}

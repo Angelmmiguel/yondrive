@@ -34,8 +34,8 @@ export class UploadPanelState {
 	}
 
 	/** Follows the queue. Call it whenever the items change. */
-	sync(items: readonly UploadItem[]): void {
-		this.present = items.length > 0;
+	sync(items: readonly UploadItem[], others = 0): void {
+		this.present = items.length > 0 || others > 0;
 		this.count = items.filter((i) => i.status === 'done').length;
 		const settled =
 			this.count > 0 && items.every((i) => i.status === 'done' || i.status === 'cancelled');

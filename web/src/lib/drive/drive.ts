@@ -34,7 +34,7 @@ import type { EngineDeps } from './upload/engine';
 import { UploadQueue, type QueuedFile } from './upload/queue';
 import type { ResumeStore } from './upload/resume';
 import { inferType } from './kinds';
-import { isApiError } from '$lib/api/types';
+import { isApiError, type UploadSummary } from '$lib/api/types';
 
 /** The most a browser with no service worker is asked to hold of one file. */
 export const BLOB_LIMIT = 1024 * 1024 * 1024;
@@ -71,6 +71,11 @@ export interface DriveDeps {
 
 /** The largest file a thumbnail is made again from, after a rotation took the old one. */
 const REMAKE_LIMIT = 128 * 1024 * 1024;
+
+/** An upload on the server, for a file this user can name. */
+export interface StrayUpload extends UploadSummary {
+	name: string;
+}
 
 export interface Download {
 	/** How it went: through the service worker, or held in memory first. */
@@ -193,6 +198,39 @@ export class Drive {
 				if (isApiError(e, 'not_found')) await resume.remove(record.uploadId);
 			}
 		}
+	}
+
+	/**
+	 * Uploads the server holds that nothing here knows of: left on another device or
+	 * with this device's memory gone. Each holds on to quota until it is dropped.
+	 */
+	async strayUploads(): Promise<StrayUpload[]> {
+		const { api } = this.#deps;
+		const known = this.queue.knownUploads;
+		const strays: StrayUpload[] = [];
+		let cursor: string | undefined;
+		do {
+			const page = await api.listUploads({ cursor });
+			for (const upload of page.uploads) {
+				if (known.has(upload.id)) continue;
+				const node = await this.tree.resolve(upload.node_id).catch(() => undefined);
+				strays.push({
+					...upload,
+					name: node?.name ?? 'A file that no longer opens'
+				});
+			}
+			cursor = page.next_cursor;
+		} while (cursor !== undefined);
+		return strays;
+	}
+
+	/** Lets go of an upload, and of a file it was to be the first content of. */
+	async abortStray(upload: Pick<StrayUpload, 'id' | 'node_id'>): Promise<void> {
+		const { api, resume } = this.#deps;
+		await api.abortUpload(upload.id);
+		await resume.remove(upload.id).catch(() => {});
+		const node = this.tree.nodes.get(upload.node_id);
+		if (node?.currentVersion === null) await this.tree.discard(node.id).catch(() => {});
 	}
 
 	#reader() {

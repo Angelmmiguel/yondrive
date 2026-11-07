@@ -8,7 +8,7 @@ import { api } from '$lib/api/client';
 import { isApiError, type Storage } from '$lib/api/types';
 import { categoryOf, fileKindOf, type Category } from '$lib/drive/kinds';
 import { describeDriveError } from '$lib/drive/errors';
-import { BLOB_LIMIT, Drive } from '$lib/drive/drive';
+import { BLOB_LIMIT, Drive, type StrayUpload } from '$lib/drive/drive';
 import { createFramePool } from '$lib/drive/frame-pool';
 import type { TagDefinition } from '$lib/drive/metadata';
 import { createNodeOpener } from '$lib/drive/node-opener';
@@ -79,6 +79,8 @@ export class DriveState {
 	status = $state<'idle' | 'loading' | 'ready' | 'failed'>('idle');
 	error = $state<string | null>(null);
 	uploads = $state.raw<UploadItem[]>([]);
+	/** Uploads the server holds that this tab has nothing to do with. */
+	strays = $state.raw<StrayUpload[]>([]);
 	storage = $state.raw<Storage | null>(null);
 	lastBackup = $state.raw<string | null>(null);
 	trash = $state.raw<DriveNode[]>([]);
@@ -145,7 +147,10 @@ export class DriveState {
 		core.queue.onchange = () => {
 			const wasActive = this.uploads.some((i) => i.status === 'uploading');
 			this.uploads = core.queue.items;
-			if (wasActive && !core.queue.active) void this.refreshStorage();
+			if (wasActive && !core.queue.active) {
+				void this.refreshStorage();
+				void this.refreshStrays();
+			}
 		};
 		this.status = 'loading';
 		registerStreamWorker();
@@ -158,6 +163,7 @@ export class DriveState {
 				void sharing.sync();
 				void this.refreshStorage();
 				void this.loadTrash().catch(() => {});
+				void this.refreshStrays();
 				if (account.user.role === 'admin') void this.#loadBackup();
 			})
 			.catch((e) => {
@@ -186,6 +192,7 @@ export class DriveState {
 		this.status = 'idle';
 		this.error = null;
 		this.uploads = [];
+		this.strays = [];
 		this.storage = null;
 		this.lastBackup = null;
 		this.trash = [];
@@ -339,6 +346,25 @@ export class DriveState {
 		} catch {
 			// The bar keeps what it last knew.
 		}
+	}
+
+	/** Finds uploads nothing here is carrying on with. Idle tabs are the ones that can tell. */
+	async refreshStrays(): Promise<void> {
+		const core = this.core;
+		if (core === null || core.queue.active) return;
+		try {
+			const strays = await core.strayUploads();
+			if (this.core === core) this.strays = strays;
+		} catch {
+			// The panel keeps what it last knew.
+		}
+	}
+
+	/** Gives up an upload found on the server. */
+	async abortStray(upload: StrayUpload): Promise<void> {
+		await this.run((core) => core.abortStray(upload));
+		await this.refreshStrays();
+		await this.refreshStorage();
 	}
 
 	async #loadBackup(): Promise<void> {
