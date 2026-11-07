@@ -1392,6 +1392,13 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		);
 		sheetEls.push(elText);
 		const scan = scanSheet(source, strings.base, engine.date1904, { cells: SHEET_LIMITS.cells });
+		// Cells point at formats we could not read: writing would drop them.
+		if (
+			same &&
+			stylesPart.styles.length === 0 &&
+			scan.rows.some((r) => r.cells.some((c) => c.s > 0))
+		)
+			throw new XlsxError('cell formats not readable');
 		const patched = patchSheet(source, scan, info, {
 			book,
 			strings,

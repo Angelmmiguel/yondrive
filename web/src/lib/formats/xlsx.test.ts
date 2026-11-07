@@ -345,6 +345,47 @@ describe('writing .xlsx back', () => {
 		expect(sheet).toContain('<c r="B4"><f t="shared" si="0"/><v>3</v></c>');
 	});
 
+	it('reads and extends a styles part written with a prefix', async () => {
+		const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+		const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+		const bytes = await xlsxOf(
+			['<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData>'],
+			{
+				'xl/_rels/workbook.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${REL}/styles" Target="styles.xml"/></Relationships>`,
+				'xl/styles.xml':
+					`<x:styleSheet xmlns:x="${MAIN}"><x:fonts count="2"><x:font><x:sz val="11"/></x:font><x:font><x:b/><x:sz val="11"/></x:font></x:fonts>` +
+					'<x:fills count="1"><x:fill><x:patternFill patternType="none"/></x:fill></x:fills><x:borders count="1"><x:border/></x:borders>' +
+					'<x:cellXfs count="2"><x:xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><x:xf numFmtId="0" fontId="1" fillId="0" borderId="0"/></x:cellXfs></x:styleSheet>'
+			}
+		);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		expect(book.styles.length).toBe(2);
+		expect(book.styles[book.engine.cell(s, 0, 0)!.style].font.bold).toBe(true);
+		const italic = book.styleId({ ...book.styles[0], font: { ...book.styles[0].font, italic: true } });
+		book.engine.set(s, 0, 1, { value: 2 });
+		book.engine.setStyle(s, 0, 1, italic);
+		const out = await writeXlsx(book, bytes);
+		const styles = (await part(out, 'xl/styles.xml'))!;
+		expect(styles).not.toMatch(/<\/?(xf|font|cellXfs|fonts|i|sz)[\s/>]/);
+		expect(styles).toContain('<x:cellXfs count="3">');
+		const again = (await readXlsx(out)).book;
+		const at = (c: number) => again.styles[again.engine.cell(s, 0, c)!.style].font;
+		expect(at(0).bold).toBe(true);
+		expect(at(1).italic).toBe(true);
+	});
+
+	it('refuses to save over cell formats it could not read', async () => {
+		const bytes = await xlsxOf(['<sheetData><row r="1"><c r="A1" s="1"><v>1</v></c></row></sheetData>'], {
+			'xl/_rels/workbook.xml.rels':
+				'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+			'xl/styles.xml': '<styleSheet xmlns="urn:something-else"><cellFormats/></styleSheet>'
+		});
+		const { book } = await readXlsx(bytes);
+		book.engine.set(book.engine.sheets[0].id, 1, 0, { value: 2 });
+		await expect(writeXlsx(book, bytes)).rejects.toThrow(/cell formats/);
+	});
+
 	it('writes a workbook from nothing that reads back the same', async () => {
 		const { book } = await readXlsx(fixture('book.xlsx'));
 		book.source = { format: 'csv', styles: 0, sheets: 0 };

@@ -7,7 +7,7 @@
 import { BUILTIN_FORMATS, builtinIdOf } from '$lib/formula/numfmt';
 import { spliceBeforeClose } from './ooxml';
 import type { CellStyle, Edge, Font, HAlign, VAlign } from './workbook';
-import { child, escapeAttr, kids, parseXml, type XElement } from './xml';
+import { escapeAttr, kids as children, parseXml, type XElement } from './xml';
 
 export const STYLE_LIMITS = { xfs: 65000, parts: 20000 };
 
@@ -110,6 +110,12 @@ export function themeColors(xml: string | null): string[] {
 }
 
 const local = (n: string) => n.slice(n.indexOf(':') + 1);
+
+/** Child elements by local name, so a part written with a prefix (`x:styleSheet`) reads the same. */
+const kids = (el: XElement, name?: string): XElement[] =>
+	children(el).filter((k) => name === undefined || local(k.name) === name);
+
+const child = (el: XElement, name: string): XElement | undefined => kids(el, name)[0];
 
 function findDeep(el: XElement, name: string): XElement | undefined {
 	for (const k of kids(el)) {
@@ -252,6 +258,8 @@ export interface StylesPart {
 	fills: (string | undefined)[];
 	borders: CellStyle['border'][];
 	dxfs: number;
+	/** The namespace prefix the part writes its elements with, `x:` or none. */
+	prefix: string;
 }
 
 const key = (v: unknown) => JSON.stringify(v ?? null);
@@ -263,7 +271,8 @@ export function readStyles(xml: string | null, theme: string[]): StylesPart {
 		fonts: [],
 		fills: [],
 		borders: [],
-		dxfs: 0
+		dxfs: 0,
+		prefix: ''
 	};
 	if (!xml) return empty;
 	const root = parseXml(xml);
@@ -301,7 +310,8 @@ export function readStyles(xml: string | null, theme: string[]): StylesPart {
 		return style;
 	});
 	const dxfs = child(root, 'dxfs') ? kids(child(root, 'dxfs')!, 'dxf').length : 0;
-	return { styles, numFmts, fonts, fills, borders, dxfs };
+	const prefix = root.name.includes(':') ? root.name.slice(0, root.name.indexOf(':') + 1) : '';
+	return { styles, numFmts, fonts, fills, borders, dxfs, prefix };
 }
 
 const argb = (hex: string) => `FF${hex.slice(1).toUpperCase()}`;
@@ -432,8 +442,14 @@ export class StyleAppender {
 	/** The part with the additions, and every count that changed. */
 	text(): string {
 		let xml = this.#xml;
-		const append = (parent: string, items: string[], before: string[]) => {
-			if (items.length === 0) return;
+		const p = this.#part.prefix;
+		// What is added carries the part's prefix, the elements inside it too.
+		const prefixed = (s: string) => (p ? s.replace(/<(\/?)(?=[A-Za-z])/g, `<$1${p}`) : s);
+		const append = (name: string, added: string[], following: string[]) => {
+			if (added.length === 0) return;
+			const parent = p + name;
+			const items = added.map(prefixed);
+			const before = following.map((b) => p + b);
 			const open = new RegExp(`<${parent}(\\s[^>]*?)?(/?)>`).exec(xml);
 			if (open && open[2] === '/') {
 				xml =
@@ -452,8 +468,8 @@ export class StyleAppender {
 				return;
 			}
 			xml = xml.replace(new RegExp(`<${parent}(\\s[^>]*)?>`), (tag) => {
-				const total = countIn(xml, parent);
-				return /\scount="/.test(tag) ? tag.replace(/\scount="\d*"/, ` count="${total}"`) : tag;
+				const total = countIn(xml, name);
+				return tag.replace(/(\scount\s*=\s*)(["'])\d*\2/, `$1$2${total}$2`);
 			});
 		};
 		append('numFmts', this.#add.numFmts, ['fonts', 'fills', 'borders', 'cellStyleXfs', 'cellXfs']);
