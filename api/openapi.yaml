@@ -329,6 +329,26 @@ paths:
           description: Off.
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/auth/password-reset:
+    post:
+      operationId: completePasswordReset
+      tags: [auth]
+      summary: Set a new password from a reset link
+      description: |
+        `none` mode only. Burns the link, replaces the credentials and ends every
+        session and token of the user, in one transaction.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletePasswordResetRequest"
+      responses:
+        "204":
+          description: The password is replaced.
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/session/key:
     get:
       operationId: getSessionKey
@@ -502,6 +522,112 @@ paths:
           description: Revoked.
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List users
+      responses:
+        "200":
+          description: Every user, by username.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [admin]
+      summary: Disable or enable a user, or set their quota
+      description: |
+        Disabling ends the user's sessions and tokens. Admins cannot disable
+        themselves, so a server always keeps an admin who can sign in.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteUser
+      tags: [admin]
+      summary: Delete a user
+      description: Admins cannot delete themselves.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "204":
+          description: Deleted.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/users/{id}/password-reset:
+    post:
+      operationId: createPasswordReset
+      tags: [admin]
+      summary: Issue a one-time password reset link
+      description: |
+        `none` mode only, since no key depends on the password. In `e2e` mode it
+        answers `wrong_mode`: only the user's recovery key can recover an account.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "201":
+          description: The link, which replaces any earlier one. Shown only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedPasswordReset"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/settings:
+    get:
+      operationId: getSettings
+      tags: [admin]
+      summary: Read the server settings
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettings"
+        default:
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateSettings
+      tags: [admin]
+      summary: Change the server settings
+      description: Everything but the encryption mode, which is fixed at setup.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSettingsRequest"
+      responses:
+        "200":
+          description: The settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServerSettings"
+        default:
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     sessionCookie:
@@ -567,6 +693,7 @@ components:
             - `totp_required`, `totp_invalid`, `totp_already_enabled`,
               `totp_not_pending`, `totp_not_enabled`
             - `invalid_token_name`
+            - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
             - `session_required`: the route needs a browser session, not a token
           examples: [not_found]
     KDF:
@@ -973,6 +1100,78 @@ components:
         secret:
           type: string
           description: The value to send as `Authorization`. Not stored; shown only now.
+    UpdateUserRequest:
+      type: object
+      properties:
+        disabled:
+          type: boolean
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    CreatedPasswordReset:
+      type: object
+      required: [token, link, expires_at]
+      properties:
+        token:
+          type: string
+          description: The one-time token. Not stored; shown only now.
+        link:
+          type: string
+          description: The address to send, with the token in the fragment.
+        expires_at:
+          type: string
+          format: date-time
+    CompletePasswordResetRequest:
+      type: object
+      required: [token, auth_key, kdf]
+      properties:
+        token:
+          type: string
+        auth_key:
+          type: string
+          format: byte
+          description: 32 bytes.
+        kdf:
+          $ref: "#/components/schemas/KDF"
+    ServerSettings:
+      type: object
+      required: [name, public_url, default_quota_bytes, language, time_zone, mode, open_signup]
+      properties:
+        name:
+          type: string
+        public_url:
+          type: string
+        default_quota_bytes:
+          type: integer
+          format: int64
+        language:
+          type: string
+        time_zone:
+          type: string
+        mode:
+          $ref: "#/components/schemas/Mode"
+        open_signup:
+          type: boolean
+          description: Whether anyone can register without an invite.
+    UpdateSettingsRequest:
+      type: object
+      description: Fields left out stay as they are. There is no field for the mode.
+      properties:
+        name:
+          type: string
+        public_url:
+          type: string
+        default_quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        language:
+          type: string
+        time_zone:
+          type: string
+        open_signup:
+          type: boolean
   parameters:
     ID:
       name: id

@@ -50,6 +50,10 @@ const (
 	codeTOTPNotEnabled     = "totp_not_enabled"
 	codeInvalidTokenName   = "invalid_token_name" //nolint:gosec // an error code, not a secret
 	codeSessionRequired    = "session_required"
+	codeCannotModifySelf   = "cannot_modify_self"
+	codeInvalidQuota       = "invalid_quota"
+	codeWrongMode          = "wrong_mode"
+	codeResetInvalid       = "reset_invalid"
 )
 
 type errorBody struct {

@@ -287,6 +287,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password from a reset link
+         * @description `none` mode only. Burns the link, replaces the credentials and ends every
+         *     session and token of the user, in one transaction.
+         */
+        post: operations["completePasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/session/key": {
         parameters: {
             query?: never;
@@ -431,6 +452,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List users */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a user
+         * @description Admins cannot delete themselves.
+         */
+        delete: operations["deleteUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Disable or enable a user, or set their quota
+         * @description Disabling ends the user's sessions and tokens. Admins cannot disable
+         *     themselves, so a server always keeps an admin who can sign in.
+         */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a one-time password reset link
+         * @description `none` mode only, since no key depends on the password. In `e2e` mode it
+         *     answers `wrong_mode`: only the user's recovery key can recover an account.
+         */
+        post: operations["createPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the server settings */
+        get: operations["getSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Change the server settings
+         * @description Everything but the encryption mode, which is fixed at setup.
+         */
+        patch: operations["updateSettings"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -474,6 +579,7 @@ export interface components {
              *     - `totp_required`, `totp_invalid`, `totp_already_enabled`,
              *       `totp_not_pending`, `totp_not_enabled`
              *     - `invalid_token_name`
+             *     - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
              *     - `session_required`: the route needs a browser session, not a token
              * @example not_found
              */
@@ -771,6 +877,49 @@ export interface components {
             token: components["schemas"]["DeviceToken"];
             /** @description The value to send as `Authorization`. Not stored; shown only now. */
             secret: string;
+        };
+        UpdateUserRequest: {
+            disabled?: boolean;
+            /** Format: int64 */
+            quota_bytes?: number;
+        };
+        CreatedPasswordReset: {
+            /** @description The one-time token. Not stored; shown only now. */
+            token: string;
+            /** @description The address to send, with the token in the fragment. */
+            link: string;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        CompletePasswordResetRequest: {
+            token: string;
+            /**
+             * Format: byte
+             * @description 32 bytes.
+             */
+            auth_key: string;
+            kdf: components["schemas"]["KDF"];
+        };
+        ServerSettings: {
+            name: string;
+            public_url: string;
+            /** Format: int64 */
+            default_quota_bytes: number;
+            language: string;
+            time_zone: string;
+            mode: components["schemas"]["Mode"];
+            /** @description Whether anyone can register without an invite. */
+            open_signup: boolean;
+        };
+        /** @description Fields left out stay as they are. There is no field for the mode. */
+        UpdateSettingsRequest: {
+            name?: string;
+            public_url?: string;
+            /** Format: int64 */
+            default_quota_bytes?: number;
+            language?: string;
+            time_zone?: string;
+            open_signup?: boolean;
         };
     };
     responses: {
@@ -1099,6 +1248,29 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    completePasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompletePasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description The password is replaced. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     getSessionKey: {
         parameters: {
             query?: never;
@@ -1339,6 +1511,147 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every user, by username. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"][];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link, which replaces any earlier one. Shown only here. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedPasswordReset"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerSettings"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServerSettings"];
+                };
             };
             default: components["responses"]["Error"];
         };

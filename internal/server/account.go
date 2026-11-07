@@ -311,11 +311,8 @@ func profile(u store.User) oapi.Profile {
 // GetUserKeys returns a user's public keys, which clients pin and compare.
 func (s *Server) GetUserKeys(ctx context.Context, req oapi.GetUserKeysRequestObject) (oapi.GetUserKeysResponseObject, error) {
 	u, err := s.store.UserByID(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, fail(http.StatusNotFound, codeNotFound)
-	}
 	if err != nil {
-		return nil, err
+		return nil, notFound(err)
 	}
 	if u.PublicKeyX25519 == nil {
 		return nil, fail(http.StatusNotFound, codeNoKeys)

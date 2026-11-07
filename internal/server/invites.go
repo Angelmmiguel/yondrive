@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"strings"
 	"time"
 
@@ -95,12 +93,8 @@ func (s *Server) ListInvites(ctx context.Context, _ oapi.ListInvitesRequestObjec
 
 // DeleteInvite revokes an invite.
 func (s *Server) DeleteInvite(ctx context.Context, req oapi.DeleteInviteRequestObject) (oapi.DeleteInviteResponseObject, error) {
-	err := s.store.DeleteInvite(ctx, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, fail(http.StatusNotFound, codeNotFound)
-	}
-	if err != nil {
-		return nil, err
+	if err := s.store.DeleteInvite(ctx, req.Id); err != nil {
+		return nil, notFound(err)
 	}
 	s.audit(ctx, auditInviteRevoked, principalFrom(ctx).user.ID, req.Id)
 	return oapi.DeleteInvite204Response{}, nil

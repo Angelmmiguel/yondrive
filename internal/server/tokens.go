@@ -2,8 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
-	"net/http"
 
 	oapi "github.com/Angelmmiguel/yondrive/internal/api"
 	"github.com/Angelmmiguel/yondrive/internal/auth"
@@ -58,12 +56,8 @@ func (s *Server) ListTokens(ctx context.Context, _ oapi.ListTokensRequestObject)
 // RevokeToken ends one of the signed-in user's tokens.
 func (s *Server) RevokeToken(ctx context.Context, req oapi.RevokeTokenRequestObject) (oapi.RevokeTokenResponseObject, error) {
 	actor := principalFrom(ctx).user.ID
-	err := s.store.DeleteToken(ctx, actor, req.Id)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, fail(http.StatusNotFound, codeNotFound)
-	}
-	if err != nil {
-		return nil, err
+	if err := s.store.DeleteToken(ctx, actor, req.Id); err != nil {
+		return nil, notFound(err)
 	}
 	s.audit(ctx, auditTokenRevoked, actor, req.Id)
 	return oapi.RevokeToken204Response{}, nil

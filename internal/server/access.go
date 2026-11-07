@@ -39,17 +39,24 @@ const (
 // operationAccess lists every operation that does not need just a signed-in
 // user.
 var operationAccess = map[string]access{
-	"GetHealth":        accessPublic,
-	"GetOpenAPISpec":   accessPublic,
-	"GetSetupInfo":     accessSetup,
-	"ValidateSetupURL": accessSetup,
-	"CompleteSetup":    accessSetup,
-	"GetKDF":           accessOpen,
-	"Login":            accessOpen,
-	"Register":         accessOpen,
-	"ListInvites":      accessAdmin,
-	"CreateInvite":     accessAdmin,
-	"DeleteInvite":     accessAdmin,
+	"GetHealth":             accessPublic,
+	"GetOpenAPISpec":        accessPublic,
+	"GetSetupInfo":          accessSetup,
+	"ValidateSetupURL":      accessSetup,
+	"CompleteSetup":         accessSetup,
+	"GetKDF":                accessOpen,
+	"Login":                 accessOpen,
+	"Register":              accessOpen,
+	"CompletePasswordReset": accessOpen,
+	"ListInvites":           accessAdmin,
+	"CreateInvite":          accessAdmin,
+	"DeleteInvite":          accessAdmin,
+	"ListUsers":             accessAdmin,
+	"UpdateUser":            accessAdmin,
+	"DeleteUser":            accessAdmin,
+	"CreatePasswordReset":   accessAdmin,
+	"GetSettings":           accessAdmin,
+	"UpdateSettings":        accessAdmin,
 }
 
 type (
