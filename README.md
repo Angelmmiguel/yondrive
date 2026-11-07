@@ -142,7 +142,7 @@ database or a backup, and against an administrator browsing your files.
 It does not hide everything, and we would rather say so:
 
 - **The server sees metadata:** who your users are, the folder structure as
-  anonymous ids, approximate file sizes, when things change, who shares with
+  anonymous ids, file sizes, when things change, who shares with
   whom, and who is currently editing a file. It cannot see names, types or
   contents.
 - **The server delivers the web app.** Someone who takes control of the running
@@ -155,7 +155,7 @@ It does not hide everything, and we would rather say so:
 - **Your device is trusted.** Malware on an unlocked device can read what you
   can read.
 
-The full threat model will live in `docs/SECURITY.md`.
+The full threat model is in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Trade-offs of working on the client
 
