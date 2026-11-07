@@ -785,7 +785,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 			const d = r.data;
 			const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
 			const expecting = stringResult;
-			if (r.type !== 0x0207) stringResult = null;
+			// SHRFMLA, ARRAY and TABLE come between a formula and its STRING.
+			if (![0x0207, 0x04bc, 0x0221, 0x0236].includes(r.type)) stringResult = null;
 			try {
 				switch (r.type) {
 					case 0x0809: {

@@ -8,6 +8,7 @@ import {
 	rec,
 	REL,
 	sampleXls,
+	str16,
 	u16,
 	u32,
 	xlsOf
@@ -131,5 +132,29 @@ describe('references to other sheets in .xls', () => {
 		const e = book.engine;
 		expect(e.sheets.map((s) => s.name)).toEqual(['Data', 'Other']);
 		expect(e.cell(e.sheets[1].id, 0, 0)!.formula!.text).toBe('Data!A1');
+	});
+});
+
+describe('string results of shared formulas in .xls', () => {
+	it('keeps the STRING that follows the SHRFMLA record', () => {
+		const stringValue = [0, 0, 0, 0, 0, 0, 0xff, 0xff];
+		const master = rec(0x0006, [
+			...cell(0, 0, 15),
+			...stringValue,
+			...u16(0),
+			...u32(0),
+			...u16(5),
+			0x01,
+			...u16(0),
+			...u16(0)
+		]);
+		// A token not read here, so the cached string is all there is.
+		const shrfmla = rec(0x04bc, [...u16(0), ...u16(1), 0, 0, 0, 0, ...u16(1), 0x18]);
+		const { book } = readXls(
+			xlsOf([{ name: 'S', body: [...master, ...shrfmla, ...rec(0x0207, str16('x'))] }])
+		);
+		const e = book.engine;
+		const c = e.cell(e.sheets[0].id, 0, 0)!;
+		expect(c.value).toBe('x');
 	});
 });
