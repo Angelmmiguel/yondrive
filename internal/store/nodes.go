@@ -541,6 +541,9 @@ func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, n
 				if err := recordFor(ctx, tx, user, id, OpRevoked, now); err != nil {
 					return false, err
 				}
+				if err := dropLostUploads(ctx, tx, user, n.OwnerID); err != nil {
+					return false, err
+				}
 			}
 		}
 		return true, nil
@@ -549,6 +552,7 @@ func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, n
 
 // TrashNode sets the trashed time on the root of a subtree. Its descendants
 // stay as they are and go wherever it goes. Trashing it twice changes nothing.
+// Uploads that others had going under it are dropped.
 func (s *Store) TrashNode(ctx context.Context, id string, now time.Time) (Node, error) {
 	return s.updateNode(ctx, id, OpTrashed, now, func(tx *sql.Tx, n Node) (bool, error) {
 		if n.ParentID == "" {
@@ -559,6 +563,18 @@ func (s *Store) TrashNode(ctx context.Context, id string, now time.Time) (Node, 
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE nodes SET trashed_at = ? WHERE id = ?", now.Unix(), id); err != nil {
 			return false, fmt.Errorf("store: trash node: %w", err)
+		}
+		// Nothing under it can be committed while it is there, so what others had
+		// going stops holding the owner's quota. Restoring it does not bring those
+		// back; the client starts them again.
+		_, err := tx.ExecContext(ctx, `DELETE FROM uploads WHERE user_id <> owner_id AND node_id IN (
+			WITH RECURSIVE down (id, depth) AS (
+				SELECT id, 0 FROM nodes WHERE id = ?
+				UNION ALL
+				SELECT n.id, down.depth + 1 FROM nodes n JOIN down ON n.parent_id = down.id WHERE down.depth <= ?
+			) SELECT id FROM down)`, id, MaxTreeDepth+1)
+		if err != nil {
+			return false, fmt.Errorf("store: drop uploads: %w", err)
 		}
 		return true, recordBelow(ctx, tx, n.OwnerID, id, OpTrashed, now)
 	})

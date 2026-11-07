@@ -224,11 +224,19 @@ func (s *Server) GetUpload(ctx context.Context, req oapi.GetUploadRequestObject)
 	return oapi.GetUpload200JSONResponse(uploadView(u, frames)), nil
 }
 
-// AbortUpload drops an upload and releases its reservation.
+// AbortUpload drops an upload and releases its reservation. It asks only that
+// the upload be the caller's: an editor whose share ended, or whose file went to
+// the trash, must still be able to let go of what the owner is charged for.
 func (s *Server) AbortUpload(ctx context.Context, req oapi.AbortUploadRequestObject) (oapi.AbortUploadResponseObject, error) {
-	u, err := s.authorizeUpload(ctx, req.Id)
+	if !blobs.ValidID(req.Id) {
+		return nil, badRequest(codeInvalidID)
+	}
+	u, err := s.store.UploadByID(ctx, req.Id)
 	if err != nil {
-		return nil, err
+		return nil, driveError(err)
+	}
+	if u.UserID != principalFrom(ctx).user.ID {
+		return nil, fail(http.StatusNotFound, codeNotFound)
 	}
 	if err := s.store.DeleteUpload(ctx, u.ID); err != nil {
 		return nil, driveError(err)

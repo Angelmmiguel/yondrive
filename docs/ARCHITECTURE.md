@@ -311,7 +311,8 @@ checked in the transaction of the move, since the owner may be moving the same f
 subtree in and out of what they share, and roles follow where it is now.
 
 **Revoking** ends access with the commit, and uploads the user can no longer finish stop holding the owner's
-quota. The rest is the client's: `POST /nodes/{id}/rotate` replaces a node's key, the wraps and tags of its
+quota, whether the grant went, the node moved out of what it covered, or the node went to the trash. The
+user can also abort their own upload wherever it is. The rest is the client's: `POST /nodes/{id}/rotate` replaces a node's key, the wraps and tags of its
 children, the sealed grants and links, and the metadata, in one transaction, or `rotate_conflict` if anything
 has been added since the client read it. A subtree is rotated one node at a time, from the top. A rotation
 removes the thumbnail, which has no generation.

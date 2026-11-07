@@ -971,3 +971,54 @@ func TestSharedPagesAreById(t *testing.T) {
 	}
 	bob.call(http.MethodGet, api+"/shared-with-me?cursor=nope", nil).wantError(t, http.StatusBadRequest, "invalid_cursor")
 }
+
+func TestEditorsUploadsDoNotOutliveTheirAccess(t *testing.T) {
+	_, alice, bob := driveEnv(t, "none")
+	root, folder, _ := sharedFolder(t, alice, bob, "editor")
+	private := alice.create(root.ID, "folder", "private")
+	sub := alice.create(folder.ID, "folder", "sub")
+	inSub := bob.create(sub.ID, "file", "a")
+	inFolder := bob.create(folder.ID, "file", "b")
+	frames := bob.frames(100, 1)
+	reserved := func() int64 {
+		_, r := alice.storage()
+		return r
+	}
+
+	// Moved out of the share, what the editor had going under it goes.
+	moved := bob.startUpload(inSub.ID, frames)
+	kept := bob.startUpload(inFolder.ID, frames)
+	if reserved() != 200 {
+		t.Fatalf("reserved %d", reserved())
+	}
+	alice.call(http.MethodPost, api+"/nodes/"+sub.ID+"/move", obj{"parent_id": private.ID, "wrapped_key": "", "name_tag": tagOf("sub")}).wantStatus(t, http.StatusOK)
+	bob.call(http.MethodGet, api+"/uploads/"+moved.ID, nil).wantError(t, http.StatusNotFound, "not_found")
+	bob.call(http.MethodGet, api+"/uploads/"+kept.ID, nil).wantStatus(t, http.StatusOK)
+	if reserved() != 100 {
+		t.Errorf("after the move, reserved %d", reserved())
+	}
+
+	// Trashed, the rest goes too, and the owner's own stay.
+	own := alice.startUpload(inFolder.ID, frames)
+	alice.call(http.MethodPost, api+"/nodes/"+folder.ID+"/trash", nil).wantStatus(t, http.StatusOK)
+	bob.call(http.MethodGet, api+"/uploads/"+kept.ID, nil).wantError(t, http.StatusNotFound, "not_found")
+	alice.call(http.MethodGet, api+"/uploads/"+own.ID, nil).wantStatus(t, http.StatusOK)
+	if reserved() != 100 {
+		t.Errorf("after the trash, reserved %d", reserved())
+	}
+}
+
+func TestAnUploadCanBeAbortedWhereverItIs(t *testing.T) {
+	_, alice, bob := driveEnv(t, "none")
+	_, folder, _ := sharedFolder(t, alice, bob, "editor")
+	file := alice.create(folder.ID, "file", "f")
+	frames := alice.frames(100, 1)
+	u := alice.startUpload(file.ID, frames)
+	bob.call(http.MethodDelete, api+"/uploads/"+u.ID, nil).wantError(t, http.StatusNotFound, "not_found")
+
+	alice.call(http.MethodPost, api+"/nodes/"+file.ID+"/trash", nil).wantStatus(t, http.StatusOK)
+	alice.call(http.MethodDelete, api+"/uploads/"+u.ID, nil).wantStatus(t, http.StatusNoContent)
+	if _, reserved := alice.storage(); reserved != 0 {
+		t.Errorf("reserved %d", reserved)
+	}
+}
