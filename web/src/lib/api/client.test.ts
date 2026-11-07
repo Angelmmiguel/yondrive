@@ -188,3 +188,61 @@ describe('errors', () => {
 		await expect(api.getHealth()).rejects.toMatchObject({ status: 0, code: 'network' });
 	});
 });
+
+describe('the routes of sharing', () => {
+	const sharing: [string, string, (api: Api) => Promise<unknown>][] = [
+		['GET', '/users/lookup?username=a+b', (a) => a.lookupUser('a b')],
+		['GET', '/grants?limit=5', (a) => a.listGrantsMade({ limit: 5 })],
+		['POST', '/grants', (a) => a.createGrant(body)],
+		['PATCH', '/grants/g', (a) => a.updateGrant('g', body)],
+		['DELETE', '/grants/g', (a) => a.deleteGrant('g')],
+		['GET', '/nodes/n/grants', (a) => a.listNodeAccess('n')],
+		['POST', '/nodes/n/rotate', (a) => a.rotateNode('n', body)],
+		['GET', '/shared-with-me', (a) => a.listSharedWithMe()],
+		['GET', '/notifications', (a) => a.listNotifications()],
+		['POST', '/notifications/read', (a) => a.markNotificationsRead({})],
+		['GET', '/links', (a) => a.listLinks()],
+		['POST', '/links', (a) => a.createLink(body)],
+		['DELETE', '/links/l', (a) => a.deleteLink('l')],
+		['POST', '/links/l/revoke', (a) => a.revokeLink('l')],
+		['POST', '/public/links/l/unlock', (a) => a.unlockPublicLink('l', body)]
+	];
+
+	it.each(sharing)('%s %s', async (method, path, call) => {
+		const { api, calls } = respond(200, {});
+		await call(api);
+		expect(calls[0]).toMatchObject({ method, path: `/api/v1${path}` });
+	});
+
+	const underLink: [string, (api: Api) => Promise<unknown>][] = [
+		['/public/links/l', (a) => a.getPublicLink('l', 'tok')],
+		['/public/links/l/nodes/n', (a) => a.getPublicNode('l', 'n', 'tok')],
+		[
+			'/public/links/l/nodes/n/children?limit=9',
+			(a) => a.listPublicChildren('l', 'n', 'tok', { limit: 9 })
+		],
+		['/public/links/l/nodes/n/version', (a) => a.getPublicVersion('l', 'n', 'tok')]
+	];
+
+	it.each(underLink)('GET %s carries the token in a header', async (path, call) => {
+		const { api, calls } = respond(200, {});
+		await call(api);
+		expect(calls[0].path).toBe(`/api/v1${path}`);
+		expect(calls[0].headers.get('X-Link-Token')).toBe('tok');
+	});
+
+	it('asks for a stored file under a link with its range and token', async () => {
+		const { api, calls } = respond(206, 'bytes');
+		const bytes = await api.getPublicBlob('l', 'b', 'tok', { start: 2, end: 6 });
+		expect(new TextDecoder().decode(bytes)).toBe('bytes');
+		expect(calls[0].path).toBe('/api/v1/public/links/l/blobs/b');
+		expect(calls[0].headers.get('X-Link-Token')).toBe('tok');
+		expect(calls[0].headers.get('Range')).toBe('bytes=2-6');
+	});
+
+	it('opens a link with no token at first', async () => {
+		const { api, calls } = respond(200, {});
+		await api.getPublicLink('l');
+		expect(calls[0].headers.has('X-Link-Token')).toBe(false);
+	});
+});

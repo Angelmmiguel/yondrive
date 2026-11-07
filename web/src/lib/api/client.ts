@@ -17,7 +17,9 @@ import {
 	type CreatedPasswordReset,
 	type CreatedToken,
 	type CreatedUser,
+	type CreateGrantRequest,
 	type CreateInviteRequest,
+	type CreateLinkRequest,
 	type CreateNodeRequest,
 	type CreateRootRequest,
 	type CreateTokenRequest,
@@ -26,18 +28,30 @@ import {
 	type DeviceToken,
 	type DisableTotpRequest,
 	type EmptiedTrash,
+	type Grant,
+	type GrantPage,
 	type Health,
 	type Invite,
 	type Kdf,
+	type Link,
+	type LinkPage,
 	type LoginRequest,
+	type MarkNotificationsReadRequest,
 	type MoveNodeRequest,
 	type Node,
+	type NodeAccessList,
 	type NodePage,
+	type NotificationList,
 	type Profile,
+	type PublicLink,
+	type PublicNode,
+	type PublicNodePage,
+	type PublicVersion,
 	type RecoveryCodes,
 	type RegisterRequest,
 	type RekeyRequest,
 	type RestoreVersionRequest,
+	type RotateNodeRequest,
 	type ServerSettings,
 	type SessionKey,
 	type SetupInfo,
@@ -48,11 +62,14 @@ import {
 	type Storage,
 	type Suite,
 	type TotpEnrolment,
+	type UnlockLinkRequest,
+	type UpdateGrantRequest,
 	type UpdateNodeRequest,
 	type UpdateSettingsRequest,
 	type UpdateUserRequest,
 	type Upload,
 	type UserKeys,
+	type UserLookup,
 	type ValidatedUrl,
 	type Version,
 	type VersionPage
@@ -70,6 +87,8 @@ interface Options {
 	signal?: AbortSignal;
 	/** The one-time token every call of the wizard carries. */
 	setupToken?: string;
+	/** What reads under a public link carry, in place of a session. */
+	linkToken?: string;
 }
 
 /** A query string of the values that are set, or nothing. */
@@ -94,6 +113,7 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		const headers: Record<string, string> = { Accept: 'application/json' };
 		if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 		if (options.setupToken !== undefined) headers['X-Setup-Token'] = options.setupToken;
+		if (options.linkToken !== undefined) headers['X-Link-Token'] = options.linkToken;
 		if (options.bytes !== undefined) headers['Content-Type'] = 'application/octet-stream';
 		if (options.sha256 !== undefined) headers['X-Content-SHA256'] = options.sha256;
 		if (options.range !== undefined) headers['Range'] = options.range;
@@ -236,7 +256,70 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 			json<SmallBlobPage>('GET', `/me/index${query({ ...page })}`),
 
 		listChanges: (page: PageOptions = {}) =>
-			json<ChangePage>('GET', `/changes${query({ ...page })}`)
+			json<ChangePage>('GET', `/changes${query({ ...page })}`),
+
+		lookupUser: (username: string) =>
+			json<UserLookup>('GET', `/users/lookup${query({ username })}`),
+		listGrantsMade: (page: PageOptions = {}) =>
+			json<GrantPage>('GET', `/grants${query({ ...page })}`),
+		createGrant: (body: CreateGrantRequest) => json<Grant>('POST', '/grants', { body }),
+		updateGrant: (grantId: string, body: UpdateGrantRequest) =>
+			json<Grant>('PATCH', `/grants/${id(grantId)}`, { body }),
+		deleteGrant: (grantId: string) => empty('DELETE', `/grants/${id(grantId)}`),
+		listNodeAccess: (nodeId: string) => json<NodeAccessList>('GET', `/nodes/${id(nodeId)}/grants`),
+		rotateNode: (nodeId: string, body: RotateNodeRequest) =>
+			json<Node>('POST', `/nodes/${id(nodeId)}/rotate`, { body }),
+		listSharedWithMe: (page: PageOptions = {}) =>
+			json<GrantPage>('GET', `/shared-with-me${query({ ...page })}`),
+		listNotifications: () => json<NotificationList>('GET', '/notifications'),
+		markNotificationsRead: (body: MarkNotificationsReadRequest) =>
+			empty('POST', '/notifications/read', { body }),
+
+		listLinks: (page: PageOptions = {}) => json<LinkPage>('GET', `/links${query({ ...page })}`),
+		createLink: (body: CreateLinkRequest) => json<Link>('POST', '/links', { body }),
+		deleteLink: (linkId: string) => empty('DELETE', `/links/${id(linkId)}`),
+		revokeLink: (linkId: string) => json<Link>('POST', `/links/${id(linkId)}/revoke`),
+
+		getPublicLink: (linkId: string, linkToken?: string) =>
+			json<PublicLink>('GET', `/public/links/${id(linkId)}`, { linkToken }),
+		unlockPublicLink: (linkId: string, body: UnlockLinkRequest) =>
+			json<PublicLink>('POST', `/public/links/${id(linkId)}/unlock`, { body }),
+		getPublicNode: (linkId: string, nodeId: string, linkToken: string) =>
+			json<PublicNode>('GET', `/public/links/${id(linkId)}/nodes/${id(nodeId)}`, { linkToken }),
+		listPublicChildren: (
+			linkId: string,
+			nodeId: string,
+			linkToken: string,
+			page: PageOptions = {}
+		) =>
+			json<PublicNodePage>(
+				'GET',
+				`/public/links/${id(linkId)}/nodes/${id(nodeId)}/children${query({ ...page })}`,
+				{ linkToken }
+			),
+		getPublicVersion: (linkId: string, nodeId: string, linkToken: string) =>
+			json<PublicVersion>('GET', `/public/links/${id(linkId)}/nodes/${id(nodeId)}/version`, {
+				linkToken
+			}),
+		/** As `getBlob`, and only through `fetch`, because a plain link cannot send the token. */
+		getPublicBlob: async (
+			linkId: string,
+			blobId: string,
+			linkToken: string,
+			range?: { start: number; end: number },
+			signal?: AbortSignal
+		): Promise<Uint8Array<ArrayBuffer>> => {
+			const res = await send('GET', `/public/links/${id(linkId)}/blobs/${id(blobId)}`, {
+				linkToken,
+				range: range && `bytes=${range.start}-${range.end}`,
+				signal
+			});
+			try {
+				return new Uint8Array(await res.arrayBuffer());
+			} catch {
+				throw new ApiError(0, 'network');
+			}
+		}
 	};
 }
 

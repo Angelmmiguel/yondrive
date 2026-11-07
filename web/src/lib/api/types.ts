@@ -60,6 +60,30 @@ export type SmallBlobPage = Schemas['SmallBlobPage'];
 export type Change = Schemas['Change'];
 export type ChangeOp = Schemas['ChangeOp'];
 export type ChangePage = Schemas['ChangePage'];
+export type NodeRole = Schemas['NodeRole'];
+export type GrantRole = Schemas['GrantRole'];
+export type Grant = Schemas['Grant'];
+export type GrantedNode = Schemas['GrantedNode'];
+export type GrantPage = Schemas['GrantPage'];
+export type CreateGrantRequest = Schemas['CreateGrantRequest'];
+export type UpdateGrantRequest = Schemas['UpdateGrantRequest'];
+export type NodeAccess = Schemas['NodeAccess'];
+export type NodeAccessList = Schemas['NodeAccessList'];
+export type UserLookup = Schemas['UserLookup'];
+export type Notification = Schemas['Notification'];
+export type NotificationList = Schemas['NotificationList'];
+export type MarkNotificationsReadRequest = Schemas['MarkNotificationsReadRequest'];
+export type RotateNodeRequest = Schemas['RotateNodeRequest'];
+export type KeyLink = Schemas['KeyLink'];
+export type CreateLinkRequest = Schemas['CreateLinkRequest'];
+export type Link = Schemas['Link'];
+export type LinkedNode = Schemas['LinkedNode'];
+export type LinkPage = Schemas['LinkPage'];
+export type PublicNode = Schemas['PublicNode'];
+export type PublicNodePage = Schemas['PublicNodePage'];
+export type PublicLink = Schemas['PublicLink'];
+export type PublicVersion = Schemas['PublicVersion'];
+export type UnlockLinkRequest = Schemas['UnlockLinkRequest'];
 
 /** The JSON body of every failed response. */
 export type ErrorBody = Schemas['Error'];
@@ -141,6 +165,19 @@ export type ErrorCode =
 	| 'invalid_blob'
 	| 'blob_in_use'
 	| 'invalid_cursor'
+	| 'key_generation_conflict'
+	| 'move_refused'
+	| 'grant_exists'
+	| 'invalid_grant'
+	| 'invalid_rotation'
+	| 'rotate_conflict'
+	| 'invalid_link'
+	| 'link_expired'
+	| 'link_revoked'
+	| 'link_limit_reached'
+	| 'link_token_required'
+	| 'link_token_invalid'
+	| 'link_password_invalid'
 	| 'network'
 	| 'unknown'
 	| (string & {});
