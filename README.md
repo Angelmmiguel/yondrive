@@ -7,8 +7,9 @@ zero-knowledge encryption. By default, everything is encrypted in the browser
 before it is uploaded, so the machine hosting your data, and whoever administers
 it, holds only ciphertext. It runs as one container with one data directory.
 
-> **Status: planning.** Nothing described here is implemented yet. This README
-> describes the intended v1 and [PLAN.md](PLAN.md) describes how to get there.
+> **Status: pre-release.** Drive, sharing, search, documents, spreadsheets and
+> notes are built, with phase 8 (hardening and 1.0) still to come. [PLAN.md](PLAN.md)
+> tracks what is done and what is still unverified.
 
 ## Why YonDrive
 

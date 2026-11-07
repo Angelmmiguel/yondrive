@@ -1,6 +1,6 @@
 # YonDrive plan
 
-Status: **approved plan. Nothing is implemented yet.**
+Status: **phases 0 to 7 are implemented; phase 8 (hardening and 1.0) is next.**
 
 This document covers what we build, the decisions that shape it, and the order
 of work. The [README](README.md) is the product description.
