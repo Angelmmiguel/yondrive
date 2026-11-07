@@ -911,7 +911,9 @@ person's own notes give reminders: one in a note shared with them was set by som
 **Export.** A note: its Markdown, HTML escaped throughout, printing, or a `.docx` in My files through the document
 writer, without its pictures and links to nodes. Every note: a ZIP with a folder per notebook, attachments beside
 the notes that use them, and links to notes and pictures rewritten to relative paths; a link to something not in
-the ZIP keeps its text and loses its address. Only blocks that held such a link are written again.
+the ZIP keeps its text and loses its address. Only blocks that held such a link are written again. Each part of a
+path is made safe as it is built (`safePart`), since a name read from metadata was checked only by the client that
+wrote it.
 
 **What is not verified.** Exports were checked by reading the ZIP back, not in other Markdown editors. Reminders were
 tested on a fake clock. The boards were checked in Chromium only.

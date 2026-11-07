@@ -38,16 +38,31 @@ export function relativePath(from: string, to: string): string {
 		.join('/');
 }
 
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
+/**
+ * A name made safe as one part of a path in the archive. Names are checked when
+ * written, not when read, so one from a modified client could hold a separator
+ * or `..` and reach outside the folder it is unpacked in.
+ */
+export function safePart(name: string): string {
+	// eslint-disable-next-line no-control-regex
+	let part = name.replace(/[/\\\u0000-\u001f\u007f]/g, '-').replace(/[. ]+$/, '');
+	if (part === '' || part === '.' || part === '..') part = '_';
+	return RESERVED.test(part) ? `_${part}` : part;
+}
+
 /** Gives each item a path no other has, numbering clashes the way a drive would. */
 export function assignPaths(items: readonly ExportItem[]): Map<string, string> {
 	const taken = new Set<string>();
 	const out = new Map<string, string>();
 	for (const item of items) {
-		const dot = item.name.lastIndexOf('.');
-		const stem = dot > 0 ? item.name.slice(0, dot) : item.name;
-		const ext = dot > 0 ? item.name.slice(dot) : '';
-		const prefix = item.folder === '' ? '' : `${item.folder}/`;
-		let path = `${prefix}${item.name}`;
+		const name = safePart(item.name);
+		const dot = name.lastIndexOf('.');
+		const stem = dot > 0 ? name.slice(0, dot) : name;
+		const ext = dot > 0 ? name.slice(dot) : '';
+		const prefix = item.folder === '' ? '' : `${safePart(item.folder)}/`;
+		let path = `${prefix}${name}`;
 		for (let n = 2; taken.has(path.toLowerCase()); n++) path = `${prefix}${stem} (${n})${ext}`;
 		taken.add(path.toLowerCase());
 		out.set(item.id, path);

@@ -25,6 +25,32 @@ describe('exporting notes', () => {
 		expect([...paths.values()]).toEqual(['Work/Plan.md', 'Work/plan (2).md', 'Plan.md']);
 	});
 
+	it('keeps every path inside the archive, whatever the names say', () => {
+		const paths = assignPaths([
+			{ id: '1', folder: '..', name: '../../etc/passwd' },
+			{ id: '2', folder: 'a/b', name: '..\\x.md' },
+			{ id: '3', folder: '', name: '..' },
+			{ id: '4', folder: ' . ', name: 'bell\u0007\u0000.md' },
+			{ id: '5', folder: 'Work', name: 'CON.md' },
+			{ id: '6', folder: 'lpt1', name: 'nul' },
+			{ id: '7', folder: '', name: 'trailing. . ' },
+			{ id: '8', folder: '', name: 'Console.md' }
+		]);
+		expect([...paths.values()]).toEqual([
+			'_/..-..-etc-passwd',
+			'a-b/..-x.md',
+			'_',
+			'_/bell--.md',
+			'Work/_CON.md',
+			'_lpt1/_nul',
+			'trailing',
+			'Console.md'
+		]);
+		for (const path of paths.values()) {
+			expect(path.split('/').every((p) => p !== '..' && p !== '.' && p !== '')).toBe(true);
+		}
+	});
+
 	it('rewrites links between notes and to pictures, and drops what is not exported', () => {
 		const paths = new Map([
 			[A, 'Work/A.md'],

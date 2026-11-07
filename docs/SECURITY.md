@@ -285,7 +285,10 @@ is parsed as hostile input, on the device and never on the server.
   PNG, JPEG, GIF, WebP or BMP; a picture at any other address is a placeholder and is never
   fetched. A link to a node opens in the app and is never handed to the browser. A note saved
   as HTML is escaped throughout, with no script or outside resource, and keeps only web, mail
-  and phone links.
+  and phone links. Names are checked when written, not when read, so the ZIP of every note
+  makes each part of a path safe again: separators and control characters become `-`, `.`,
+  `..` and empty parts become `_`, names Windows reserves are prefixed, and trailing dots and
+  spaces go. Nothing in the archive points outside the folder it is unpacked in.
 
 **Reminders** are given by the open app, on a timer: the server cannot read a reminder's time
 in end-to-end mode, and nothing is sent in either mode. Which reminders a device has given is
