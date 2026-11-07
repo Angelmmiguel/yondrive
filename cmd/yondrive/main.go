@@ -81,6 +81,11 @@ usage:
                      with --check only report them; serve also applies them
   yondrive admin reset-totp [--data dir] <username>
                      turn off a user's TOTP, with the server stopped
+  yondrive admin promote [--data dir] <username>
+                     make a user an enabled admin, with the server stopped
+  yondrive admin password-reset [--data dir] <username>
+                     print a one-time reset link, in mode none only, with the
+                     server stopped
   yondrive version   print the version, the commit and the web app's hash
   yondrive assets    print the SHA-256 of every file of the embedded web app
   yondrive assets check [--manifest file] <url>
