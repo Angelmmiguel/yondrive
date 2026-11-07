@@ -219,6 +219,8 @@
 				onFind: () => (findOpen = true)
 			});
 			updateWords();
+			// Ready to type, as the sheet editor is: from the keyboard nothing else would get there first.
+			if (editing) view.focus();
 			presence.start(found.id, canWrite(found));
 			void loadVersions();
 		} catch (e) {
