@@ -204,6 +204,35 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByTestId('doc-version')).toHaveCount(2);
 		});
 
+		test('a conflict on the first save of a .doc makes a .docx copy', async () => {
+			await reloadHome(page, server);
+			await upload(page, await box.add(`moved-${mode}.doc`, Buffer.from(sampleDoc())));
+			await openDoc(page, `moved-${mode}.doc`);
+			const id = docId(page);
+			const list = await inPage<{ versions: { id: string }[] }>(
+				page,
+				'GET',
+				`/nodes/${id}/versions`
+			);
+			const fresh = Array.from({ length: 32 }, () =>
+				Math.floor(Math.random() * 16).toString(16)
+			).join('');
+			await inPage(page, 'POST', `/nodes/${id}/versions/${list.versions[0].id}/restore`, {
+				version_id: fresh
+			});
+			await typeAfter(page, 'Last line', ' Mine.');
+			await saveNow(page);
+			await expect(page.getByText('Saved as a separate copy')).toBeVisible();
+			// The copy holds .docx bytes, and is named so.
+			await expect(
+				page.getByRole('heading', { name: /^moved-.* \(conflicting copy from admin, .*\)\.docx$/ })
+			).toBeVisible();
+			const bytes = await downloadAs(page, /Original/);
+			expect(bytes.subarray(0, 2).toString()).toBe('PK');
+			await reloadHome(page, server);
+			await expect(row(page, `moved-${mode}.doc`)).toBeVisible();
+		});
+
 		test('locked content is shown, labelled and cannot be edited', async () => {
 			await reloadHome(page, server);
 			await upload(page, await box.add(`report-${mode}.docx`, await fixture('report.docx')));
@@ -261,7 +290,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await reloadHome(page, server);
 			await expect(row(page, 'Untitled document.docx')).toBeVisible();
 			await expect(
-				page.getByRole('row').filter({ hasText: 'conflicting copy from admin' })
+				page.getByRole('row').filter({ hasText: 'Untitled document (conflicting copy from admin' })
 			).toBeVisible();
 		});
 
