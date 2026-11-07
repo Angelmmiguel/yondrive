@@ -68,6 +68,10 @@ const (
 type Config struct {
 	// Version is the build version reported by the health route.
 	Version string
+	// Commit is the git commit of the build, and WebBundle the root hash of the
+	// web app it embeds, both reported by the health routes. Empty leaves them out.
+	Commit    string
+	WebBundle string
 	// Secure decides how cookies and HSTS follow the request scheme. The zero
 	// value means SecureAuto.
 	Secure SecureMode

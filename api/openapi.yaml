@@ -2087,11 +2087,25 @@ components:
           type: string
           description: Build version of the server, or `dev`.
           examples: ["0.1.0"]
+        commit:
+          type: string
+          description: The git commit the server was built from, or `unknown`.
+        web_bundle:
+          $ref: "#/components/schemas/WebBundle"
         setup:
           type: boolean
           description: Whether the first-run setup has been completed.
         mode:
           $ref: "#/components/schemas/Mode"
+    WebBundle:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: |
+        SHA-256 root hash of the web app the server embeds: the hash of the list
+        of files and their hashes that `yondrive assets` prints. A release
+        publishes the same value, so the two can be compared. A server can report
+        any value here, so this helps notice a mismatch and proves nothing on its
+        own; see docs/RELEASE.md.
     Mode:
       type: string
       description: |
@@ -3958,6 +3972,10 @@ components:
       properties:
         version:
           type: string
+        commit:
+          type: string
+        web_bundle:
+          $ref: "#/components/schemas/WebBundle"
         mode:
           $ref: "#/components/schemas/Mode"
         blobs:

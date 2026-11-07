@@ -196,6 +196,12 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(admin.getByTestId('last-backup')).toContainText('Never');
 			await expect(admin.getByTestId('admin-health')).toContainText('Free disk');
 			await expect(admin.getByText('not trusted')).toHaveCount(0);
+			// The hash of the app the binary embeds, as the public health route has it.
+			const health = (await (await fetch(`${server.url}/api/v1/health`)).json()) as {
+				web_bundle?: string;
+			};
+			expect(health.web_bundle).toMatch(/^[0-9a-f]{64}$/);
+			await expect(admin.getByTestId('web-bundle')).toHaveText(health.web_bundle ?? '');
 
 			await admin.setExtraHTTPHeaders({ 'X-Forwarded-Proto': 'https' });
 			await admin.reload();

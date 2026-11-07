@@ -16,10 +16,12 @@ var _ oapi.StrictServerInterface = (*Server)(nil)
 func (s *Server) GetHealth(context.Context, oapi.GetHealthRequestObject) (oapi.GetHealthResponseObject, error) {
 	mode := s.mode.Load()
 	return oapi.GetHealth200JSONResponse{
-		Status:  oapi.Ok,
-		Version: s.cfg.Version,
-		Setup:   mode != nil,
-		Mode:    mode,
+		Status:    oapi.Ok,
+		Version:   s.cfg.Version,
+		Commit:    optionalString(s.cfg.Commit),
+		WebBundle: optionalString(s.cfg.WebBundle),
+		Setup:     mode != nil,
+		Mode:      mode,
 	}, nil
 }
 

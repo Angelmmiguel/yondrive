@@ -417,3 +417,19 @@ func TestOpenSignup(t *testing.T) {
 	}
 	e.call(http.MethodPost, registerPath, body).wantError(t, http.StatusConflict, "username_taken")
 }
+
+func TestAdminHealthReportsTheBuild(t *testing.T) {
+	bundle := strings.Repeat("cd", 32)
+	e := configured(t, "none", server.Config{Version: "1.0.0", Commit: "c0ffee", WebBundle: bundle})
+	resp := e.login("root").call(http.MethodGet, api+"/admin/health", nil)
+	resp.wantStatus(t, http.StatusOK)
+	var h struct {
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		WebBundle string `json:"web_bundle"`
+	}
+	resp.decode(t, &h)
+	if h.Version != "1.0.0" || h.Commit != "c0ffee" || h.WebBundle != bundle {
+		t.Errorf("health = %+v", h)
+	}
+}

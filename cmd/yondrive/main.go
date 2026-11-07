@@ -51,6 +51,11 @@ func main() {
 		run = restore
 	case "migrate":
 		run = migrate
+	case "assets":
+		run = assets
+	case "version", "--version":
+		printVersion(os.Stdout)
+		return
 	default:
 		usage()
 		os.Exit(2)
@@ -76,6 +81,11 @@ usage:
                      with --check only report them; serve also applies them
   yondrive admin reset-totp [--data dir] <username>
                      turn off a user's TOTP, with the server stopped
+  yondrive version   print the version, the commit and the web app's hash
+  yondrive assets    print the SHA-256 of every file of the embedded web app
+  yondrive assets check [--manifest file] <url>
+                     compare what a server serves with this binary's list, or
+                     with a published one
 
 serve flags:
   --addr             listen address (env YONDRIVE_ADDR, default 127.0.0.1:8080);
@@ -166,6 +176,8 @@ func serve(args []string) error {
 
 	srv, err := server.New(server.Config{
 		Version:        version,
+		Commit:         commit,
+		WebBundle:      web.EmbeddedBundle().Root,
 		Secure:         cfg.secure,
 		TrustedProxies: cfg.proxies,
 		OIDCRoots:      cfg.roots,
@@ -198,7 +210,7 @@ func serve(args []string) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		log.Info("listening", "addr", cfg.addr, "data", cfg.dataDir, "version", version)
+		log.Info("listening", "addr", cfg.addr, "data", cfg.dataDir, "version", version, "commit", commit, "web", web.EmbeddedBundle().Root)
 		errc <- httpSrv.ListenAndServe()
 	}()
 

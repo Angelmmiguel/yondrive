@@ -47,7 +47,17 @@
 				{health.oidc_enabled ? `On, ${(health.sso_users ?? 0).toLocaleString()} linked` : 'Off'}
 			</dd>
 			<dt>Version</dt>
-			<dd>{health.version}</dd>
+			<dd data-testid="server-version">
+				{health.version}{health.commit ? ` (${health.commit.slice(0, 12)})` : ''}
+			</dd>
+			<dt>Web app hash</dt>
+			<dd>
+				<code data-testid="web-bundle">{health.web_bundle ?? 'Not reported'}</code>
+				<span class="hint">
+					Compare it with the release’s published hash. The server reports this value itself, so
+					check what your browser loads too: see docs/RELEASE.md.
+				</span>
+			</dd>
 		</dl>
 	</Card>
 {/if}
@@ -80,5 +90,11 @@
 	code {
 		font-family: var(--font-mono);
 		font-size: 12.5px;
+	}
+
+	.hint {
+		display: block;
+		margin-top: 4px;
+		color: var(--text-muted);
 	}
 </style>

@@ -363,6 +363,8 @@ func (s *Server) GetAdminHealth(ctx context.Context, _ oapi.GetAdminHealthReques
 	}
 	return oapi.GetAdminHealth200JSONResponse{
 		Version:         s.cfg.Version,
+		Commit:          optionalString(s.cfg.Commit),
+		WebBundle:       optionalString(s.cfg.WebBundle),
 		Mode:            oapi.Mode(settings.Mode),
 		Blobs:           stats.Blobs,
 		StoredBytes:     stats.StoredBytes,

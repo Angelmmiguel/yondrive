@@ -216,21 +216,24 @@ func TestStalledBodyIsCutOff(t *testing.T) {
 }
 
 func TestHealthBeforeSetup(t *testing.T) {
-	ts := newServer(t, server.Config{Version: "1.2.3"})
+	bundle := strings.Repeat("ab", 32)
+	ts := newServer(t, server.Config{Version: "1.2.3", Commit: "c0ffee", WebBundle: bundle})
 	resp := do(t, ts, http.MethodGet, "/api/v1/health", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 	var got struct {
-		Status  string  `json:"status"`
-		Version string  `json:"version"`
-		Setup   bool    `json:"setup"`
-		Mode    *string `json:"mode"`
+		Status    string  `json:"status"`
+		Version   string  `json:"version"`
+		Commit    string  `json:"commit"`
+		WebBundle string  `json:"web_bundle"`
+		Setup     bool    `json:"setup"`
+		Mode      *string `json:"mode"`
 	}
 	if err := json.Unmarshal([]byte(resp.Body), &got); err != nil {
 		t.Fatalf("body %q: %v", resp.Body, err)
 	}
-	if got.Status != "ok" || got.Version != "1.2.3" || got.Setup || got.Mode != nil {
+	if got.Status != "ok" || got.Version != "1.2.3" || got.Commit != "c0ffee" || got.WebBundle != bundle || got.Setup || got.Mode != nil {
 		t.Errorf("health = %+v", got)
 	}
 }

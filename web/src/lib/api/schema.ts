@@ -1732,10 +1732,21 @@ export interface components {
              * @example 0.1.0
              */
             version: string;
+            /** @description The git commit the server was built from, or `unknown`. */
+            commit?: string;
+            web_bundle?: components["schemas"]["WebBundle"];
             /** @description Whether the first-run setup has been completed. */
             setup: boolean;
             mode?: components["schemas"]["Mode"];
         };
+        /**
+         * @description SHA-256 root hash of the web app the server embeds: the hash of the list
+         *     of files and their hashes that `yondrive assets` prints. A release
+         *     publishes the same value, so the two can be compared. A server can report
+         *     any value here, so this helps notice a mismatch and proves nothing on its
+         *     own; see docs/RELEASE.md.
+         */
+        WebBundle: string;
         /**
          * @description The encryption mode of the whole server, fixed at setup. Absent from
          *     health until then.
@@ -3101,6 +3112,8 @@ export interface components {
         };
         AdminHealth: {
             version: string;
+            commit?: string;
+            web_bundle?: components["schemas"]["WebBundle"];
             mode: components["schemas"]["Mode"];
             /** Format: int64 */
             blobs: number;

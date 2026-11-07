@@ -369,8 +369,9 @@ type AccountKeys struct {
 // AdminHealth defines model for AdminHealth.
 type AdminHealth struct {
 	// AuditEntries Entries in the audit trail.
-	AuditEntries *int64 `json:"audit_entries,omitempty"`
-	Blobs        int64  `json:"blobs"`
+	AuditEntries *int64  `json:"audit_entries,omitempty"`
+	Blobs        int64   `json:"blobs"`
+	Commit       *string `json:"commit,omitempty"`
 
 	// FreeBytes Free space in the data directory, if it can be told.
 	FreeBytes *int64 `json:"free_bytes,omitempty"`
@@ -395,6 +396,13 @@ type AdminHealth struct {
 	StoredBytes int64  `json:"stored_bytes"`
 	Uploads     int64  `json:"uploads"`
 	Version     string `json:"version"`
+
+	// WebBundle SHA-256 root hash of the web app the server embeds: the hash of the list
+	// of files and their hashes that `yondrive assets` prints. A release
+	// publishes the same value, so the two can be compared. A server can report
+	// any value here, so this helps notice a mismatch and proves nothing on its
+	// own; see docs/RELEASE.md.
+	WebBundle *WebBundle `json:"web_bundle,omitempty"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -841,6 +849,9 @@ type GrantedNode struct {
 
 // Health defines model for Health.
 type Health struct {
+	// Commit The git commit the server was built from, or `unknown`.
+	Commit *string `json:"commit,omitempty"`
+
 	// Mode The encryption mode of the whole server, fixed at setup. Absent from
 	// health until then.
 	Mode *Mode `json:"mode,omitempty"`
@@ -853,6 +864,13 @@ type Health struct {
 	//
 	// Examples: 0.1.0
 	Version string `json:"version"`
+
+	// WebBundle SHA-256 root hash of the web app the server embeds: the hash of the list
+	// of files and their hashes that `yondrive assets` prints. A release
+	// publishes the same value, so the two can be compared. A server can report
+	// any value here, so this helps notice a mismatch and proves nothing on its
+	// own; see docs/RELEASE.md.
+	WebBundle *WebBundle `json:"web_bundle,omitempty"`
 }
 
 // HealthStatus defines model for Health.Status.
@@ -1846,6 +1864,13 @@ type VersionSummary struct {
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
 	Suite Suite `json:"suite"`
 }
+
+// WebBundle SHA-256 root hash of the web app the server embeds: the hash of the list
+// of files and their hashes that `yondrive assets` prints. A release
+// publishes the same value, so the two can be compared. A server can report
+// any value here, so this helps notice a mismatch and proves nothing on its
+// own; see docs/RELEASE.md.
+type WebBundle = string
 
 // ContentSHA256 defines model for ContentSHA256.
 type ContentSHA256 = string
