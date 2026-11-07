@@ -511,6 +511,10 @@ holds, the ids it removes, and for each word a list of `document index << 2 | fi
 0 is the name, 1 a tag and 2 the text. A higher `seq` wins for any id. Clients make and merge
 segments as they like, so nothing else about them is fixed.
 
+The web client also keeps the notes index (links, tags and tasks of each note) sealed the same
+way under the blob id `notes-index`, which no stored blob can have since blob ids are hex. It
+stays on the device and is never uploaded, so its format is the client's own.
+
 A thumbnail is an image in a format every browser decodes, JPEG or WebP, whatever the file was.
 A client MUST draw it as an image and nothing else, since the server chooses which bytes it gets.
 
