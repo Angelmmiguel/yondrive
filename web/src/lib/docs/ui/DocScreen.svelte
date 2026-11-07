@@ -53,7 +53,7 @@
 	import { driveFiles } from '$lib/editing/drive-files';
 	import { DocSession, type SaveStatus, type SessionFile } from '../session';
 	import { schema } from '../schema';
-	import DocSide from './DocSide.svelte';
+	import FileSide from '$lib/editing/ui/FileSide.svelte';
 	import DocToolbar from './DocToolbar.svelte';
 	import FindBar from './FindBar.svelte';
 
@@ -309,6 +309,11 @@
 		panel = panel ? null : 'details';
 		if (panel && narrow.current) outlineOpen = false;
 	}
+
+	const SAVE_TARGETS = (['docx', 'odt', 'rtf', 'md', 'txt'] as SaveFormat[]).map((f) => ({
+		id: f,
+		name: FORMAT_NAMES[f]
+	}));
 
 	const MODES = [
 		{ value: 'edit', label: 'Editing', icon: 'pencil' },
@@ -673,15 +678,18 @@
 
 		{#if panel && phase === 'ready'}
 			<div class="sidewrap">
-				<DocSide
+				<FileSide
+					label="Document details"
 					bind:tab={panel}
 					{details}
 					format={formatOf(fileName) ?? format}
 					saveFormat={saveAs}
+					targets={SAVE_TARGETS}
+					hint="Converting keeps a copy of the original in Versions."
 					{canEdit}
 					{versions}
 					{versionsError}
-					onconvert={(f) => (convertTo = f)}
+					onconvert={(f) => (convertTo = f as SaveFormat)}
 					onrestore={(v) => void restore(v)}
 					ondownload={(v) => node && void drive.download(node, v.id)}
 				/>

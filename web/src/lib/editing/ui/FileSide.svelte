@@ -1,28 +1,39 @@
-<!-- The details column of the editor board: the file's facts and the format it is saved in, or its versions. -->
+<!--
+  The details column of the editor boards: the file's facts and the format it is
+  saved in, or its versions. Documents and spreadsheets each give their formats.
+-->
 <script lang="ts">
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import { Button, Tabs, Tag } from '$lib/components';
-	import { FORMAT_NAMES, type DocFormat, type SaveFormat } from '$lib/formats/document';
 	import type { VersionEntry } from '$lib/drive/versions';
 
 	interface Props {
+		/** The panel's accessible name. */
+		label: string;
 		tab: 'details' | 'versions';
 		details: { k: string; v: string }[];
-		format: DocFormat;
-		saveFormat: SaveFormat;
+		/** The format the file came in, marked as the original. */
+		format: string;
+		saveFormat: string;
+		/** What the file may be saved as, with each format's name. */
+		targets: { id: string; name: string }[];
+		hint: string;
 		canEdit: boolean;
 		versions: VersionEntry[];
 		versionsError: string;
-		onconvert: (f: SaveFormat) => void;
+		onconvert: (f: string) => void;
 		onrestore: (v: VersionEntry) => void;
 		ondownload: (v: VersionEntry) => void;
 	}
 
 	let {
+		label,
 		tab = $bindable(),
 		details,
 		format,
 		saveFormat,
+		targets,
+		hint,
 		canEdit,
 		versions,
 		versionsError,
@@ -30,11 +41,10 @@
 		onrestore,
 		ondownload
 	}: Props = $props();
-
-	const TARGETS: SaveFormat[] = ['docx', 'odt', 'rtf', 'md', 'txt'];
+	const uid = $props.id();
 </script>
 
-<aside class="side" aria-label="Document details">
+<aside class="side" aria-label={label}>
 	<Tabs
 		label="Panel"
 		tabs={[
@@ -54,23 +64,23 @@
 					</dl>
 					{#if canEdit}
 						<div class="saveas">
-							<label for="doc-saveas">Save changes as</label>
+							<label for="{uid}-saveas">Save changes as</label>
 							<select
-								id="doc-saveas"
+								id="{uid}-saveas"
 								value={saveFormat}
 								onchange={(e) => {
-									const next = e.currentTarget.value as SaveFormat;
+									const next = e.currentTarget.value;
 									e.currentTarget.value = saveFormat;
 									if (next !== saveFormat) onconvert(next);
 								}}
 							>
-								{#each TARGETS as f (f)}
-									<option value={f}>
-										{FORMAT_NAMES[f]} (.{f}){f === format ? ' — original' : ''}
+								{#each targets as f (f.id)}
+									<option value={f.id}>
+										{f.name} (.{f.id}){f.id === format ? ' — original' : ''}
 									</option>
 								{/each}
 							</select>
-							<span class="hint">Converting keeps a copy of the original in Versions.</span>
+							<span class="hint">{hint}</span>
 						</div>
 					{/if}
 				</div>
