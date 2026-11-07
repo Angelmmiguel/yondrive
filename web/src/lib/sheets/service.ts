@@ -578,10 +578,13 @@ export class SheetService {
 		sheet?: number
 	): Promise<{ bytes: Uint8Array; format: SheetSaveFormat }> {
 		const to = format ?? sheetSaveFormatOf(this.#format);
-		const bytes = await writeSpreadsheet(to, this.#b, {
+		let bytes = await writeSpreadsheet(to, this.#b, {
 			original: this.#bytes ? { bytes: this.#bytes, format: this.#format } : undefined,
 			sheet
 		});
+		// A writer may hand back the opened bytes themselves when nothing changed:
+		// moving their buffer would leave every later save without an original.
+		if (bytes.buffer === this.#bytes?.buffer) bytes = bytes.slice();
 		return transfer({ bytes, format: to }, [bytes.buffer as ArrayBuffer]);
 	}
 

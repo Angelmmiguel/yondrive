@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { extractText } from '$lib/search/extract';
 import { readXlsx } from '$lib/formats/xlsx';
+import { sampleOds } from '../../../tests/fixtures/sheet-samples';
 import { createSheets } from './client';
+import { expose, wrap } from './rpc';
 import { registerSheetText } from './search-text';
 import { parseInput, SheetService } from './service';
 
@@ -115,6 +117,40 @@ describe('spreadsheet text for search', () => {
 			).toBe('a,b');
 		} finally {
 			off();
+		}
+	});
+});
+
+/** The service behind a message channel, as the page reaches the worker. */
+function overChannel() {
+	const ch = new MessageChannel();
+	expose(new SheetService(), ch.port1 as never);
+	const worker = {
+		postMessage: (m: unknown) => ch.port2.postMessage(m),
+		set onmessage(f: ((e: MessageEvent) => void) | null) {
+			ch.port2.onmessage = f;
+		},
+		onerror: null,
+		terminate: () => {
+			ch.port1.close();
+			ch.port2.close();
+		}
+	} as unknown as Worker;
+	return wrap<SheetService>(() => worker, { timeoutMs: 10_000 });
+}
+
+describe('saving through the worker', () => {
+	it('saves an untouched file more than once', async () => {
+		for (const [bytes, format] of [
+			[await sampleOds(), 'ods'],
+			[fixture(), 'xlsx']
+		] as const) {
+			const w = overChannel();
+			await w.api.load(bytes, format);
+			const first = await w.api.save();
+			const second = await w.api.save();
+			expect(second.bytes).toEqual(first.bytes);
+			w.close();
 		}
 	});
 });
