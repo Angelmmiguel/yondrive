@@ -502,6 +502,7 @@ function scanContent(xml: string, budget: { cells: number }): Scan {
 				scan.tables.push(table);
 				nextRow = 0;
 				colCursor = 0;
+				if (t.selfClosing) table = null;
 			} else if (
 				table &&
 				/^table:(table-columns|table-header-columns|table-column-group)$/.test(n)
@@ -1410,6 +1411,14 @@ async function template(): Promise<Uint8Array> {
 	);
 }
 
+/** A table's text with its start tag naming it `name`. */
+function renamed(text: string, name: string): string {
+	const tag = /^<[^>]*>/.exec(text)![0];
+	return (
+		tag.replace(/table:name="[^"]*"/, `table:name="${escapeAttr(name)}"`) + text.slice(tag.length)
+	);
+}
+
 /**
  * Writes the workbook. Given the `.ods` it was opened from, it writes into it and
  * keeps what did not change; otherwise it writes a new package.
@@ -1429,14 +1438,19 @@ export async function writeOds(book: Book, original?: Uint8Array): Promise<Uint8
 		const name = book.engine.sheetName(info.id);
 		const ctx: WriteCtx = { book, info, styles: writer, merges: info.merges };
 		const t = same && info.origin !== null ? scan.tables[info.origin] : undefined;
-		if (t) {
+		if (t && content.slice(t.start, t.end).endsWith('/>')) {
+			// A table with nothing in it, as <table:table …/>: written open, so rows can go inside.
+			const open = `${content.slice(t.start, t.end - 2).trimEnd()}>`;
+			const shell = `${open}</table:table>`;
+			const empty: OTable = { ...t, start: 0, end: shell.length, tagEnd: open.length };
+			let text =
+				patchTable(shell, empty, { ...info, steps: [] }, ctx, styles, same) ??
+				content.slice(t.start, t.end);
+			if (name !== t.name) text = renamed(text, name);
+			out.push(text);
+		} else if (t) {
 			let text = patchTable(content, t, info, ctx, styles, same) ?? content.slice(t.start, t.end);
-			if (name !== t.name) {
-				const tag = /^<[^>]*>/.exec(text)![0];
-				text =
-					tag.replace(/table:name="[^"]*"/, `table:name="${escapeAttr(name)}"`) +
-					text.slice(tag.length);
-			}
+			if (name !== t.name) text = renamed(text, name);
 			out.push(text);
 		} else {
 			const blank: OTable = {

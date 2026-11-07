@@ -242,3 +242,16 @@ describe('malformed .ods lengths', () => {
 		expect(Buffer.from(out).equals(Buffer.from(bytes))).toBe(true);
 	});
 });
+
+describe('empty .ods tables', () => {
+	it('writes cells into a table that was self-closing', async () => {
+		const bytes = await odsOf('<table:table table:name="T"/><table:table table:name="U"/>');
+		const { book } = await readOds(bytes);
+		const [t, u] = book.engine.sheets;
+		book.engine.set(t.id, 1, 1, { value: 5 });
+		book.engine.renameSheet(u.id, 'V');
+		const again = (await readOds(await writeOds(book, bytes))).book.engine;
+		expect(again.sheets.map((s) => s.name)).toEqual(['T', 'V']);
+		expect(again.cell(again.sheets[0].id, 1, 1)!.value).toBe(5);
+	});
+});
