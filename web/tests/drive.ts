@@ -81,13 +81,16 @@ export async function upload(page: Page, ...files: LocalFile[]): Promise<void> {
 
 /** Takes finished uploads off the panel, which floats over the end of the list. */
 export async function clearUploads(page: Page): Promise<void> {
-	// A finished queue folds into a pill after a few seconds: open it again.
+	// A finished queue folds into a pill after a few seconds, also while a toast covers
+	// the button and the click is waiting: open it again, and try again.
 	const pill = page.getByTestId('upload-pill');
-	if (await pill.isVisible()) await pill.click();
-	await page
-		.getByTestId('upload-panel')
-		.getByRole('button', { name: 'Clear', exact: true })
-		.click();
+	await expect(async () => {
+		if (await pill.isVisible()) await pill.click({ timeout: 1000 });
+		await page
+			.getByTestId('upload-panel')
+			.getByRole('button', { name: 'Clear', exact: true })
+			.click({ timeout: 2000 });
+	}).toPass({ timeout: 30_000 });
 }
 
 /** A click on a node's name, which opens it or downloads it. */
