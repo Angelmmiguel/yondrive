@@ -12,11 +12,13 @@
 		Icon,
 		Menu,
 		NavItem,
+		SearchField,
 		Sidebar,
 		TopBar,
 		type MenuItem
 	} from '$lib/components';
 	import DriveDialogs from '$lib/drive/ui/DriveDialogs.svelte';
+	import SearchPalette from '$lib/search/ui/SearchPalette.svelte';
 	import NotificationBell from '$lib/sharing/ui/NotificationBell.svelte';
 	import RotationBar from '$lib/sharing/ui/RotationBar.svelte';
 	import SharingDialogs from '$lib/sharing/ui/SharingDialogs.svelte';
@@ -27,6 +29,7 @@
 	import VersionsPanel from '$lib/drive/ui/VersionsPanel.svelte';
 	import Viewer from '$lib/drive/ui/Viewer.svelte';
 	import { drive } from '$lib/state/drive.svelte';
+	import { search } from '$lib/state/search.svelte';
 	import { session } from '$lib/state/session.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { setContext, untrack } from 'svelte';
@@ -91,6 +94,16 @@
 	};
 	setContext<ShellActions>('shell', actions);
 
+	const shortcut = /mac|iphone|ipad/i.test(navigator.userAgent) ? '⌘K' : 'Ctrl K';
+
+	function keydown(event: KeyboardEvent) {
+		if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'k') {
+			event.preventDefault();
+			if (search.open) search.hide();
+			else search.show();
+		}
+	}
+
 	function picked(event: Event & { currentTarget: HTMLInputElement }) {
 		drive.uploadInput(event.currentTarget.files);
 		event.currentTarget.value = '';
@@ -116,7 +129,7 @@
 	}
 </script>
 
-<svelte:window ondragover={dragover} ondragleave={dragleave} ondrop={drop} />
+<svelte:window ondragover={dragover} ondragleave={dragleave} ondrop={drop} onkeydown={keydown} />
 
 <AppShell>
 	{#snippet rail()}
@@ -155,6 +168,14 @@
 	{/snippet}
 	{#snippet top()}
 		<TopBar>
+			{#snippet leading()}
+				<SearchField
+					label="Search files, tags and contents"
+					placeholder="Search files, tags and contents…"
+					{shortcut}
+					onopen={(typed) => search.show(typed)}
+				/>
+			{/snippet}
 			{#if !encrypted}
 				<span
 					class="plain"
@@ -221,6 +242,7 @@
 <VersionsPanel />
 <DriveDialogs />
 <SharingDialogs />
+<SearchPalette />
 <Viewer />
 
 <style>

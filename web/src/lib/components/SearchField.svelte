@@ -1,6 +1,7 @@
 <!--
   The search input of the top bar: a magnifier, a visible keyboard hint and an
-  invisible label. Enter submits, Escape clears.
+  invisible label. Enter submits, Escape clears. With `onopen` it is the way into a
+  search that happens elsewhere: a click, Enter or the first key typed hands over.
 -->
 <script lang="ts">
 	import Icon from './Icon.svelte';
@@ -12,6 +13,8 @@
 		/** The shortcut that focuses it elsewhere, shown at the end. */
 		shortcut?: string;
 		onsubmit?: (value: string) => void;
+		/** Hands over to a search elsewhere, with the character typed, if one was. */
+		onopen?: (typed: string) => void;
 	}
 
 	let {
@@ -19,7 +22,8 @@
 		label = 'Search',
 		placeholder = 'Search…',
 		shortcut,
-		onsubmit
+		onsubmit,
+		onopen
 	}: Props = $props();
 
 	const uid = $props.id();
@@ -33,7 +37,17 @@
 		type="search"
 		bind:value
 		{placeholder}
+		readonly={onopen !== undefined}
+		onclick={() => onopen?.('')}
 		onkeydown={(e) => {
+			if (onopen !== undefined) {
+				const typed = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+				if (e.key === 'Enter' || typed) {
+					e.preventDefault();
+					onopen(typed ? e.key : '');
+				}
+				return;
+			}
 			if (e.key === 'Enter') onsubmit?.(value);
 			else if (e.key === 'Escape' && value) {
 				e.preventDefault();

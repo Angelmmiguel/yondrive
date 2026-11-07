@@ -22,6 +22,7 @@ import { localPinStorage } from '$lib/sharing/contacts';
 import { canWrite } from '$lib/sharing/roles';
 import { localRotationJobs } from '$lib/sharing/rotation';
 import { formatBytes } from '$lib/app/format';
+import { search } from './search.svelte';
 import { session } from './session.svelte';
 import { sharing } from './sharing.svelte';
 import { toasts } from './toasts.svelte';
@@ -128,12 +129,19 @@ export class DriveState {
 			saveBlob,
 			pins: localPinStorage(account.user.id),
 			rotationJobs: localRotationJobs(account.user.id),
-			onResumeRotation: (progress) => sharing.track(progress)
+			onResumeRotation: (progress) => sharing.track(progress),
+			onCommitted: (node, blob) => search.fileCommitted(node.id, blob)
 		});
 		this.core = core;
 		sharing.attach(core.sharing);
+		if (session.keys !== null) {
+			search.attach(core, sealer, session.keys.masterKey, account.user.id);
+		}
 		this.#stops.push(() => opener.stop());
-		core.tree.onchange = () => this.#changed();
+		core.tree.onchange = () => {
+			this.#changed();
+			search.treeChanged();
+		};
 		core.queue.onchange = () => {
 			const wasActive = this.uploads.some((i) => i.status === 'uploading');
 			this.uploads = core.queue.items;
@@ -146,6 +154,7 @@ export class DriveState {
 			.then(() => {
 				if (this.core !== core) return;
 				this.status = 'ready';
+				search.start();
 				void sharing.sync();
 				void this.refreshStorage();
 				void this.loadTrash().catch(() => {});
@@ -171,6 +180,7 @@ export class DriveState {
 		for (const stop of this.#stops) stop();
 		this.#stops = [];
 		sharing.detach();
+		search.detach(session.status === 'signed-out');
 		this.core?.stop();
 		this.core = null;
 		this.status = 'idle';
@@ -352,6 +362,7 @@ export class DriveState {
 		this.#pollRunning = true;
 		try {
 			if (await core.poll()) {
+				search.treeChanged();
 				await sharing.sync();
 				await this.refreshStorage();
 				await this.loadTrash();

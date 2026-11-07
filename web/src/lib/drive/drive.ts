@@ -54,6 +54,8 @@ export interface DriveDeps {
 	saveUrl: (url: string) => void;
 	saveBlob: (blob: Blob, name: string) => void;
 	thumbnails?: Thumbnails;
+	/** Told of a version just committed, with its bytes in hand: for its text. */
+	onCommitted?: (node: DriveNode, blob: Blob) => void;
 	/** Where this device keeps the pins of contacts, and rotations still to finish. */
 	pins?: PinStorage;
 	rotationJobs?: RotationJobs;
@@ -134,6 +136,7 @@ export class Drive {
 			engine: this.engine,
 			afterCommit: (node, file) => {
 				void this.thumbs.make(node, file as QueuedFile & Blob);
+				deps.onCommitted?.(node, file as QueuedFile & Blob);
 			}
 		});
 		this.feed = new ChangeFeed(deps.api);

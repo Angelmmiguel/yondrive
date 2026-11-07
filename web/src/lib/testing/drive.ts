@@ -52,6 +52,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 	const versions = new Map<string, Version[]>();
 	const uploads = new Map<string, StoredUpload>();
 	const blobs = new Map<string, Uint8Array>();
+	const indexBlobs = new Map<string, string>();
 	const changes: Change[] = [];
 	const calls: string[] = [];
 	let seq = 0;
@@ -600,6 +601,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			checkSuite(params.suite);
 			if (encodeBase64(sha256(bytes)) !== digest) throw fail(400, 'frame_hash');
 			blobs.set(id, bytes.slice());
+			if (params.kind === 'index') indexBlobs.set(id, state.actor);
 			if (params.node_id !== undefined) {
 				const node = need(params.node_id);
 				nodes.set(node.id, { ...node, thumb_blob_id: id });
@@ -612,6 +614,45 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 				size: bytes.length,
 				node_id: params.node_id,
 				created_at: clock()
+			};
+		},
+		deleteSmallBlob: async (id) => {
+			if (!blobs.delete(id)) throw fail(404, 'not_found');
+			indexBlobs.delete(id);
+		},
+		listIndexBlobs: async ({ cursor, limit = 200 } = {}) => {
+			const mine = [...indexBlobs.entries()]
+				.filter(([, owner]) => owner === state.actor)
+				.map(([id]) => id);
+			const { items, next } = page(mine, (id) => id, cursor, limit);
+			return {
+				blobs: items.map((id) => ({
+					id,
+					kind: 'index' as const,
+					suite,
+					size: blobs.get(id)?.length ?? 0,
+					created_at: clock()
+				})),
+				next_cursor: next
+			};
+		},
+		listUploads: async ({ cursor, limit = 200 } = {}) => {
+			const open = [...uploads.values()].map(({ upload, frames }) => ({ upload, frames }));
+			const { items, next } = page(open, (one) => one.upload.id, cursor, limit);
+			return {
+				uploads: items.map(({ upload, frames }) => ({
+					id: upload.id,
+					node_id: upload.node_id,
+					version_id: upload.version_id,
+					suite: upload.suite,
+					frame_count: upload.frame_count,
+					frame_size: upload.frame_size,
+					stored_size: upload.stored_size,
+					frames_received: frames.size,
+					created_at: upload.created_at,
+					updated_at: upload.created_at
+				})),
+				next_cursor: next
 			};
 		},
 		listChanges: async ({ cursor, limit = 200 } = {}) => {
