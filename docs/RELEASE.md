@@ -150,7 +150,11 @@ From weakest to strongest:
    ```
 
    It prints `DIFFERS` or `FAILED` for each file that does not match and exits
-   non-zero. This checks the bytes, not a claim. Because `index.html` names the
+   non-zero. It follows no redirect, so give it the address the app is served
+   at (`https://`, not one that redirects there). It also fetches the shell at
+   `/signin` and `/s/x`, since the server serves it at every path that is not a
+   file, and prints the root the server claims in `/api/v1/health`, failing if
+   that is not the list's. This checks the bytes, not a claim. Because `index.html` names the
    entry scripts by their hashed names and those import the rest by theirs, a
    matching set means the code the app starts with is the release's. It does
    not see files that are served but not listed, which the release's app never
