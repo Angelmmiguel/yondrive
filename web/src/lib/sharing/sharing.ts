@@ -166,13 +166,17 @@ export class Sharing {
 	/** The key of a share's top, for the tree: only from a grant that verifies. */
 	grantKey = async (node: Node): Promise<Bytes> => {
 		const { sealer, keys } = this.#deps;
+		const generation = node.key_generation ?? 1;
 		let entry = this.#shared.get(node.id);
-		if (entry === undefined || entry.grant.key_generation !== node.key_generation) {
+		if (entry === undefined || entry.grant.key_generation !== generation) {
 			await this.refreshShared();
 			entry = this.#shared.get(node.id);
 		}
 		if (entry === undefined) throw new UntrustedGrantError('none');
 		if (entry.trust !== 'verified') throw new UntrustedGrantError(entry.trust);
+		// A grant signed for an old key still verifies. Taken as this generation's key, it
+		// would have what is written next sealed under a key a revoked person may hold.
+		if (entry.grant.key_generation !== generation) throw new UntrustedGrantError('none');
 		return sealer.openNodeKeyFrom(decodeBase64(entry.grant.sealed_key), keys(), node.id);
 	};
 

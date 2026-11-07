@@ -150,7 +150,8 @@ allowed, since a provider on the LAN is normal, so an admin can tell which hosts
 
 - **Rollback.** A server can serve an older version, older metadata or an older wrapped key,
   each still valid. It can also withhold items. Nothing here gives a global view of what is
-  current.
+  current. A grant whose key generation is not its node's is not opened, so an old grant cannot
+  pass for the current key.
 - **Withheld revocations.** A server can go on serving a revoked user, or a signed grant that
   has since been revoked, since a signature says only that it was made. A rotation is what stands
   against this, and only for what comes after it.

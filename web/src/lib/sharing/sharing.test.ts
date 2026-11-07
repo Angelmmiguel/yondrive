@@ -826,6 +826,24 @@ describe('with keys', () => {
 		});
 	});
 
+	it('does not take a replayed grant for the key of a later generation', async () => {
+		const w = await e2e();
+		const old = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+		const carol = await w.alice.drive.sharing.share(w.folder.id, 'carol', 'viewer');
+		await w.alice.drive.sharing.revoke(carol.id, w.folder.id);
+		expect(w.server.grants.get(old.id)?.key_generation).toBe(2);
+
+		// Signed by the owner and valid, but for the key before this one.
+		w.server.grants.set(old.id, old);
+
+		const [entry] = await w.bob.drive.sharing.refreshShared();
+		expect(entry.trust).toBe('verified');
+		expect(entry.node.key_generation).toBe(2);
+		const refused = await w.bob.drive.sharing.grantKey(entry.node).catch((e: unknown) => e);
+		expect(refused).toBeInstanceOf(UntrustedGrantError);
+		expect((refused as UntrustedGrantError).trust).toBe('none');
+	});
+
 	it('leaves someone holding an old key unable to read what comes after', async () => {
 		const w = await e2e();
 		const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
