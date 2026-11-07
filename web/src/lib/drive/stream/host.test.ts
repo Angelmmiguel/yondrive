@@ -232,6 +232,13 @@ describe('response headers', () => {
 		expect(headers.get('X-Content-Type-Options')).toBe('nosniff');
 	});
 
+	it('encodes what RFC 8187 does not let through as it is', () => {
+		const headers = responseHeaders({ mime: null, filename: "it's (a)*!.txt" });
+		expect(headers.get('Content-Disposition')).toBe(
+			`attachment; filename*=UTF-8''it%27s%20%28a%29%2A!.txt`
+		);
+	});
+
 	it.each(['text/html', 'image/svg+xml', 'application/xhtml+xml', 'video/mp4;x=<script>', ''])(
 		'does not serve %s as itself',
 		(mime) => {

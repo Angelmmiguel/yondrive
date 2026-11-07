@@ -23,6 +23,7 @@
 	import { describeDriveError, TooLargeForMemoryError } from '$lib/drive/errors';
 	import { createFramePool } from '$lib/drive/frame-pool';
 	import { fileKindOf, inferType } from '$lib/drive/kinds';
+	import { mediaType } from '$lib/drive/stream/host';
 	import ViewerStage, { type ViewerSource } from '$lib/drive/ui/ViewerStage.svelte';
 	import { viewerFor } from '$lib/drive/viewers/kinds';
 	import { api } from '$lib/api/client';
@@ -240,7 +241,7 @@
 				const version = await link.version(node.id);
 				const blob = await link.read(node.id, version, {
 					limit: MEMORY_LIMIT,
-					type: inferType(node.name, node.type)
+					type: mediaType(inferType(node.name, node.type))
 				});
 				const url = URL.createObjectURL(blob);
 				return { url, release: () => URL.revokeObjectURL(url) };

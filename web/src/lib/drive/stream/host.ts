@@ -57,12 +57,32 @@ interface Stream {
 	overhead: number;
 }
 
+/**
+ * The type to play something as: a sharer's type if it is audio or video, and bytes
+ * otherwise, as anything else could run as a page. Streams and the in-memory copies made
+ * without a service worker both go through it.
+ */
+export function mediaType(mime: string | null): string {
+	return mime !== null && /^(audio|video)\/[\w.+-]+$/.test(mime)
+		? mime
+		: 'application/octet-stream';
+}
+
+/** A value as RFC 8187 has it, for `filename*`: only its attr-chars are left as they are. */
+export function extValue(value: string): string {
+	return encodeURIComponent(value).replace(
+		/['()*]/g,
+		(c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+	);
+}
+
 /** A stream with `mime` keeps it only if it is media: anything else could run as a page. */
 export function responseHeaders(info: Pick<StreamInfo, 'mime' | 'filename'>): Headers {
-	const media = info.mime !== null && /^(audio|video)\/[\w.+-]+$/.test(info.mime);
+	const type = mediaType(info.mime);
+	const media = type !== 'application/octet-stream';
 	return new Headers({
-		'Content-Type': media ? (info.mime as string) : 'application/octet-stream',
-		'Content-Disposition': `${media ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(info.filename)}`,
+		'Content-Type': type,
+		'Content-Disposition': `${media ? 'inline' : 'attachment'}; filename*=UTF-8''${extValue(info.filename)}`,
 		'Accept-Ranges': 'bytes',
 		'Cache-Control': 'private, no-store',
 		'X-Content-Type-Options': 'nosniff',

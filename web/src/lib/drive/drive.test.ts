@@ -80,6 +80,29 @@ describe.each(SUITES)('the drive in mode %s', (_, suite) => {
 		expect(fixture.saved).toEqual([]);
 	});
 
+	it.each([
+		['clip.mp4', 'video/mp4'],
+		['page.html', 'application/octet-stream'],
+		['image.svg', 'application/octet-stream']
+	])('plays %s from memory as %s when it cannot stream, as a stream would', async (name, type) => {
+		const fixture = wired(suite);
+		const node = await withFile(fixture, patterned(100), name);
+		const made: Blob[] = [];
+		const create = vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
+			made.push(blob as Blob);
+			return 'blob:x';
+		});
+		const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+		try {
+			const media = await fixture.drive.mediaUrl(node, await fixture.drive.openVersion(node));
+			media.release();
+			expect(made.map((blob) => blob.type)).toEqual([type]);
+		} finally {
+			create.mockRestore();
+			revoke.mockRestore();
+		}
+	});
+
 	it('does not start a stream for a version that fails to verify', async () => {
 		const fixture = wired(suite, '/stream/abc');
 		const node = await withFile(fixture, patterned(10));

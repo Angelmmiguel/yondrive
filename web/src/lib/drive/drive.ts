@@ -28,6 +28,7 @@ import {
 import type { NodeOpener } from './node-opener';
 import { Limiter } from './retry';
 import type { StreamClient } from './stream/client';
+import { mediaType } from './stream/host';
 import { createThumbnails, type Thumbnails } from './thumbs/service';
 import { DriveTree, type DriveNode } from './tree';
 import type { EngineDeps } from './upload/engine';
@@ -299,7 +300,8 @@ export class Drive {
 		const mime = inferType(node.name, node.type);
 		const url = await streams.open({ version, nodeKey, filename: node.name, mime });
 		if (url !== null) return { url, release: () => streams.release(url) };
-		const blob = await this.readBlob(node, version, { limit: BLOB_LIMIT, type: mime });
+		// Held in memory, a sharer's type would go with it: only media keeps its own.
+		const blob = await this.readBlob(node, version, { limit: BLOB_LIMIT, type: mediaType(mime) });
 		const objectUrl = URL.createObjectURL(blob);
 		return { url: objectUrl, release: () => URL.revokeObjectURL(objectUrl) };
 	}
