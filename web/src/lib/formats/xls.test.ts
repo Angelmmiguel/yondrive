@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { err } from '$lib/formula/values';
-import { bof, EOF, rec, sampleXls } from '../../../tests/fixtures/sheet-samples';
+import {
+	bof,
+	cell,
+	EOF,
+	f64,
+	rec,
+	sampleXls,
+	u16,
+	u32,
+	xlsOf
+} from '../../../tests/fixtures/sheet-samples';
 import { writeCfb } from './cfb';
 import { readXls, XlsError } from './xls';
 import { readXlsx, writeXlsx } from './xlsx';
@@ -61,5 +71,32 @@ describe('reading .xls', () => {
 		);
 		const encrypted = new Uint8Array([...bof(5), ...rec(0x002f, [0, 0]), ...EOF]);
 		expect(() => readXls(writeCfb([{ name: 'Workbook', data: encrypted }]))).toThrow(XlsError);
+	});
+});
+
+describe('damaged .xls', () => {
+	it('skips a damaged cell and keeps the rest of the workbook', () => {
+		const truncatedLabel = rec(0x0204, [...cell(0, 0, 15), ...u16(10), 0, 0x41, 0x42]);
+		const truncatedString = rec(0x0006, [
+			...cell(1, 0, 15),
+			...f64(7),
+			...u16(0),
+			...u32(0),
+			...u16(4),
+			0x17,
+			50,
+			0,
+			0x41
+		]);
+		const number = rec(0x0203, [...cell(2, 0, 15), ...f64(3)]);
+		const { book } = readXls(
+			xlsOf([{ name: 'S', body: [...truncatedLabel, ...truncatedString, ...number] }])
+		);
+		const e = book.engine;
+		const s = e.sheets[0].id;
+		expect(e.cell(s, 0, 0)).toBeUndefined();
+		expect(e.cell(s, 1, 0)!.value).toBe(7);
+		expect(e.cell(s, 1, 0)!.formula).toBeUndefined();
+		expect(e.cell(s, 2, 0)!.value).toBe(3);
 	});
 });

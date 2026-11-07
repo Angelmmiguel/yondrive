@@ -98,19 +98,19 @@ export function sampleOds(): Promise<Uint8Array> {
 }
 
 
-const u16 = (n: number) => [n & 0xff, (n >> 8) & 0xff];
-const u32 = (n: number) => [...u16(n & 0xffff), ...u16(n >>> 16)];
-const f64 = (n: number) => [...new Uint8Array(new Float64Array([n]).buffer)];
+export const u16 = (n: number) => [n & 0xff, (n >> 8) & 0xff];
+export const u32 = (n: number) => [...u16(n & 0xffff), ...u16(n >>> 16)];
+export const f64 = (n: number) => [...new Uint8Array(new Float64Array([n]).buffer)];
 const latin = (s: string) => [...s].map((c) => c.charCodeAt(0));
 const str8 = (s: string) => [s.length, 0, ...latin(s)];
-const str16 = (s: string) => [...u16(s.length), 0, ...latin(s)];
+export const str16 = (s: string) => [...u16(s.length), 0, ...latin(s)];
 export const rec = (type: number, data: number[]) => [...u16(type), ...u16(data.length), ...data];
 export const bof = (dt: number) => rec(0x0809, [...u16(0x0600), ...u16(dt), ...u16(0), ...u16(1997), ...u32(0), ...u32(0)]);
 export const EOF = rec(0x000a, []);
 const xf = (ifnt: number, ifmt: number, align = 0x20, borders2 = 0, fills = 0) => rec(0x00e0, [...u16(ifnt), ...u16(ifmt), ...u16(0), align, 0, 0, 0, ...u32(0), ...u32(borders2), ...u16(fills)]);
 const font = (bold: boolean) => rec(0x0031, [...u16(200), ...u16(0), ...u16(0x7fff), ...u16(bold ? 700 : 400), ...u16(0), 0, 0, 0, 0, ...str8('Arial')]);
-const cell = (r: number, c: number, x: number) => [...u16(r), ...u16(c), ...u16(x)];
-const REL = 0xc000;
+export const cell = (r: number, c: number, x: number) => [...u16(r), ...u16(c), ...u16(x)];
+export const REL = 0xc000;
 
 /** A workbook laid out as BIFF8 says, with the records this reader needs and a few it skips. */
 export function sampleXls(): Uint8Array {
@@ -155,3 +155,28 @@ export function sampleXls(): Uint8Array {
 	return writeCfb([{ name: 'Workbook', data: new Uint8Array(all) }]);
 }
 
+
+/**
+ * A workbook of the given sheets, each its records between BOF and EOF, with
+ * `globals` among the workbook's records. A sheet's type is BOUNDSHEET's: 0 a
+ * worksheet, 2 a chart.
+ */
+export function xlsOf(
+	sheets: { name: string; type?: number; body?: number[] }[],
+	globals: number[] = []
+): Uint8Array {
+	const head = (at: number[]) => [
+		...bof(0x05),
+		...globals,
+		...sheets.flatMap((s, i) => rec(0x0085, [...u32(at[i] ?? 0), 0, s.type ?? 0, ...str8(s.name)])),
+		...EOF
+	];
+	const bodies = sheets.map((s) => [...bof(s.type === 2 ? 0x20 : 0x10), ...(s.body ?? []), ...EOF]);
+	const at: number[] = [];
+	let offset = head([]).length;
+	for (const b of bodies) {
+		at.push(offset);
+		offset += b.length;
+	}
+	return writeCfb([{ name: 'Workbook', data: new Uint8Array([...head(at), ...bodies.flat()]) }]);
+}

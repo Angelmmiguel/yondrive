@@ -281,8 +281,18 @@ interface FormulaCtx {
 	sheetOf: (ixti: number) => string | undefined;
 }
 
-/** BIFF8 formula tokens as a tree, or Unmapped. `relative` reads RefN and AreaN against the cell. */
+/** BIFF8 formula tokens as a tree, or Unmapped, damaged tokens included. */
 function decompile(rgce: Uint8Array, ctx: FormulaCtx): Node {
+	try {
+		return tokens(rgce, ctx);
+	} catch (e) {
+		if (e instanceof Unmapped) throw e;
+		throw new Unmapped(e instanceof Error ? e.message : 'damaged');
+	}
+}
+
+/** `relative` reads RefN and AreaN against the cell. */
+function tokens(rgce: Uint8Array, ctx: FormulaCtx): Node {
 	const v = new DataView(rgce.buffer, rgce.byteOffset, rgce.byteLength);
 	const stack: Node[] = [];
 	let p = 0;
@@ -974,7 +984,7 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 						break;
 				}
 			} catch (e) {
-				if (e instanceof XlsError) throw e;
+				if (e instanceof XlsError && /too many/.test(e.message)) throw e;
 				// A damaged record is skipped.
 			}
 		}
