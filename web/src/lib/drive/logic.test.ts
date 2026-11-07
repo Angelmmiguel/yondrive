@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type Change } from '$lib/api/types';
-import { changedNodes, ChangeFeed, revokedNotRotated } from './journal';
+import { changedNodes, ChangeFeed, JournalExpiredError, revokedNotRotated } from './journal';
 import { categoryOf, extensionOf, fileKindOf, inferType } from './kinds';
 import { parseMetadata, parseRootMetadata, rawMetadata, nextTone } from './metadata';
 import { cleanName } from './names';
@@ -410,6 +410,26 @@ describe('the journal', () => {
 
 		log.push(change(2501, 'new'));
 		expect((await feed.next()).map((c) => c.node_id)).toEqual(['new']);
+		expect(await feed.next()).toEqual([]);
+	});
+
+	it('starts over when its cursor has been trimmed past, and says so', async () => {
+		const log = [change(1, 'a'), change(2, 'b')];
+		const api = {
+			listChanges: vi.fn(async ({ cursor }: { cursor?: string }) => {
+				if (cursor === '1') throw new ApiError(410, 'cursor_expired');
+				const from = cursor === undefined ? 0 : Number(cursor);
+				return { changes: log.slice(from), next_cursor: String(log.length) };
+			})
+		};
+		const feed = new ChangeFeed(api as never);
+		api.listChanges.mockImplementationOnce(async () => ({
+			changes: [log[0]],
+			next_cursor: '1'
+		}));
+		await feed.catchUp();
+		await expect(feed.next()).rejects.toThrow(JournalExpiredError);
+		// It read from the start, and is at the end again.
 		expect(await feed.next()).toEqual([]);
 	});
 

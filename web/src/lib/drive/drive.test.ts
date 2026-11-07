@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isApiError } from '$lib/api/types';
+import { ApiError, isApiError } from '$lib/api/types';
 import { SealError } from '$lib/crypto/aead';
 import { sealerFor, SUITE_E2E } from '$lib/crypto/sealer';
 import {
@@ -231,4 +231,43 @@ it('a failed read of the journal says so to its caller', async () => {
 		throw new (await import('$lib/api/types')).ApiError(401, 'unauthorized');
 	}) as never;
 	await expect(fixture.drive.poll()).rejects.toSatisfy((e) => isApiError(e, 'unauthorized'));
+});
+
+describe('a journal trimmed past the cursor', () => {
+	it('reads the whole tree again and starts over', async () => {
+		const fixture = wired(SUITE_E2E);
+		const { drive, server } = fixture;
+		await drive.start();
+		const root = drive.tree.rootId as string;
+		const folder = await drive.tree.createFolder(root, 'Kept');
+		await drive.tree.loadFolder(folder.id);
+		// Another device, while the journal's cursor lapsed.
+		const other = new Drive({
+			api: server.api,
+			sealer: fixture.sealer,
+			keys: () => fixture.keys,
+			userId: () => USER_ID,
+			open: async (key, parent, records) => openNodes(fixture.sealer, key, parent, records),
+			pool: inlineFramePool(fixture.sealer),
+			resume: memoryResumeStore(),
+			streams: fixture.streams,
+			saveUrl: () => {},
+			saveBlob: () => {}
+		});
+		await other.tree.start();
+		await other.tree.loadFolder(root);
+		await other.tree.createFolder(folder.id, 'Added away');
+
+		const list = server.api.listChanges;
+		server.api.listChanges = vi.fn(async (page) => {
+			if (page?.cursor !== undefined) throw new ApiError(410, 'cursor_expired');
+			return list(page);
+		});
+		expect(await drive.poll()).toBe(true);
+		await vi.waitFor(() =>
+			expect(drive.tree.childrenOf(folder.id).map((child) => child.name)).toEqual(['Added away'])
+		);
+		server.api.listChanges = list;
+		await drive.poll();
+	});
 });
