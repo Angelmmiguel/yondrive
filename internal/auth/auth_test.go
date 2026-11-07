@@ -134,7 +134,7 @@ func TestRateLimiterDefaultsAndBounds(t *testing.T) {
 	if NewRateLimiter(1, time.Second, nil).now == nil {
 		t.Error("no clock")
 	}
-	for i := range purgeThreshold + 2 {
+	for i := range 8 {
 		l.Allow(fmt.Sprint(i))
 	}
 	now = now.Add(2 * DefaultLoginWindow)
@@ -147,6 +147,32 @@ func TestRateLimiterDefaultsAndBounds(t *testing.T) {
 	}
 	if len(l.buckets) > maxBuckets {
 		t.Errorf("%d buckets exceed the bound", len(l.buckets))
+	}
+}
+
+func TestASprayCannotClearOtherWindows(t *testing.T) {
+	now := time.Unix(1000, 0)
+	l := NewRateLimiter(1, time.Minute, func() time.Time { return now })
+	for i := range maxBuckets - 1 {
+		l.Allow(fmt.Sprint("old", i))
+	}
+	now = now.Add(time.Second)
+	l.Allow("victim")
+	if l.Allow("victim") {
+		t.Fatal("second attempt allowed")
+	}
+	now = now.Add(time.Second)
+	for i := range 1000 {
+		l.Allow(fmt.Sprint("spray", i))
+	}
+	if l.Allow("victim") {
+		t.Error("a spray cleared another key's window")
+	}
+	if len(l.buckets) != maxBuckets || l.order.Len() != maxBuckets {
+		t.Errorf("%d buckets, %d in order", len(l.buckets), l.order.Len())
+	}
+	if _, ok := l.buckets["old0"]; ok {
+		t.Error("the oldest window was not the one evicted")
 	}
 }
 

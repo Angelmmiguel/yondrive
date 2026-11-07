@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"container/list"
 	"sync"
 	"time"
 )
@@ -11,17 +12,10 @@ const (
 	DefaultLoginWindow   = time.Minute
 )
 
-// purgeThreshold is the number of tracked keys above which Allow sweeps
-// expired entries, at most once per window: sweeping on every call would be
-// O(n) per request, which a stream of distinct source addresses turns into
-// quadratic work.
-const purgeThreshold = 1024
-
-// maxBuckets bounds the memory a spray of source addresses can take. Above
-// it the limiter forgets every window and starts over, which is the lesser
-// evil: refusing new addresses would lock the owner out from a fresh one,
-// and an attacker with this many addresses is not slowed by per-address
-// counting anyway.
+// maxBuckets bounds the memory a spray of keys can take. Above it the limiter
+// forgets the window closest to ending. Forgetting all of them would let a spray
+// clear the limits on everyone else, and refusing new keys would lock the owner
+// out from a fresh address.
 const maxBuckets = 1 << 16
 
 // RateLimiter is a fixed-window counter by key, used to slow down guessing.
@@ -30,12 +24,16 @@ type RateLimiter struct {
 	window time.Duration
 	now    func() time.Time
 
-	mu        sync.Mutex
-	buckets   map[string]*bucket
-	nextPurge time.Time
+	mu      sync.Mutex
+	buckets map[string]*list.Element
+	// order holds the open windows, soonest to end first. Every window lasts the
+	// same, so that is the order they opened in, and expiry and eviction both
+	// take from the front without a scan.
+	order *list.List
 }
 
 type bucket struct {
+	key   string
 	count int
 	reset time.Time
 }
@@ -57,7 +55,8 @@ func NewRateLimiter(limit int, window time.Duration, now func() time.Time) *Rate
 		limit:   limit,
 		window:  window,
 		now:     now,
-		buckets: make(map[string]*bucket),
+		buckets: make(map[string]*list.Element),
+		order:   list.New(),
 	}
 }
 
@@ -67,28 +66,23 @@ func (l *RateLimiter) Allow(key string) bool {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.buckets) > purgeThreshold && !now.Before(l.nextPurge) {
-		l.purge(now)
-		l.nextPurge = now.Add(l.window)
+	for front := l.order.Front(); front != nil && !now.Before(front.Value.(*bucket).reset); front = l.order.Front() {
+		l.remove(front)
+	}
+	if e, ok := l.buckets[key]; ok {
+		b := e.Value.(*bucket)
+		b.count++
+		return b.count <= l.limit
 	}
 	if len(l.buckets) >= maxBuckets {
-		l.buckets = make(map[string]*bucket)
+		l.remove(l.order.Front())
 	}
-
-	b, ok := l.buckets[key]
-	if !ok || !now.Before(b.reset) {
-		l.buckets[key] = &bucket{count: 1, reset: now.Add(l.window)}
-		return true
-	}
-	b.count++
-	return b.count <= l.limit
+	l.buckets[key] = l.order.PushBack(&bucket{key: key, count: 1, reset: now.Add(l.window)})
+	return true
 }
 
-// purge drops windows that have elapsed. The caller holds the lock.
-func (l *RateLimiter) purge(now time.Time) {
-	for key, b := range l.buckets {
-		if !now.Before(b.reset) {
-			delete(l.buckets, key)
-		}
-	}
+// remove forgets a window. The caller holds the lock.
+func (l *RateLimiter) remove(e *list.Element) {
+	delete(l.buckets, e.Value.(*bucket).key)
+	l.order.Remove(e)
 }
