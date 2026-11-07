@@ -204,7 +204,7 @@ paths:
       operationId: logout
       tags: [auth]
       summary: Sign out
-      description: Ends this session and forgets its session key.
+      description: Ends this session and forgets its session key. A bearer token revokes itself.
       responses:
         "204":
           description: Signed out.
@@ -404,6 +404,57 @@ paths:
                 $ref: "#/components/schemas/UserKeys"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/me/tokens:
+    get:
+      operationId: listTokens
+      tags: [account]
+      summary: List the signed-in user's device tokens
+      responses:
+        "200":
+          description: The tokens, oldest first. Their secrets are not kept.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceToken"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createToken
+      tags: [account]
+      summary: Create a bearer token for a device
+      description: |
+        Needs a current auth key: a stolen session must not be able to mint
+        access that outlives it. A token lasts until it is revoked, or until the
+        credentials change.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+      responses:
+        "201":
+          description: The token. Its secret is shown only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedToken"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/tokens/{id}:
+    delete:
+      operationId: revokeToken
+      tags: [account]
+      summary: Revoke a device token
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/admin/invites:
     get:
       operationId: listInvites
@@ -515,6 +566,8 @@ components:
             - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
             - `totp_required`, `totp_invalid`, `totp_already_enabled`,
               `totp_not_pending`, `totp_not_enabled`
+            - `invalid_token_name`
+            - `session_required`: the route needs a browser session, not a token
           examples: [not_found]
     KDF:
       type: object
@@ -885,6 +938,41 @@ components:
           type: string
         recovery_code:
           type: string
+    DeviceToken:
+      type: object
+      required: [id, name, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          examples: [Angel's phone]
+        created_at:
+          type: string
+          format: date-time
+        last_used_at:
+          type: string
+          format: date-time
+    CreateTokenRequest:
+      type: object
+      required: [name, current_auth_key]
+      properties:
+        name:
+          type: string
+          description: 1 to 128 characters.
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key.
+    CreatedToken:
+      type: object
+      required: [token, secret]
+      properties:
+        token:
+          $ref: "#/components/schemas/DeviceToken"
+        secret:
+          type: string
+          description: The value to send as `Authorization`. Not stored; shown only now.
   parameters:
     ID:
       name: id

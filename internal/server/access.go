@@ -60,8 +60,10 @@ type (
 // principal is who a request acts as.
 type principal struct {
 	user store.User
-	// sessionHash names the session the request came through.
+	// sessionHash names the session the request came through, if it did.
 	sessionHash []byte
+	// tokenID names the bearer token it came through, if it did.
+	tokenID string
 }
 
 // guard enforces operationAccess before a handler runs, and makes the request
@@ -117,9 +119,45 @@ func (s *Server) checkSetupToken(r *http.Request) error {
 
 var errUnauthorized = fail(http.StatusUnauthorized, codeUnauthorized)
 
-// authenticate resolves the session cookie to a principal, ending the session
-// if a deadline has passed and extending its idle window otherwise.
+// authenticate resolves a request to a principal. An Authorization header takes
+// over from any cookie: csrf lets bearer requests through, and it must not
+// thereby let through one that acts on the cookie.
 func (s *Server) authenticate(ctx context.Context, r *http.Request) (principal, error) {
+	if r.Header.Get("Authorization") != "" {
+		return s.authenticateBearer(ctx, r)
+	}
+	return s.authenticateSession(ctx, r)
+}
+
+// authenticateBearer resolves a device token.
+func (s *Server) authenticateBearer(ctx context.Context, r *http.Request) (principal, error) {
+	secret, ok := bearerToken(r)
+	if !ok {
+		return principal{}, errUnauthorized
+	}
+	token, err := s.store.TokenByHash(ctx, auth.HashToken(secret))
+	if errors.Is(err, store.ErrNotFound) {
+		return principal{}, errUnauthorized
+	}
+	if err != nil {
+		return principal{}, err
+	}
+	user, err := s.activeUser(ctx, token.UserID)
+	if err != nil {
+		return principal{}, err
+	}
+	now := s.cfg.Now()
+	if now.Sub(token.LastUsedAt) >= sessionTouchInterval {
+		if err := s.store.TouchToken(ctx, token.ID, now); err != nil {
+			s.log.Error("token use not recorded", "error", err)
+		}
+	}
+	return principal{user: user, tokenID: token.ID}, nil
+}
+
+// authenticateSession resolves the session cookie, ending the session if a
+// deadline has passed and extending its idle window otherwise.
+func (s *Server) authenticateSession(ctx context.Context, r *http.Request) (principal, error) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
 		return principal{}, errUnauthorized

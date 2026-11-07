@@ -165,7 +165,7 @@ export interface paths {
         put?: never;
         /**
          * Sign out
-         * @description Ends this session and forgets its session key.
+         * @description Ends this session and forgets its session key. A bearer token revokes itself.
          */
         post: operations["logout"];
         delete?: never;
@@ -356,6 +356,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the signed-in user's device tokens */
+        get: operations["listTokens"];
+        put?: never;
+        /**
+         * Create a bearer token for a device
+         * @description Needs a current auth key: a stolen session must not be able to mint
+         *     access that outlives it. A token lasts until it is revoked, or until the
+         *     credentials change.
+         */
+        post: operations["createToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/tokens/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a device token */
+        delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/invites": {
         parameters: {
             query?: never;
@@ -433,6 +473,8 @@ export interface components {
              *     - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
              *     - `totp_required`, `totp_invalid`, `totp_already_enabled`,
              *       `totp_not_pending`, `totp_not_enabled`
+             *     - `invalid_token_name`
+             *     - `session_required`: the route needs a browser session, not a token
              * @example not_found
              */
             code: string;
@@ -706,6 +748,29 @@ export interface components {
             current_auth_key: string;
             code?: string;
             recovery_code?: string;
+        };
+        DeviceToken: {
+            id: string;
+            /** @example Angel's phone */
+            name: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            last_used_at?: string;
+        };
+        CreateTokenRequest: {
+            /** @description 1 to 128 characters. */
+            name: string;
+            /**
+             * Format: byte
+             * @description Either current auth key.
+             */
+            current_auth_key: string;
+        };
+        CreatedToken: {
+            token: components["schemas"]["DeviceToken"];
+            /** @description The value to send as `Authorization`. Not stored; shown only now. */
+            secret: string;
         };
     };
     responses: {
@@ -1138,6 +1203,74 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserKeys"];
                 };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tokens, oldest first. Their secrets are not kept. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceToken"][];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The token. Its secret is shown only here. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedToken"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    revokeToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Error"];
         };

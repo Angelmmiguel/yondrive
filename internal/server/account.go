@@ -20,7 +20,7 @@ const (
 	auditLogout             = "logout"
 	auditRegistered         = "user_registered"
 	auditRekeyed            = "credentials_rekeyed"
-	auditCredentialRejected = "credential_rejected"
+	auditCredentialRejected = "credential_rejected" //nolint:gosec // an event name, not a secret
 )
 
 // GetKDF returns the stored parameters of a username, or stable fake ones of
@@ -116,6 +116,13 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 // Logout ends the session and forgets its key.
 func (s *Server) Logout(ctx context.Context, _ oapi.LogoutRequestObject) (oapi.LogoutResponseObject, error) {
 	p := principalFrom(ctx)
+	if p.tokenID != "" {
+		if err := s.store.DeleteToken(ctx, p.user.ID, p.tokenID); err != nil {
+			return nil, err
+		}
+		s.audit(ctx, auditTokenRevoked, p.user.ID, p.tokenID)
+		return oapi.Logout204Response{}, nil
+	}
 	if err := s.store.DeleteSession(ctx, p.sessionHash); err != nil {
 		return nil, err
 	}
@@ -199,7 +206,7 @@ func (s *Server) Rekey(ctx context.Context, req oapi.RekeyRequestObject) (oapi.R
 	if err != nil {
 		return nil, err
 	}
-	revoked, err := s.store.UpdateCredentials(ctx, user.ID, up, p.sessionHash, "")
+	revoked, err := s.store.UpdateCredentials(ctx, user.ID, up, p.sessionHash, p.tokenID)
 	if err != nil {
 		return nil, err
 	}
@@ -322,16 +329,24 @@ func (s *Server) GetUserKeys(ctx context.Context, req oapi.GetUserKeysRequestObj
 
 // PutSessionKey stores the server half of the session key, in memory only.
 func (s *Server) PutSessionKey(ctx context.Context, req oapi.PutSessionKeyRequestObject) (oapi.PutSessionKeyResponseObject, error) {
+	p, err := sessionPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if len(req.Body.Key) != auth.SessionKeyLen {
 		return nil, badRequest(codeInvalidSessionKey)
 	}
-	s.keys.Set(principalFrom(ctx).sessionHash, req.Body.Key)
+	s.keys.Set(p.sessionHash, req.Body.Key)
 	return oapi.PutSessionKey204Response{}, nil
 }
 
 // GetSessionKey returns the server half of the session key, if it is set.
 func (s *Server) GetSessionKey(ctx context.Context, _ oapi.GetSessionKeyRequestObject) (oapi.GetSessionKeyResponseObject, error) {
-	key, ok := s.keys.Get(principalFrom(ctx).sessionHash)
+	p, err := sessionPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key, ok := s.keys.Get(p.sessionHash)
 	if !ok {
 		return nil, fail(http.StatusNotFound, codeNoSessionKey)
 	}
@@ -341,6 +356,20 @@ func (s *Server) GetSessionKey(ctx context.Context, _ oapi.GetSessionKeyRequestO
 // DeleteSessionKey forgets the server half of the session key: the client has
 // locked.
 func (s *Server) DeleteSessionKey(ctx context.Context, _ oapi.DeleteSessionKeyRequestObject) (oapi.DeleteSessionKeyResponseObject, error) {
-	s.keys.Drop(principalFrom(ctx).sessionHash)
+	p, err := sessionPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.keys.Drop(p.sessionHash)
 	return oapi.DeleteSessionKey204Response{}, nil
+}
+
+// sessionPrincipal refuses a request that came through a bearer token: a native
+// client keeps its keys itself and there is no session to hold a key on.
+func sessionPrincipal(ctx context.Context) (principal, error) {
+	p := principalFrom(ctx)
+	if p.sessionHash == nil {
+		return p, fail(http.StatusForbidden, codeSessionRequired)
+	}
+	return p, nil
 }

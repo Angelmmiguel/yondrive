@@ -59,19 +59,30 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// csrf rejects state-changing requests that a browser reports as cross-site.
+// csrf rejects state-changing requests that a browser reports as cross-site. A
+// bearer request is exempt: it carries no ambient authority a site could borrow,
+// since a browser adds that header only when the calling code knows the token.
 func csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet, http.MethodHead, http.MethodOptions:
 		default:
-			if !sameOrigin(r) {
+			if _, bearer := bearerToken(r); !bearer && !sameOrigin(r) {
 				writeError(w, http.StatusForbidden, codeForbidden)
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bearerToken returns the token of an Authorization: Bearer header.
+func bearerToken(r *http.Request) (string, bool) {
+	scheme, token, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || token == "" {
+		return "", false
+	}
+	return token, true
 }
 
 // sameOrigin reports whether a state-changing request originates from the app
