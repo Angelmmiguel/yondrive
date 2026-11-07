@@ -27,6 +27,10 @@ const (
 	OpVersion        = "version"
 	OpVersionDeleted = "version_deleted"
 	OpThumbnail      = "thumbnail"
+	OpGranted        = "granted"
+	OpRoleChanged    = "role_changed"
+	OpRevoked        = "revoked"
+	OpRotated        = "rotated"
 )
 
 // MaxTreeDepth is how deep a tree may get. A purge relies on foreign key
@@ -71,6 +75,7 @@ type Node struct {
 	NameTag        []byte
 	CurrentVersion string
 	ThumbBlobID    string
+	KeyGeneration  int64
 	TrashedAt      time.Time
 	PurgedAt       time.Time
 	RemoveAt       time.Time
@@ -81,14 +86,14 @@ type Node struct {
 const nodeColumns = `id, owner_id, coalesce(parent_id, ''), kind, suite, sealed_metadata, wrapped_key, name_tag,
 	coalesce(current_version, ''),
 	coalesce((SELECT b.id FROM blobs b WHERE b.node_id = nodes.id AND b.kind = 'thumb'), ''),
-	trashed_at, purged_at, remove_at, created_at, updated_at`
+	key_generation, trashed_at, purged_at, remove_at, created_at, updated_at`
 
 func scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
 	var trashed, purged, remove sql.NullInt64
 	var created, updated int64
 	err := row.Scan(&n.ID, &n.OwnerID, &n.ParentID, &n.Kind, &n.Suite, &n.SealedMetadata, &n.WrappedKey, &n.NameTag,
-		&n.CurrentVersion, &n.ThumbBlobID, &trashed, &purged, &remove, &created, &updated)
+		&n.CurrentVersion, &n.ThumbBlobID, &n.KeyGeneration, &trashed, &purged, &remove, &created, &updated)
 	n.SealedMetadata, n.WrappedKey = nonNil(n.SealedMetadata), nonNil(n.WrappedKey)
 	n.TrashedAt, n.PurgedAt, n.RemoveAt = fromNull(trashed), fromNull(purged), fromNull(remove)
 	n.CreatedAt, n.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()
@@ -155,7 +160,9 @@ func (s *Store) CreateRoot(ctx context.Context, n Node) (_ Node, created bool, _
 }
 
 // CreateNode adds a file or folder under a folder of the same owner.
-func (s *Store) CreateNode(ctx context.Context, n Node) (Node, error) {
+// parentGeneration is the generation of the parent's key the client wrapped the
+// node's under: nil asks for no check.
+func (s *Store) CreateNode(ctx context.Context, n Node, parentGeneration *int64) (Node, error) {
 	var out Node
 	err := s.tx(ctx, func(tx *sql.Tx) error {
 		parent, err := oneNode(ctx, tx, "id = ?", n.ParentID)
@@ -164,6 +171,9 @@ func (s *Store) CreateNode(ctx context.Context, n Node) (Node, error) {
 		}
 		if parent.OwnerID != n.OwnerID {
 			return ErrNotFound
+		}
+		if parentGeneration != nil && *parentGeneration != parent.KeyGeneration {
+			return ErrKeyGeneration
 		}
 		if err := checkParent(ctx, tx, parent, ""); err != nil {
 			return err
@@ -370,12 +380,42 @@ func (s *Store) updateNode(ctx context.Context, id string, op string, now time.T
 	return out, err
 }
 
+// KeyCheck names the key generations a client sealed a write under. Nil asks for
+// no check.
+type KeyCheck struct {
+	Node   *int64
+	Parent *int64
+}
+
+// checkGeneration refuses a write sealed under a key that has since been rotated.
+func checkGeneration(ctx context.Context, q querier, id string, want *int64) error {
+	if want == nil {
+		return nil
+	}
+	var have int64
+	if err := q.QueryRowContext(ctx, "SELECT key_generation FROM nodes WHERE id = ?", id).Scan(&have); err != nil {
+		return fmt.Errorf("store: read key generation: %w", err)
+	}
+	if have != *want {
+		return ErrKeyGeneration
+	}
+	return nil
+}
+
 // UpdateNode replaces a node's metadata and, for a rename, its name tag. A root
 // has no tag, and the tag of a node under the trash is checked again on restore.
-func (s *Store) UpdateNode(ctx context.Context, id string, metadata, nameTag []byte, now time.Time) (Node, error) {
+func (s *Store) UpdateNode(ctx context.Context, id string, metadata, nameTag []byte, check KeyCheck, now time.Time) (Node, error) {
 	return s.updateNode(ctx, id, OpUpdated, now, func(tx *sql.Tx, n Node) (bool, error) {
 		if err := checkNotTrashed(ctx, tx, id); err != nil {
 			return false, err
+		}
+		if err := checkGeneration(ctx, tx, id, check.Node); err != nil {
+			return false, err
+		}
+		if n.ParentID != "" {
+			if err := checkGeneration(ctx, tx, n.ParentID, check.Parent); err != nil {
+				return false, err
+			}
 		}
 		if nameTag != nil {
 			if n.ParentID == "" {
@@ -397,10 +437,64 @@ func (s *Store) UpdateNode(ctx context.Context, id string, metadata, nameTag []b
 	})
 }
 
+// MoveGuard is what a move must hold to inside its transaction, since an owner
+// may be moving the same folders about meanwhile.
+type MoveGuard struct {
+	// ParentGeneration is the generation of the new parent's key the client wrapped
+	// the node's under. Nil asks for no check.
+	ParentGeneration *int64
+	// EditorID names who is moving a node that is not theirs: one grant of theirs
+	// must cover both the old parent and the new one.
+	EditorID string
+}
+
+func checkMoveInsideShare(ctx context.Context, q querier, userID, from, to string) error {
+	before, err := lineageRoles(ctx, q, userID, from)
+	if err != nil {
+		return err
+	}
+	after, err := lineageRoles(ctx, q, userID, to)
+	if err != nil {
+		return err
+	}
+	for _, e := range before {
+		if e.Role == RoleEditor && slices.ContainsFunc(after, func(a LineageEntry) bool { return a.NodeID == e.NodeID }) {
+			return nil
+		}
+	}
+	return ErrMoveOutOfShare
+}
+
+// granteesOver returns who holds a grant on a node or on anything above it.
+func granteesOver(ctx context.Context, q querier, id string) (map[string]bool, error) {
+	rows, err := q.QueryContext(ctx, `WITH RECURSIVE up (id, parent_id, depth) AS (
+			SELECT id, parent_id, 0 FROM nodes WHERE id = ?
+			UNION ALL
+			SELECT n.id, n.parent_id, up.depth + 1 FROM nodes n JOIN up ON n.id = up.parent_id WHERE up.depth <= ?
+		) SELECT DISTINCT g.grantee_id FROM up JOIN grants g ON g.node_id = up.id`, id, MaxTreeDepth+1)
+	if err != nil {
+		return nil, fmt.Errorf("store: read grantees: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]bool{}
+	for rows.Next() {
+		var user string
+		if err := rows.Scan(&user); err != nil {
+			return nil, fmt.Errorf("store: read grantees: %w", err)
+		}
+		out[user] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: read grantees: %w", err)
+	}
+	return out, nil
+}
+
 // MoveNode puts a node under another folder of the same owner, and in the same
 // transaction replaces the key wrapped under the old parent and the name tag
-// made under it.
-func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, nameTag []byte, now time.Time) (Node, error) {
+// made under it. Whoever could reach the node only through where it was hears
+// that they no longer can.
+func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, nameTag []byte, guard MoveGuard, now time.Time) (Node, error) {
 	return s.updateNode(ctx, id, OpMoved, now, func(tx *sql.Tx, n Node) (bool, error) {
 		if n.ParentID == "" {
 			return false, ErrRootImmutable
@@ -413,7 +507,15 @@ func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, n
 			return false, err
 		}
 		if parent.OwnerID != n.OwnerID {
-			return false, ErrNotFound
+			return false, ErrMoveAcrossOwners
+		}
+		if guard.ParentGeneration != nil && *guard.ParentGeneration != parent.KeyGeneration {
+			return false, ErrKeyGeneration
+		}
+		if guard.EditorID != "" {
+			if err := checkMoveInsideShare(ctx, tx, guard.EditorID, n.ParentID, parentID); err != nil {
+				return false, err
+			}
 		}
 		if err := checkParent(ctx, tx, parent, id); err != nil {
 			return false, err
@@ -421,10 +523,25 @@ func (s *Store) MoveNode(ctx context.Context, id, parentID string, wrappedKey, n
 		if err := checkNameFree(ctx, tx, parentID, nameTag, id); err != nil {
 			return false, err
 		}
+		before, err := granteesOver(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
 		_, err = tx.ExecContext(ctx, "UPDATE nodes SET parent_id = ?, wrapped_key = ?, name_tag = ? WHERE id = ?",
 			parentID, nonNil(wrappedKey), nameTag, id)
 		if err != nil {
 			return false, fmt.Errorf("store: move node: %w", err)
+		}
+		after, err := granteesOver(ctx, tx, id)
+		if err != nil {
+			return false, err
+		}
+		for user := range before {
+			if !after[user] {
+				if err := recordFor(ctx, tx, user, id, OpRevoked, now); err != nil {
+					return false, err
+				}
+			}
 		}
 		return true, nil
 	})
@@ -443,7 +560,7 @@ func (s *Store) TrashNode(ctx context.Context, id string, now time.Time) (Node, 
 		if _, err := tx.ExecContext(ctx, "UPDATE nodes SET trashed_at = ? WHERE id = ?", now.Unix(), id); err != nil {
 			return false, fmt.Errorf("store: trash node: %w", err)
 		}
-		return true, nil
+		return true, recordBelow(ctx, tx, n.OwnerID, id, OpTrashed, now)
 	})
 }
 
@@ -470,7 +587,7 @@ func (s *Store) RestoreNode(ctx context.Context, id string, now time.Time) (Node
 		if err != nil {
 			return false, fmt.Errorf("store: restore node: %w", err)
 		}
-		return true, nil
+		return true, recordBelow(ctx, tx, n.OwnerID, id, OpRestored, now)
 	})
 }
 

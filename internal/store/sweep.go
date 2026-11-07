@@ -45,16 +45,21 @@ func (s *Store) RemoveDueNodes(ctx context.Context, now time.Time, limit int) (i
 			return fmt.Errorf("store: list due nodes: %w", err)
 		}
 		for _, d := range nodes {
-			res, err := tx.ExecContext(ctx, "DELETE FROM nodes WHERE id = ?", d.id)
+			// One due node can have gone with a due folder above it.
+			var exists int
+			err := tx.QueryRowContext(ctx, "SELECT 1 FROM nodes WHERE id = ?", d.id).Scan(&exists)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
 			if err != nil {
 				return fmt.Errorf("store: remove node: %w", err)
 			}
-			// One due node can have gone with a due folder above it.
-			if n, err := res.RowsAffected(); err != nil || n == 0 {
-				continue
-			}
+			// While the node is there, so that the journal can tell who reaches it.
 			if err := recordChange(ctx, tx, d.owner, d.id, OpRemoved, now); err != nil {
 				return err
+			}
+			if _, err := tx.ExecContext(ctx, "DELETE FROM nodes WHERE id = ?", d.id); err != nil {
+				return fmt.Errorf("store: remove node: %w", err)
 			}
 			removed++
 		}

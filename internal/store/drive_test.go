@@ -32,7 +32,7 @@ func child(id, owner, parent, kind, name string) Node {
 
 func addNode(t *testing.T, st *Store, owner, parent, kind, name string) Node {
 	t.Helper()
-	n, err := st.CreateNode(ctx, child(NewID(), owner, parent, kind, name))
+	n, err := st.CreateNode(ctx, child(NewID(), owner, parent, kind, name), nil)
 	if err != nil {
 		t.Fatalf("CreateNode %s: %v", name, err)
 	}
@@ -92,9 +92,9 @@ func TestRootIsOnDemandAndSingle(t *testing.T) {
 	_, err = st.TrashNode(ctx, first.ID, t0)
 	wantErr(t, err, ErrRootImmutable)
 	folder := addNode(t, st, u.ID, first.ID, KindFolder, "a")
-	_, err = st.MoveNode(ctx, first.ID, folder.ID, nil, tag("x"), t0)
+	_, err = st.MoveNode(ctx, first.ID, folder.ID, nil, tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrRootImmutable)
-	_, err = st.UpdateNode(ctx, first.ID, nil, tag("x"), t0)
+	_, err = st.UpdateNode(ctx, first.ID, nil, tag("x"), KeyCheck{}, t0)
 	wantErr(t, err, ErrRootImmutable)
 }
 
@@ -106,15 +106,15 @@ func TestCreateNodeRules(t *testing.T) {
 
 	file := addNode(t, st, u.ID, r.ID, KindFile, "a")
 
-	_, err := st.CreateNode(ctx, child(file.ID, u.ID, r.ID, KindFile, "b"))
+	_, err := st.CreateNode(ctx, child(file.ID, u.ID, r.ID, KindFile, "b"), nil)
 	wantErr(t, err, ErrIDTaken)
-	_, err = st.CreateNode(ctx, child(NewID(), u.ID, r.ID, KindFolder, "a"))
+	_, err = st.CreateNode(ctx, child(NewID(), u.ID, r.ID, KindFolder, "a"), nil)
 	wantErr(t, err, ErrNameConflict)
-	_, err = st.CreateNode(ctx, child(NewID(), u.ID, file.ID, KindFile, "b"))
+	_, err = st.CreateNode(ctx, child(NewID(), u.ID, file.ID, KindFile, "b"), nil)
 	wantErr(t, err, ErrNotFolder)
-	_, err = st.CreateNode(ctx, child(NewID(), u.ID, NewID(), KindFile, "b"))
+	_, err = st.CreateNode(ctx, child(NewID(), u.ID, NewID(), KindFile, "b"), nil)
 	wantErr(t, err, ErrNotFound)
-	_, err = st.CreateNode(ctx, child(NewID(), u.ID, otherRoot.ID, KindFile, "b"))
+	_, err = st.CreateNode(ctx, child(NewID(), u.ID, otherRoot.ID, KindFile, "b"), nil)
 	wantErr(t, err, ErrNotFound)
 
 	// A trashed sibling frees its name, and returning it needs the name back.
@@ -181,18 +181,18 @@ func TestMoveRules(t *testing.T) {
 	addNode(t, st, u.ID, c.ID, KindFile, "taken")
 
 	for _, target := range []string{a.ID, b.ID, c.ID} {
-		_, err := st.MoveNode(ctx, a.ID, target, []byte("k"), tag("x"), t0)
+		_, err := st.MoveNode(ctx, a.ID, target, []byte("k"), tag("x"), MoveGuard{}, t0)
 		wantErr(t, err, ErrMoveCycle)
 	}
-	_, err := st.MoveNode(ctx, a.ID, f.ID, []byte("k"), tag("x"), t0)
+	_, err := st.MoveNode(ctx, a.ID, f.ID, []byte("k"), tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrNotFolder)
-	_, err = st.MoveNode(ctx, f.ID, c.ID, []byte("k"), tag("taken"), t0)
+	_, err = st.MoveNode(ctx, f.ID, c.ID, []byte("k"), tag("taken"), MoveGuard{}, t0)
 	wantErr(t, err, ErrNameConflict)
 	otherRoot := root(t, st, other.ID)
-	_, err = st.MoveNode(ctx, f.ID, otherRoot.ID, []byte("k"), tag("x"), t0)
-	wantErr(t, err, ErrNotFound)
+	_, err = st.MoveNode(ctx, f.ID, otherRoot.ID, []byte("k"), tag("x"), MoveGuard{}, t0)
+	wantErr(t, err, ErrMoveAcrossOwners)
 
-	got, err := st.MoveNode(ctx, f.ID, c.ID, []byte("new key"), tag("moved"), t0.Add(time.Second))
+	got, err := st.MoveNode(ctx, f.ID, c.ID, []byte("new key"), tag("moved"), MoveGuard{}, t0.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,16 +205,16 @@ func TestMoveRules(t *testing.T) {
 	if _, err := st.TrashNode(ctx, c.ID, t0); err != nil {
 		t.Fatal(err)
 	}
-	_, err = st.MoveNode(ctx, a.ID, c.ID, []byte("k"), tag("x"), t0)
+	_, err = st.MoveNode(ctx, a.ID, c.ID, []byte("k"), tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrMoveCycle)
 	d := addNode(t, st, u.ID, r.ID, KindFolder, "d")
-	_, err = st.MoveNode(ctx, d.ID, c.ID, []byte("k"), tag("x"), t0)
+	_, err = st.MoveNode(ctx, d.ID, c.ID, []byte("k"), tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrParentTrashed)
-	_, err = st.MoveNode(ctx, f.ID, r.ID, []byte("k"), tag("x"), t0)
+	_, err = st.MoveNode(ctx, f.ID, r.ID, []byte("k"), tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrNodeTrashed)
-	_, err = st.CreateNode(ctx, child(NewID(), u.ID, c.ID, KindFile, "n"))
+	_, err = st.CreateNode(ctx, child(NewID(), u.ID, c.ID, KindFile, "n"), nil)
 	wantErr(t, err, ErrParentTrashed)
-	_, err = st.UpdateNode(ctx, f.ID, []byte("m"), nil, t0)
+	_, err = st.UpdateNode(ctx, f.ID, []byte("m"), nil, KeyCheck{}, t0)
 	wantErr(t, err, ErrNodeTrashed)
 }
 
@@ -227,8 +227,8 @@ func TestConcurrentCrossMovesCannotMakeACycle(t *testing.T) {
 		b := addNode(t, st, u.ID, r.ID, KindFolder, fmt.Sprint("b", i))
 		var wg sync.WaitGroup
 		errs := make([]error, 2)
-		wg.Go(func() { _, errs[0] = st.MoveNode(ctx, a.ID, b.ID, nil, tag("x"), t0) })
-		wg.Go(func() { _, errs[1] = st.MoveNode(ctx, b.ID, a.ID, nil, tag("y"), t0) })
+		wg.Go(func() { _, errs[0] = st.MoveNode(ctx, a.ID, b.ID, nil, tag("x"), MoveGuard{}, t0) })
+		wg.Go(func() { _, errs[1] = st.MoveNode(ctx, b.ID, a.ID, nil, tag("y"), MoveGuard{}, t0) })
 		wg.Wait()
 		if (errs[0] == nil) == (errs[1] == nil) {
 			t.Fatalf("both or neither moved: %v, %v", errs[0], errs[1])
@@ -244,13 +244,13 @@ func TestTreeDepthIsCapped(t *testing.T) {
 	for i := 1; i <= MaxTreeDepth; i++ {
 		parent = addNode(t, st, u.ID, parent, KindFolder, "d").ID
 	}
-	_, err := st.CreateNode(ctx, child(NewID(), u.ID, parent, KindFolder, "d"))
+	_, err := st.CreateNode(ctx, child(NewID(), u.ID, parent, KindFolder, "d"), nil)
 	wantErr(t, err, ErrTreeTooDeep)
 
 	// A shallow subtree cannot be moved past the limit either.
 	a := addNode(t, st, u.ID, r.ID, KindFolder, "a")
 	addNode(t, st, u.ID, a.ID, KindFolder, "b")
-	_, err = st.MoveNode(ctx, a.ID, parent, nil, tag("x"), t0)
+	_, err = st.MoveNode(ctx, a.ID, parent, nil, tag("x"), MoveGuard{}, t0)
 	wantErr(t, err, ErrTreeTooDeep)
 
 	// The deepest tree can still be cascaded away, with its owner.

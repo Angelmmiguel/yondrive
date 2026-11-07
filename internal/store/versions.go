@@ -17,6 +17,12 @@ var (
 	ErrVersionCurrent = errors.New("store: version is current")
 )
 
+// KeyLink is the key of an old generation of a node, sealed under the next one.
+type KeyLink struct {
+	Generation int64
+	SealedKey  []byte
+}
+
 // Version is a state of a file's content. ContentVersionID is the id the blob
 // was sealed and signed under, and ContentAuthorID who signed it; they differ
 // from ID and AuthorID only on a restored version.
@@ -32,6 +38,8 @@ type Version struct {
 	StoredSize       int64
 	FrameCount       int64
 	FrameSize        int64
+	KeyGeneration    int64
+	KeyChain         []KeyLink
 	FrameHashes      []byte
 	Signature        []byte
 	Manifest         []byte
@@ -43,9 +51,9 @@ type Version struct {
 // The list leaves out the frame hashes, which grow with the file.
 const (
 	versionSummaryColumns = `seq, id, node_id, blob_id, suite, author_id, content_version_id, content_author_id,
-		stored_size, frame_count, frame_size, x'', signature, manifest, created_at, deleted_at, remove_at`
+		stored_size, frame_count, frame_size, key_generation, x'', signature, manifest, created_at, deleted_at, remove_at`
 	versionColumns = `seq, id, node_id, blob_id, suite, author_id, content_version_id, content_author_id,
-		stored_size, frame_count, frame_size, frame_hashes, signature, manifest, created_at, deleted_at, remove_at`
+		stored_size, frame_count, frame_size, key_generation, frame_hashes, signature, manifest, created_at, deleted_at, remove_at`
 )
 
 func scanVersion(row interface{ Scan(...any) error }) (Version, error) {
@@ -53,7 +61,7 @@ func scanVersion(row interface{ Scan(...any) error }) (Version, error) {
 	var created int64
 	var deleted, remove sql.NullInt64
 	err := row.Scan(&v.Seq, &v.ID, &v.NodeID, &v.BlobID, &v.Suite, &v.AuthorID, &v.ContentVersionID, &v.ContentAuthorID,
-		&v.StoredSize, &v.FrameCount, &v.FrameSize, &v.FrameHashes, &v.Signature, &v.Manifest, &created, &deleted, &remove)
+		&v.StoredSize, &v.FrameCount, &v.FrameSize, &v.KeyGeneration, &v.FrameHashes, &v.Signature, &v.Manifest, &created, &deleted, &remove)
 	v.FrameHashes, v.Signature, v.Manifest = nonNil(v.FrameHashes), nonNil(v.Signature), nonNil(v.Manifest)
 	v.CreatedAt = time.Unix(created, 0).UTC()
 	v.DeletedAt, v.RemoveAt = fromNull(deleted), fromNull(remove)
@@ -73,7 +81,31 @@ func oneVersion(ctx context.Context, q querier, nodeID, id string) (Version, err
 	if err != nil {
 		return Version{}, fmt.Errorf("store: read version: %w", err)
 	}
-	return v, nil
+	v.KeyChain, err = keyChain(ctx, q, nodeID, v.KeyGeneration)
+	return v, err
+}
+
+// keyChain returns the links from a node's current key back to the generation
+// given, newest first. It is empty when that generation is the current one.
+func keyChain(ctx context.Context, q querier, nodeID string, from int64) ([]KeyLink, error) {
+	rows, err := q.QueryContext(ctx, `SELECT generation, sealed_key FROM node_key_history
+		WHERE node_id = ? AND generation >= ? ORDER BY generation DESC`, nodeID, from)
+	if err != nil {
+		return nil, fmt.Errorf("store: read key chain: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []KeyLink
+	for rows.Next() {
+		var l KeyLink
+		if err := rows.Scan(&l.Generation, &l.SealedKey); err != nil {
+			return nil, fmt.Errorf("store: read key chain: %w", err)
+		}
+		out = append(out, l)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: read key chain: %w", err)
+	}
+	return out, nil
 }
 
 // ListVersions returns a page of a node's versions, newest first, before the
@@ -127,10 +159,10 @@ func checkVersionIDFree(ctx context.Context, q querier, id string) error {
 // trigger, and makes it the node's current one.
 func insertVersion(ctx context.Context, tx *sql.Tx, ownerID string, v Version) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO versions (id, node_id, blob_id, suite, author_id, content_version_id,
-		content_author_id, stored_size, frame_count, frame_size, frame_hashes, signature, manifest, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		content_author_id, stored_size, frame_count, frame_size, key_generation, frame_hashes, signature, manifest, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.NodeID, v.BlobID, v.Suite, v.AuthorID, v.ContentVersionID, v.ContentAuthorID,
-		v.StoredSize, v.FrameCount, v.FrameSize, nonNil(v.FrameHashes), nonNil(v.Signature), nonNil(v.Manifest), v.CreatedAt.Unix())
+		v.StoredSize, v.FrameCount, v.FrameSize, v.KeyGeneration, nonNil(v.FrameHashes), nonNil(v.Signature), nonNil(v.Manifest), v.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("store: insert version: %w", err)
 	}

@@ -39,17 +39,20 @@ type Upload struct {
 	FrameCount int64
 	FrameSize  int64
 	StoredSize int64
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// KeyGeneration is the generation of the node's key the frames are sealed under.
+	// On the way in, zero means whichever is current.
+	KeyGeneration int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
-const uploadColumns = `id, user_id, owner_id, node_id, version_id, suite, frame_count, frame_size, stored_size, created_at, updated_at`
+const uploadColumns = `id, user_id, owner_id, node_id, version_id, suite, frame_count, frame_size, stored_size, key_generation, created_at, updated_at`
 
 func oneUpload(ctx context.Context, q querier, id string) (Upload, error) {
 	var u Upload
 	var created, updated int64
 	err := q.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE id = ?", id).Scan(
-		&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize, &u.StoredSize, &created, &updated)
+		&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize, &u.StoredSize, &u.KeyGeneration, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Upload{}, ErrNotFound
 	}
@@ -118,6 +121,9 @@ func (s *Store) CreateUpload(ctx context.Context, u Upload) (Upload, error) {
 		if err := checkNotTrashed(ctx, tx, u.NodeID); err != nil {
 			return err
 		}
+		if u.KeyGeneration != 0 && u.KeyGeneration != n.KeyGeneration {
+			return ErrKeyGeneration
+		}
 		if err := checkVersionIDFree(ctx, tx, u.VersionID); err != nil {
 			return err
 		}
@@ -125,9 +131,9 @@ func (s *Store) CreateUpload(ctx context.Context, u Upload) (Upload, error) {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO uploads (id, user_id, owner_id, node_id, version_id, suite,
-			frame_count, frame_size, stored_size, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			frame_count, frame_size, stored_size, key_generation, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			u.ID, u.UserID, n.OwnerID, u.NodeID, u.VersionID, u.Suite,
-			u.FrameCount, u.FrameSize, u.StoredSize, u.CreatedAt.Unix(), u.CreatedAt.Unix())
+			u.FrameCount, u.FrameSize, u.StoredSize, n.KeyGeneration, u.CreatedAt.Unix(), u.CreatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("store: insert upload: %w", err)
 		}
@@ -234,6 +240,10 @@ func (s *Store) CommitUpload(ctx context.Context, uploadID string, req CommitReq
 		if err := checkExpected(n, req.Expected); err != nil {
 			return err
 		}
+		// A rotation since the upload began would leave the old key on new content.
+		if u.KeyGeneration != n.KeyGeneration {
+			return ErrKeyGeneration
+		}
 		hashes, err := frameHashes(ctx, tx, u)
 		if err != nil {
 			return err
@@ -249,7 +259,7 @@ func (s *Store) CommitUpload(ctx context.Context, uploadID string, req CommitReq
 		v := Version{
 			ID: u.VersionID, NodeID: u.NodeID, BlobID: u.ID, Suite: u.Suite, AuthorID: u.UserID,
 			ContentVersionID: u.VersionID, ContentAuthorID: u.UserID, StoredSize: u.StoredSize,
-			FrameCount: u.FrameCount, FrameSize: u.FrameSize, FrameHashes: hashes,
+			FrameCount: u.FrameCount, FrameSize: u.FrameSize, KeyGeneration: u.KeyGeneration, FrameHashes: hashes,
 			Signature: req.Signature, Manifest: req.Manifest, CreatedAt: now,
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM uploads WHERE id = ?", u.ID); err != nil {

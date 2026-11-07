@@ -71,6 +71,12 @@ func driveError(err error) error {
 		{store.ErrRootImmutable, http.StatusConflict, codeRootImmutable},
 		{store.ErrNodeTrashed, http.StatusConflict, codeNodeTrashed},
 		{store.ErrParentTrashed, http.StatusConflict, codeParentTrashed},
+		{store.ErrMoveAcrossOwners, http.StatusForbidden, codeMoveRefused},
+		{store.ErrMoveOutOfShare, http.StatusForbidden, codeMoveRefused},
+		{store.ErrKeyGeneration, http.StatusPreconditionFailed, codeKeyGenerationConflict},
+		{store.ErrRotateConflict, http.StatusConflict, codeRotateConflict},
+		{store.ErrGrantExists, http.StatusConflict, codeGrantExists},
+		{store.ErrLinkLimit, http.StatusGone, codeLinkLimitReached},
 		{store.ErrNotTrashed, http.StatusConflict, codeNotTrashed},
 		{store.ErrVersionConflict, http.StatusPreconditionFailed, codeVersionConflict},
 		{store.ErrVersionCurrent, http.StatusConflict, codeVersionCurrent},
@@ -276,7 +282,7 @@ func (s *Server) CreateNode(ctx context.Context, req oapi.CreateNodeRequestObjec
 		WrappedKey:     in.WrappedKey,
 		NameTag:        in.NameTag,
 		CreatedAt:      s.cfg.Now(),
-	})
+	}, nil)
 	if err != nil {
 		return nil, driveError(err)
 	}
@@ -314,7 +320,7 @@ func (s *Server) UpdateNode(ctx context.Context, req oapi.UpdateNodeRequestObjec
 	if _, err := s.authorizeNode(ctx, req.Id, permWrite); err != nil {
 		return nil, err
 	}
-	n, err := s.store.UpdateNode(ctx, req.Id, metadata, tag, s.cfg.Now())
+	n, err := s.store.UpdateNode(ctx, req.Id, metadata, tag, store.KeyCheck{}, s.cfg.Now())
 	if err != nil {
 		return nil, driveError(err)
 	}
@@ -357,7 +363,7 @@ func (s *Server) MoveNode(ctx context.Context, req oapi.MoveNodeRequestObject) (
 	if err != nil {
 		return nil, err
 	}
-	n, err := s.store.MoveNode(ctx, req.Id, parent.ID, in.WrappedKey, in.NameTag, s.cfg.Now())
+	n, err := s.store.MoveNode(ctx, req.Id, parent.ID, in.WrappedKey, in.NameTag, store.MoveGuard{}, s.cfg.Now())
 	if err != nil {
 		return nil, driveError(err)
 	}

@@ -81,6 +81,20 @@ const (
 	codeInvalidBlob        = "invalid_blob"
 	codeBlobInUse          = "blob_in_use"
 	codeInvalidCursor      = "invalid_cursor"
+
+	codeMoveRefused           = "move_refused"
+	codeKeyGenerationConflict = "key_generation_conflict"
+	codeRotateConflict        = "rotate_conflict"
+	codeInvalidRotation       = "invalid_rotation"
+	codeGrantExists           = "grant_exists"
+	codeInvalidGrant          = "invalid_grant"
+	codeInvalidLink           = "invalid_link"
+	codeLinkExpired           = "link_expired"
+	codeLinkRevoked           = "link_revoked"
+	codeLinkLimitReached      = "link_limit_reached"
+	codeLinkTokenRequired     = "link_token_required"   //nolint:gosec // an error code, not a secret
+	codeLinkTokenInvalid      = "link_token_invalid"    //nolint:gosec // an error code, not a secret
+	codeLinkPasswordInvalid   = "link_password_invalid" //nolint:gosec // an error code, not a secret
 )
 
 type errorBody struct {
