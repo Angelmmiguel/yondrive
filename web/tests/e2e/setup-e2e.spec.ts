@@ -50,9 +50,10 @@ test('the wizard has no step or copy from the old design', async ({ page }) => {
 		/Encryption/,
 		/Admin account/,
 		/Recovery key/,
+		/Sign-in methods/,
 		/Review/
 	]);
-	await expect(page.getByText(/email|sign-in methods|oidc/i)).toHaveCount(0);
+	await expect(page.getByText(/email me|recovery codes/i)).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Continue' }).click();
 	const none = page.getByRole('radio', { name: /No encryption/ });

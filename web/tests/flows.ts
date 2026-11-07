@@ -37,6 +37,8 @@ export interface WizardOptions {
 	displayName?: string;
 	email?: string;
 	totp?: boolean;
+	/** Fills the sign-in step. Left alone, it is local accounts only. */
+	signIn?: (page: Page) => Promise<void>;
 }
 
 export async function openWizard(page: Page, server: Server): Promise<void> {
@@ -81,6 +83,9 @@ export async function runWizard(
 		words = await confirmRecoveryKey(page);
 		await proceed(page);
 	}
+	await expect(page.getByRole('heading', { name: 'How people sign in' })).toBeVisible();
+	await options.signIn?.(page);
+	await proceed(page);
 	await expect(page.getByRole('heading', { name: 'Review and finish' })).toBeVisible();
 	await page.getByRole('button', { name: 'Finish setup' }).click();
 	await expect(page.getByRole('heading', { name: 'YonDrive is ready' })).toBeVisible({

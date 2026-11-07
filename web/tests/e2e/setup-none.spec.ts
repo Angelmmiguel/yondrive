@@ -30,7 +30,7 @@ test('without encryption the wizard skips the recovery step and explains the cho
 	).toBeVisible();
 	await expect(
 		page.getByRole('navigation', { name: 'Setup steps' }).getByRole('button')
-	).toHaveText([/Server/, /Encryption/, /Admin account/, /Review/]);
+	).toHaveText([/Server/, /Encryption/, /Admin account/, /Sign-in methods/, /Review/]);
 });
 
 test('full setup without encryption, with no unlock, and a quiet indicator', async ({ page }) => {
