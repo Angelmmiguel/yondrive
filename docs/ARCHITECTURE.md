@@ -894,7 +894,9 @@ writer carry.
 (keeping the note's fields), the heartbeat and its warning. The bytes are written into the Markdown that was opened,
 so blocks the editor did not change, and what it does not model, are copied as they were. A version restored, or
 saved elsewhere, is shown when nothing here is unsaved. Pictures still uploading hold the save until they have an
-id.
+id (`pictures.ts`). One that fails to go up stays in the note and the save fails, saying so, rather than write it
+with no address; it goes up again at the next save. A note with no folder this user can add to, such as one shared
+on its own, refuses pictures and files as they are pasted, dropped or picked.
 
 **The index** holds, per note and version, its links, tags, tasks, pictures, a preview and its text. A note may be
 someone else's, shared, so at most 1,000 of each are read from one (`MAX_FACTS`), a link to the same note counts

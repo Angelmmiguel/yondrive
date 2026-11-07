@@ -5,7 +5,7 @@
  * files draw as chips and open in the app; pictures named by id are read from the
  * drive and never fetched from anywhere else; `#tags` and due dates stand out.
  */
-import type { Node as PMNode } from 'prosemirror-model';
+import { Fragment, Slice, type Node as PMNode } from 'prosemirror-model';
 import {
 	Plugin,
 	PluginKey,
@@ -282,6 +282,39 @@ export function noteImageView(store: ImageStore, read: (id: string) => Promise<s
 	};
 }
 
+/** A fragment without the pictures a paste brings as data. */
+function withoutNewPictures(fragment: Fragment): Fragment {
+	const out: PMNode[] = [];
+	fragment.forEach((node) => {
+		if (node.type === schema.nodes.image && node.attrs.pending) return;
+		out.push(node.isLeaf ? node : node.copy(withoutNewPictures(node.content)));
+	});
+	return Fragment.fromArray(out);
+}
+
+/**
+ * Pictures pasted or dropped into a note that has nowhere to keep them, such as
+ * a note shared on its own: they are left out and `refuse` says so, rather than
+ * shown in a note that would be saved without them.
+ */
+export function pictureGuard(canAdd: () => boolean, refuse: () => void): Plugin {
+	return new Plugin({
+		props: {
+			transformPasted(slice) {
+				if (canAdd()) return slice;
+				let found = false;
+				slice.content.descendants((node) => {
+					if (node.type === schema.nodes.image && node.attrs.pending) found = true;
+					return !found;
+				});
+				if (!found) return slice;
+				refuse();
+				return new Slice(withoutNewPictures(slice.content), slice.openStart, slice.openEnd);
+			}
+		}
+	});
+}
+
 export interface NoteEditorOptions {
 	doc: PMNode;
 	editable: () => boolean;
@@ -295,6 +328,10 @@ export interface NoteEditorOptions {
 	kindOf: (id: string) => LinkKind;
 	readImage: (id: string) => Promise<string | null>;
 	onImageFailed: (e: unknown) => void;
+	/** Whether the note has a folder to keep new pictures in. */
+	canAddPictures: () => boolean;
+	/** A picture was pasted or dropped where it cannot be kept. */
+	onPictureRefused: () => void;
 }
 
 export function createNoteEditor(mount: HTMLElement, o: NoteEditorOptions): EditorView {
@@ -309,6 +346,7 @@ export function createNoteEditor(mount: HTMLElement, o: NoteEditorOptions): Edit
 	});
 	const state = base.reconfigure({
 		plugins: [
+			pictureGuard(o.canAddPictures, o.onPictureRefused),
 			suggestPlugin(o.onSuggest, o.onSuggestKey),
 			shortcuts(),
 			keymap({

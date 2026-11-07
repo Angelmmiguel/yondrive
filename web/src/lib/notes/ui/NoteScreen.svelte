@@ -8,7 +8,7 @@
 	import { goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { MediaQuery, SvelteMap } from 'svelte/reactivity';
+	import { MediaQuery } from 'svelte/reactivity';
 	import type { EditorView } from 'prosemirror-view';
 	import { api } from '$lib/api/client';
 	import type { Editor } from '$lib/api/types';
@@ -48,6 +48,7 @@
 		type NoteMeta
 	} from '$lib/notes/model';
 	import { nodeHref } from '$lib/notes/parse';
+	import { PictureNotKeptError, PictureUploads } from '$lib/notes/pictures';
 	import { canWrite, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { notes } from '$lib/state/notes.svelte';
@@ -104,7 +105,26 @@
 	let store: ImageStore | null = null;
 	/** The document as it was when the screen closed, for saves that finish after. */
 	let closedDoc: EditorView['state']['doc'] | null = null;
-	const uploading = new SvelteMap<string, Promise<void>>();
+	/** Pictures pasted or picked go up as files beside the note, and the note names them by id. */
+	const pictures = new PictureUploads({
+		upload: async (key, alt) => {
+			const folder = fileFolder;
+			const core = notes.core;
+			const img = store?.get(key);
+			if (folder === null || core === null || img === undefined) throw new Error(NO_FOLDER);
+			const ext = img.mime === 'image/jpeg' ? 'jpg' : 'png';
+			const name = `${(alt || title || 'Picture').replace(/[/\\]/g, '-').slice(0, 80)}.${ext}`;
+			return nodeHref((await core.attach(folder, name, img.bytes, fileId)).id);
+		},
+		onkept: (key, href) => {
+			if (view) replaceImageKey(view, key, href);
+		},
+		onfailed: (e) =>
+			toasts.push(
+				'danger',
+				`${e instanceof Error && !('code' in e) ? e.message : describeDriveError(e)} The picture stays in the note and is tried again when it is next saved.`
+			)
+	});
 
 	const node = $derived(drive.node(fileId));
 	const items = $derived.by(() => {
@@ -117,6 +137,13 @@
 	const title = $derived(node ? titleOf(node.name) : '');
 	const notebook = $derived(item?.notebook ?? null);
 	const folderId = $derived(node?.parentId ?? null);
+	/** Where pictures and files added here go: the note's folder, if this user can add to it. */
+	const fileFolder = $derived.by(() => {
+		const parent = folderId === null ? undefined : drive.node(folderId);
+		return parent !== undefined && canWrite(parent) ? parent.id : null;
+	});
+	const NO_FOLDER =
+		'Pictures and files cannot be added to this note: it was shared without a folder you can add to.';
 
 	const presence = new Presence({
 		api,
@@ -132,14 +159,16 @@
 		return { tree: core.tree, engine: core.engine };
 	}
 
-	/** The Markdown as the editor has it now, waiting for pictures still on their way up. */
+	/** The Markdown as the editor has it now, once every picture in it has gone up as a file. */
 	async function markdown(): Promise<string> {
-		await Promise.all(uploading.values());
+		const before = closedDoc ?? view?.state.doc;
+		if (before) pictures.start(pendingImages(before), true);
+		await pictures.settle();
 		const doc = closedDoc ?? view?.state.doc;
 		if (!doc) throw new Error('The editor is closed.');
 		// An empty note has nothing to keep: it is written as a new file, ending in a newline.
 		return writeMarkdown(
-			{ blocks: fromDoc(doc), images: {} },
+			{ blocks: pictures.resolve(fromDoc(doc)), images: {} },
 			original === '' ? undefined : original
 		);
 	}
@@ -190,7 +219,12 @@
 					},
 					onstatus: (s, e) => {
 						status = s;
-						saveError = s === 'failed' ? describeDriveError(e) : '';
+						saveError =
+							s !== 'failed'
+								? ''
+								: e instanceof PictureNotKeptError
+									? e.message
+									: describeDriveError(e);
 					},
 					onconflict: (copy) => {
 						conflict = {
@@ -241,7 +275,12 @@
 				kindOf,
 				readImage: (id) => notes.imageUrl(id),
 				onImageFailed: (e) =>
-					toasts.push('danger', e instanceof Error ? e.message : 'That picture could not be added.')
+					toasts.push(
+						'danger',
+						e instanceof Error ? e.message : 'That picture could not be added.'
+					),
+				canAddPictures: () => fileFolder !== null,
+				onPictureRefused: () => toasts.push('danger', NO_FOLDER)
 			});
 			updateWords();
 			presence.start(found.id, canWrite(found));
@@ -336,32 +375,20 @@
 		} else drive.open(target);
 	}
 
-	/** Pictures pasted or picked go up as files beside the note, and the note names them by id. */
+	/** Sends up the pictures just added; one that failed waits for the next save. */
 	function uploadPending(v: EditorView) {
-		const folder = folderId;
-		const core = notes.core;
-		if (!folder || !core || !store) return;
-		for (const { key, alt } of pendingImages(v.state.doc)) {
-			if (uploading.has(key)) continue;
-			const img = store.get(key);
-			if (!img) continue;
-			const ext = img.mime === 'image/jpeg' ? 'jpg' : 'png';
-			const name = `${(alt || title || 'Picture').replace(/[/\\]/g, '-').slice(0, 80)}.${ext}`;
-			const job = core
-				.attach(folder, name, img.bytes, fileId)
-				.then((made) => {
-					if (view) replaceImageKey(view, key, nodeHref(made.id));
-				})
-				.catch((e) => void toasts.push('danger', describeDriveError(e)))
-				.finally(() => uploading.delete(key));
-			uploading.set(key, job);
-		}
+		pictures.start(pendingImages(v.state.doc));
 	}
 
 	async function picked(event: Event & { currentTarget: HTMLInputElement }) {
 		const file = event.currentTarget.files?.[0];
 		event.currentTarget.value = '';
-		if (!file || !view || !store || !folderId || !notes.core) return;
+		if (!file || !view || !store || !notes.core) return;
+		const folder = fileFolder;
+		if (folder === null) {
+			toasts.push('danger', NO_FOLDER);
+			return;
+		}
 		try {
 			if (/^image\/(png|jpeg|gif|webp|bmp)$/.test(file.type)) {
 				const img = await redraw(file);
@@ -378,7 +405,7 @@
 				return;
 			}
 			const bytes = new Uint8Array(await file.arrayBuffer());
-			const made = await notes.core.attach(folderId, file.name, bytes, fileId);
+			const made = await notes.core.attach(folder, file.name, bytes, fileId);
 			if (view) linkNode(view, made.id, made.name);
 		} catch (e) {
 			toasts.push(
