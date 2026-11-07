@@ -16,12 +16,15 @@ encryption, none of the confidentiality claims below apply: see
 | A server that turns hostile while serving the same app | No, within the limits below. |
 | A server that replaces the app | **Yes, from the next unlock.** See below. |
 | Someone with a grant | Yes, for what was shared. That is the point. |
+| Someone with a public link | Yes, for what it covers: the current version of each file and no history. |
+| Someone with a public link's id but not its key | No. They can fetch ciphertext, and anything else the link's limits allow. |
 | Malware on an unlocked device | Yes. |
 
 ## What the server still sees
 
 The server sees who the users are, the folder structure as anonymous ids, who shares with
-whom, when things change and who is currently editing. It sees exact sizes: nothing is
+whom and in which role, which links exist with their expiry and download count, when things
+change and who is currently editing. It sees exact sizes: nothing is
 padded, so the plaintext size of each version follows from what is stored, and it is also
 in the manifest. It sees the frame digests, the content hash, signatures and public keys.
 
@@ -37,8 +40,11 @@ It cannot see names, types, tags, dates inside metadata, or contents.
   browser-based end-to-end encrypted service. Reproducible builds and published hashes allow
   checking, and native clients reduce the risk, but none of them remove it for the web app.
   The CSP catches mistakes and injected content. It does not stop a server that writes the CSP.
-- **Revoking a share is not retroactive.** It stops future access. The node key is rotated
-  for future content, and earlier content may have been copied.
+- **Revoking a share is not retroactive.** It stops future access at once, by the server. The
+  client then rotates the node key and those under it, for future content. The rotation seals
+  nothing again: existing versions stay under their old keys, which the revoked user may have,
+  and earlier content may have been copied. Until each node is rotated, new content in it is
+  sealed under a key they may hold.
 - **The device is trusted.** Malware on an unlocked device can read what the user can read,
   and capture the passphrase.
 - **Zeroing is best effort.** Keys are zeroed on lock and when done with, and all-zero keys
@@ -59,7 +65,8 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 | **The server hands out a false public key** when you share, and reads everything shared after. | Fingerprints are pinned on first use and a change raises a warning. Two people can compare a safety number over another channel. | First use is trusted unless the number is compared. |
 | **Username probing** through the KDF endpoint. | Unknown usernames get stable fake parameters derived from a server secret. | The parameters cannot hide everything. An account with non-default KDF parameters stands out, as fake answers carry the new-account defaults. A real salt changes on rekey and a fake one never does, so watching a username over time can tell them apart. With open sign-up on, registering reveals taken names, within the rate limit. Sign-in timing is not measured. |
 | **SSO compromise** gives access to a user's wrapped key, to attack offline. | A minimum passphrase strength, and Argon2id sets the price of each guess. Nothing derived from the unlock passphrase reaches the server. | Weak passphrases can still fall. |
-| **Removing someone from a shared folder.** They may have kept the keys. | The node key rotates on revoke, for future content. The app says plainly that earlier content may have been copied. | What they already hold stays readable to them. |
+| **Removing someone from a shared folder.** They may have kept the keys. | The node key rotates on revoke, for future content, from the top of the share down. The app says plainly that earlier content may have been copied. | What they already hold stays readable to them. |
+| **A false "shared with you".** A server can make a folder whose key it knows and present it as shared, then read what is uploaded there. | Each grant is signed by its granter, over the node, both users, the role, the key generation and the sealed key. A client verifies it against the granter's pinned key, and that the granter owns the node. | A server can also make an account, and share from it. That shows as a share from someone the user does not know, which is where the safety number matters. |
 | **A stolen session can delete files.** | Trash, version history and a grace period enforced by the server before anything is purged. | An honest server is assumed for the grace period. |
 | **Malicious documents from other users** run in the same origin as the keys. | Parsers run in workers and output a typed model, never HTML. Sanitising, a strict CSP, and SVG and HTML are downloaded rather than rendered inline. | A parser bug that escapes the model. |
 
@@ -82,10 +89,11 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 - **Rollback.** A server can serve an older version, older metadata or an older wrapped key,
   each still valid. It can also withhold items. Nothing here gives a global view of what is
   current.
-- **Forged grants.** A grant does not authenticate its sender, and anyone with a public key
-  can make one, the server included. A server can present a folder whose key it knows as
-  "shared with you", and read what is uploaded there. Sharing must sign grants before it
-  relies on them.
+- **Withheld revocations.** A server can go on serving a revoked user, or a signed grant that
+  has since been revoked, since a signature says only that it was made. A rotation is what stands
+  against this, and only for what comes after it.
+- **A role.** The signature ties a grant to a role, but the role is enforced by the server. A
+  hostile server can let a viewer write. See edit rights, below.
 - **Metadata authorship.** Metadata is authenticated by the node key, not signed. Anyone with
   read access to a node holds its key, and could write metadata that opens correctly. The
   server refuses the write unless they may edit, so this rests on the server. Content versions
@@ -97,6 +105,37 @@ It cannot see names, types, tags, dates inside metadata, or contents.
   can make one ciphertext that opens under both. Within a signed version, the content hash
   ties the signer to one ciphertext. A signer can still make it open differently for readers
   holding different keys.
+
+## Public links
+
+The key of a link is in the URL's fragment, which browsers do not send, so the server holds only
+what it can open. Whoever has the URL has the key. Expiry, revocation and download limits are
+enforced by the server, and are as strong as the server is honest.
+
+**A link's password** is checked on the client, which is why a link with one has no key in its
+URL. The server hands the wrapped link key to anyone who asks, within the limits, so **someone with
+the URL can attack the password offline**, at the Argon2id price per guess, and limiting requests
+does not change that once they have it. A strong password is what protects such a link. The same
+is true of someone with the database. In `none` mode the server checks the password itself, the
+wrapped key does not exist, and the limits do hold against guessing.
+
+**Link tokens.** Reading under a link takes a token from `X-Link-Token`, signed by the server and
+bound to the link and its node. It lasts 15 minutes and can be renewed for a day. The link's state
+is read again on every request, so revoking ends it at once. It is not a cookie, so it cannot be
+used across sites, and the routes under a link read neither cookies nor bearer tokens, so being
+signed in reaches nothing there. A link token opens nothing else. It reaches a node's current version and
+thumbnail at or under the link's node, and neither the trash, nor older versions, nor anything
+above it. `Referrer-Policy: no-referrer` is on every response, so a link's path does not leave
+through a referrer.
+
+**What a link shows.** No owner, username or quota. A reader sees the Ed25519 public key of a
+version's signer, which it needs to verify the signature, and that key is the same across links.
+It verifies only that the key signed, since a reader with no account has nothing to pin it against:
+a server can substitute content with a key of its own.
+
+**Download limits** count a file once per session, at its first byte, in a transaction, so that they
+hold under any concurrency. A file started and abandoned has counted. The count is not a statement
+about what anyone received, and a session already reading a file finishes it.
 
 ## Downgrade
 

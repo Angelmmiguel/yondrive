@@ -136,6 +136,7 @@ input, or a wrapped value; it is never a cipher key itself.
 | meta | `HKDF(node key, "yondrive/meta/v1")` | seals this node's metadata |
 | name | `HKDF(node key, "yondrive/name/v1")` | tags the names of this folder's children |
 | content | `HKDF(node key, "yondrive/content/v1")` | derives version keys |
+| previous | `HKDF(node key, "yondrive/node-previous/v1")` | seals the key this one replaced |
 
 **Root node key,** for the top of a user's tree:
 
@@ -168,7 +169,64 @@ The grant is 105 bytes for a 32-byte node key. To open, split off the first 32 b
 `E`, compute `shared = X25519(r, E)`, refuse all zeros, derive the same `wrap key` and `aad` using
 the recipient's own `R`, and open. The opened value MUST be 32 bytes and not all zeros. `e` MUST be zeroed.
 
-A grant does not authenticate its sender.
+### Signature
+
+The grant itself does not authenticate its sender, and anyone with a public key can make
+one, so the granter signs it:
+
+```
+message   = fields("yondrive/grant/v1", utf8(node id), utf8(granter id), utf8(grantee id),
+                   utf8(role), u32(key generation), grant)
+signature = Ed25519-Sign(granter's Ed25519 private key, message)
+```
+
+`role` is `viewer` or `editor`, and the key generation is the one of the sealed key. Changing
+a role or rotating the key signs again. Verification follows section 12. A grantee MUST verify
+the signature with the granter's pinned key (section 15), and MUST check that the granter is
+the node's owner, before using the grant or showing the node as shared with them. The server
+checks the size alone: 105 bytes for the grant and 64 for the signature.
+
+### Rotation
+
+A node key has a generation, which starts at 1. Rotating replaces the key with a new random
+one and adds 1. It takes one call, `POST /nodes/{id}/rotate`, made by the owner, whose whole
+body is applied in one transaction:
+
+| Field | Value |
+| --- | --- |
+| `key_generation` | the node's current generation |
+| `parent_key_generation` | the parent's current generation |
+| `wrapped_key` | the new key, wrapped as in section 7, under the parent's key |
+| `previous_key` | `Seal(previous subkey of the new key, old key, fields("yondrive/node/previous/v1", utf8(node id), u32(old generation)))` |
+| `sealed_metadata` | the node's metadata, sealed as in section 9 under the new key |
+| `children` | every direct child, trashed ones too: `id`, its own unchanged key wrapped as in section 7 under the new key, and its name tag remade as in section 10 under the new key |
+| `grants` | every grant on the node: `grantee_id`, a new grant (section 8) of the new key, and a signature over the new generation |
+| `links` | every live link on the node: `id`, and a new `sealed_key` (section 19) of the new key |
+
+Anything else about the node stays: its versions and their frames are not sealed again.
+
+**Reading older versions.** A version records the `key_generation` it was sealed under, and
+section 11 uses the node key of that generation. The API gives a version its `key_chain`: the
+`previous_key` of each generation from the current one back to the version's, newest first.
+To reach an old key, start from the current key and open each link with the `previous` subkey
+of the key before it, checking the node id and generation in the AAD. A key opens every older
+one and no newer one, so someone holding an old key learns nothing from a rotation, and a new
+grantee can read the history of what is shared with them.
+
+**Writes.** A client MUST send the generation it sealed under: `parent_key_generation` with a
+new node, a move and a rename, `key_generation` with new metadata and a new upload. The server
+answers `key_generation_conflict` if it has moved on, and the client reads the node again and
+seals again. An upload that is overtaken by a rotation is refused at commit, and starts over.
+A client without the generation of a thumbnail that fails to open MUST treat it as missing:
+rotating removes the thumbnail, and it can make another.
+
+**Revoking from a subtree.** The grant covers the subtree, and the revoked user may have kept
+every key in it. After revoking, the owner's client rotates the node of the grant and then each
+node under it, parents first, so that each `wrapped_key` is made under the parent's new key.
+Each rotation stands alone, and a node's generation shows whether it has been done, so a client
+that stops can resume. Grants above the node keep working, as the node's new key is wrapped
+under its parent. A `rotate_conflict` means that someone has just added a child, grant or link:
+read them again and seal again.
 
 ## 9. Metadata
 
@@ -204,7 +262,8 @@ different Unicode versions can disagree about characters one of them does not kn
 
 ### Version key
 
-Each version has its own key, from the node's content subkey:
+Each version has its own key, from the content subkey of the node key of the generation the
+version records (section 8):
 
 ```
 version key = HKDF(content subkey,
@@ -289,7 +348,8 @@ The same operations with no keys:
 
 | Operation | Result |
 | --- | --- |
-| Master key, node key, identity keys, wraps, grants, signature | empty byte strings |
+| Master key, node key, link key, identity keys, wraps, grants, signatures, previous keys, sealed link keys | empty byte strings |
+| Link password | section 19 |
 | Metadata | `utf8(json)` |
 | Name tag | `SHA-256(fields("yondrive/name/none/v1", utf8(normalized)))`, `normalized` as in section 10 |
 | Stored frame | the plaintext frame, unchanged, so a stored version is byte-identical to the file |
@@ -341,6 +401,11 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/content/v1` | HKDF info, plain |
 | `yondrive/thumb/v1` | HKDF info, plain |
 | `yondrive/index/v1` | HKDF info, plain |
+| `yondrive/node-previous/v1` | HKDF info, plain |
+| `yondrive/link-wrap/v1` | HKDF info, plain |
+| `yondrive/link-kek/v1` | HKDF info, plain |
+| `yondrive/link-auth/v1` | HKDF info, plain |
+| `yondrive/link-owner/v1` | HKDF info, plain |
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
 | `yondrive/master/passphrase/v1` | AAD |
@@ -351,6 +416,10 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/node/root/v1` | AAD |
 | `yondrive/node/child/v1` | AAD |
 | `yondrive/node/grant/v1` | AAD |
+| `yondrive/node/previous/v1` | AAD |
+| `yondrive/link/key/v1` | AAD |
+| `yondrive/link/password/v1` | AAD |
+| `yondrive/link/owner/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
 | `yondrive/blob/thumb/v1` | AAD |
@@ -358,6 +427,7 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/content/hash/v1` | hash prefix |
 | `yondrive/name/none/v1` | hash input |
 | `yondrive/version/v1` | signed message |
+| `yondrive/grant/v1` | signed message |
 | `yondrive/fingerprint/v1` | hash input |
 | `yondrive/safety-number/v1` | hash input |
 
@@ -388,3 +458,43 @@ stored        = Seal(index key, segment bytes, fields("yondrive/blob/index/v1", 
 
 A thumbnail is an image in a format every browser decodes, JPEG or WebP, whatever the file was.
 A client MUST draw it as an image and nothing else, since the server chooses which bytes it gets.
+
+## 19. Public links
+
+A link's id is 32 lowercase hex characters from 16 random bytes, chosen by the client. Its
+key is 32 random bytes, which the server never sees. It reads the same as a grant: only what
+the node's key opens, and down from it through the wraps of section 7.
+
+```
+sealed key  = Seal(HKDF(link key, "yondrive/link-wrap/v1"), node key,
+                   fields("yondrive/link/key/v1", utf8(link id), utf8(node id)))
+owner copy  = Seal(HKDF(master key, "yondrive/link-owner/v1"), link key,
+                   fields("yondrive/link/owner/v1", utf8(link id)))
+```
+
+The owner's copy lets a rotation seal the new node key for the link, and lets the app show the
+URL again. Both are 73 bytes.
+
+**No password.** The URL is `https://host/s/<id>#<link key>`, the key in unpadded base64url.
+Browsers do not send a fragment to a server.
+
+**A password,** with the Argon2id of section 3 and its bounds, under a fresh salt. The URL is
+`https://host/s/<id>`, with no key in it.
+
+```
+root         = Argon2id(utf8(NFKC(password)), salt, m, t, p, tag length 32)
+link KEK     = HKDF(root, "yondrive/link-kek/v1")
+wrapped key  = Seal(link KEK, link key, fields("yondrive/link/password/v1", utf8(link id)))
+auth key     = HKDF(link key, "yondrive/link-auth/v1")
+```
+
+A reader gets the KDF parameters and the wrapped key from the link, derives the link KEK and
+tries to open it: the password is checked here. The opened key gives the auth key, which is sent
+to `POST /public/links/{id}/unlock` for the sealed key and a token. The server stores its
+SHA-256 and compares in constant time.
+
+**Suite `none`.** There is no key, and the URL has none. A password makes
+`auth key = HKDF(root, "yondrive/link-auth/v1")`, sent to the same route. Here the server is what
+checks the password.
+
+An opened link key or node key MUST be 32 bytes and not all zeros.

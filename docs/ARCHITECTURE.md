@@ -52,11 +52,15 @@ lock              advisory lock against a second process
 | `invites` | SHA-256 of the token, email, role, quota, expiry and use. |
 | `password_resets` | SHA-256 of the token, user and expiry. At most one per user. |
 | `audit` | Time, action, actor id, target id, address. Survives deleting the user. |
-| `nodes` | Owner, parent, kind, suite, opaque metadata, wrapped key and name tag, current version, trash and removal times. |
-| `versions` | Node, blob, author, the id it was sealed as and its signer, sizes, frame hashes, opaque signature and manifest. |
+| `nodes` | Owner, parent, kind, suite, opaque metadata, wrapped key and name tag, current version, key generation, trash and removal times. |
+| `node_key_history` | The key of each past generation of a node, sealed under the next. |
+| `versions` | Node, blob, author, the id it was sealed as and its signer, key generation, sizes, frame hashes, opaque signature and manifest. |
+| `grants` | Node, grantee, granter, role, key generation, sealed key, signature, when it was read. |
+| `links` | Node, owner, key generation, sealed keys, KDF parameters and auth hash of a password, expiry, download limit and count, revocation. |
+| `link_downloads` | What each link's sessions have counted. |
 | `blobs` | Owner, node if any, kind, suite, size, ref count. |
 | `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. |
-| `changes` | The journal: sequence, owner, node, operation, time. |
+| `changes` | The journal: sequence, the user whose journal it is, node, operation, time. |
 | `file_removals` | Files whose rows have gone, waiting to be unlinked. |
 
 Session keys are not in this list. They are memory only.
@@ -129,6 +133,26 @@ PUT    /blobs/{id}?kind=&suite=&node_id=  thumbnail or index segment
 DELETE /blobs/{id}                      thumbnail or index segment
 GET    /me/index?cursor=                index segments
 GET    /changes?cursor=
+GET    /users/lookup?username=          exact match only, limited
+POST   /grants                          owner: sealed key, signature
+GET    /grants?cursor=                  made by me, with their nodes
+PATCH  /grants/{id}                     owner: role, signature
+DELETE /grants/{id}                     owner, or the holder
+GET    /nodes/{id}/grants               on the node and above it
+POST   /nodes/{id}/rotate               owner: one transaction
+GET    /shared-with-me?cursor=          held by me, with their nodes
+GET    /notifications                   unread grants: ids only
+POST   /notifications/read
+POST   /links                           owner
+GET    /links?cursor=                   made by me, with their nodes
+POST   /links/{id}/revoke
+DELETE /links/{id}
+GET    /public/links/{id}               state, or open with a token
+POST   /public/links/{id}/unlock        proof of the password -> open with a token
+GET    /public/links/{id}/nodes/{nid}   X-Link-Token, as all below
+GET    /public/links/{id}/nodes/{nid}/children?cursor=
+GET    /public/links/{id}/nodes/{nid}/version    the current one
+GET    /public/links/{id}/blobs/{bid}   Range
 ```
 
 **Who may call what.** `guard` is a middleware on every generated operation, and
@@ -139,7 +163,7 @@ being forgotten.
 **Middleware**, outermost first: panic recovery, a request log (never bodies or
 query strings), a deadline on the request body (per frame on the frame and small blob
 routes, 5 minutes, instead of 2), security headers, the same-origin check for
-state-changing requests, a cap on the body (16 MiB and overhead on those routes, 1 MiB elsewhere). The same-origin check skips
+state-changing requests, a cap on the body (16 MiB and overhead on those routes and on a rotation, 1 MiB elsewhere). The same-origin check skips
 requests with an `Authorization: Bearer` header. Such a request is then
 authenticated by that header alone, even if it also carries a cookie, so a forged
 header cannot reach the cookie past the check.
@@ -147,6 +171,9 @@ header cannot reach the cookie past the check.
 **Rate limits**, fixed windows per client address, in memory: 10 a minute by default
 on everything that checks a credential (login, registration, rekey, password reset,
 minting a token, enrolling and disabling TOTP, an admin invite, issuing a reset) and six times that on the KDF route.
+Looking up a username takes three times that per user and per address. A link's password takes the
+default per address and five times it per link, both counted on its state as well as on an attempt, and
+opening any link six times it per address.
 Wrong setup tokens count, right ones do not. Guesses at a second factor are also
 limited per user, since they come only with the right auth key and no stranger can
 use that to lock anyone out. The address is the connection's peer, or the last
@@ -167,7 +194,7 @@ so the admin area can warn about the most likely misconfiguration.
 At 65,536 tracked keys a limiter forgets the window closest to ending, so a spray of
 addresses cannot clear the limits on anyone else.
 
-**Audit.** Security events only: ids, the action and the address. Never content or
+**Audit.** Security events only, grants, rotations and links among them: ids, the action and the address. Never content or
 secrets, and never the username typed at a failed sign-in, since people type
 passwords there. A failed audit write is logged and undoes nothing.
 
@@ -189,9 +216,11 @@ moves the node, and checks for cycles in it, so that two crossing moves cannot b
 A tree stops at 256 levels: deleting one relies on foreign key cascades, which SQLite limits
 to 1000 levels, and a deeper tree could never be deleted, nor could its owner.
 
-**Who may do what.** `canAccess` is the one place that decides: today the owner, and grants
-go there in the next phase. What it refuses answers exactly as what does not exist, `404`,
-and blobs and uploads are reached through their node.
+**Who may do what.** `effectiveRole` is the one place that decides, and `authorizeNode` the way to
+it. An owner may do anything. Anyone else has the strongest role a grant gives them on the node or
+above it, found by a walk bounded by the depth a tree can reach, and none while the node or anything
+above it is in the trash. No role answers exactly as what does not exist, `404`. A role that does
+not allow this answers `403`. Blobs and uploads are reached through their node.
 
 **Trash, purge and the grace period.** Trashing sets a time on the root of the subtree alone,
 and what is under it stays readable and frozen. A client's purge only marks: it sets
@@ -208,7 +237,8 @@ moves under an optimistic check: `expected_version` answers `412 version_conflic
 
 **Quota.** `used_bytes` and `reserved_bytes` on the user are kept by triggers on `blobs` and `uploads`,
 so a row removed by a cascade releases its bytes like any other. An upload reserves its size when
-created, and the commit changes reserved to used in one transaction. The owner of the node is charged.
+created, and the commit changes reserved to used in one transaction. The owner of the node is charged,
+whoever is uploading.
 
 **Uploads.** Create, then send frames in any order, then commit:
 
@@ -248,9 +278,70 @@ come with the version.
 thumbnail hangs off its node and replaces the last one, and an index segment off its user. Both
 count against quota. A client can make them again, so they have no grace period.
 
-**Journal.** `changes` holds a sequence, owner, node, operation and time. Writes are serialised, so
-sequence numbers appear in commit order and a stored cursor misses nothing. An operation on a
-subtree appears once, on its root.
+**Journal.** `changes` holds a sequence, a user, node, operation and time, with one row per user who
+can reach the node when it happens: the owner and everyone with a grant on it or above it. So reading
+needs no walk, and it says what someone could reach then and not what they can now. Writes are
+serialised, so sequence numbers appear in commit order and a stored cursor misses nothing. An operation
+on a subtree appears once, on its root, except to those with a grant under it, who cannot see the root:
+trashing and restoring appear to them on the node of the grant.
+
+A trigger on `grants` adds `revoked` for its grantee, however the row goes, including with its node or
+its owner. A move adds it for whoever could reach the node only through where it was. It means a way of
+reaching the node has ended, which may not have been the last: a client reads the node, and drops it and
+what is under it if the answer is `404`.
+
+## Sharing
+
+What is sealed is opaque here as well. The server checks sizes against the mode, and holds no key. The
+constructions are in [CRYPTO.md](CRYPTO.md), sections 8 and 19.
+
+**Roles.** A viewer reads, including older versions. An editor also creates, renames, moves, uploads
+versions, restores a version and trashes, and is charged nothing. Only an owner shares, rotates, restores
+from the trash, purges or deletes versions; what is in the trash is hidden from everyone else, so an editor
+cannot undo trashing. A root cannot be shared, as it holds the owner's tags and has no parent to wrap under.
+
+**The node of a grant** lives in a folder its grantee may not see. Its `parent_id` and `name_tag` do not
+show, and `wrapped_key` is empty. What changes that folder, which is a rename, a move or trashing, needs
+write access to the parent. So an editor of a shared folder can write to its metadata and contents, and
+not take it from where it is. A holder who is done with it gives up the grant instead.
+
+**Moves.** A move stays within the owner. An editor's also stays within one grant: a grant of theirs must
+cover both the old parent and the new one, so two separate shares from one owner stay separate. This is
+checked in the transaction of the move, since the owner may be moving the same folders. An owner may move a
+subtree in and out of what they share, and roles follow where it is now.
+
+**Revoking** ends access with the commit, and uploads the user can no longer finish stop holding the owner's
+quota. The rest is the client's: `POST /nodes/{id}/rotate` replaces a node's key, the wraps and tags of its
+children, the sealed grants and links, and the metadata, in one transaction, or `rotate_conflict` if anything
+has been added since the client read it. A subtree is rotated one node at a time, from the top. A rotation
+removes the thumbnail, which has no generation.
+
+**Key generations.** Versions and uploads record the generation of the node key they are sealed under, and
+each rotation stores the old key sealed under the new one. That chain comes with a version as `key_chain`, so
+old versions read without being sealed again. Every write that seals something can name the generation it
+used, checked in its transaction, and a commit is refused if a rotation overtook its upload. Without that, a
+client that has not yet seen a rotation would leave a child nobody can open, or new content under a key
+someone was meant to lose. These request fields are optional in the schema so that older clients work, and
+clients must send them.
+
+**Notifications** are read from `grants`, with a time on the row when its holder marks it, so there is
+nothing more to keep in step. A new grant after a revocation is a new row, and notifies again.
+
+**Public links.** A link is owner-made, read-only and covers a subtree. Revoking keeps the row, for the
+"shared by me" page, and deleting does not. A link answers `404` if its id is unknown, its owner is disabled
+or its node or anything above it is in the trash, and `410` if it has been revoked or has expired.
+
+Anyone reading under a link holds a token signed with a key derived from the server's secret, which says the
+link, its node, the session, when the token ends, and when renewing has to stop. Nothing about it is stored.
+Each request checks the signature and reads the link again, then requires that the node have the link's node
+in its lineage and nothing in its lineage in the trash. A blob must be its node's current version or thumbnail.
+These routes are `accessOpen`, so no principal exists on them, and they read no cookie or bearer token.
+
+The download limit counts content when a session first asks for any part of a file, and ranges after that
+are free. `link_downloads` makes this one transaction with the count, and a file is opened first, so a missing
+file costs nothing. The sweeper forgets claims older than a session can last, which gives nothing back to the
+limit. Once it is reached, a new visitor gets `410`. Sessions that have started keep browsing, and finish what
+they had claimed.
 
 ## Backup
 

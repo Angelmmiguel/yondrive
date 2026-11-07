@@ -286,8 +286,10 @@ interface, which is the only place the modes differ.
 
 ### 5.4 Sharing
 
-- **User to user.** In end-to-end mode the node key is sealed to the recipient's X25519 key. Sharing a folder
-  covers its whole subtree, because children are wrapped under it.
+- **User to user.** In end-to-end mode the node key is sealed to the recipient's X25519 key and signed by the
+  owner, who alone shares. Sharing a folder covers its whole subtree, because children are wrapped under it.
+- **Revocation.** Access ends with the commit. The client then rotates each node key from the top of the share
+  down. Versions record the generation of the key they are sealed under, and each new key opens the one before.
 - **Public link.** The client creates a link key and the URL carries it in the fragment:
   `https://host/s/<id>#<key>`. Browsers do not send fragments to servers.
 - **Link password.** In end-to-end mode, Argon2id on the client wraps the link key. The server stores the wrapped
