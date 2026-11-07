@@ -9,7 +9,7 @@ import { fakeDriveServer, fakeUser, SUITES, USER_ID } from '$lib/testing/drive';
 import { entryData, readZip } from '$lib/formats/zip';
 import { backlinks, NoteRefs } from './index';
 import { entryId, NotesIndexer, sealedNotesCache, NOTES_INDEX_ID } from './indexer';
-import { isNotesRoot, parseNoteMeta, titleOf } from './model';
+import { isNotesRoot, NOTES_APP, parseNoteMeta, titleOf } from './model';
 import { Notes } from './notes';
 import { nodeHref } from './parse';
 
@@ -52,6 +52,44 @@ describe.each(SUITES)('notes in mode %s', (_, suite) => {
 		expect(root.parentId).toBe(drive.tree.rootId);
 		expect((await notes.ensureRoot()).id).toBe(root.id);
 		expect(drive.tree.childrenOf(drive.tree.rootId as string)).toHaveLength(1);
+	});
+
+	it('takes in every folder of notes that a race on first use made', async () => {
+		const { drive, notes } = wired(suite);
+		await drive.start();
+		const root = await notes.ensureRoot();
+		// Another device made its own at the same moment: Drive hides both.
+		const other = await drive.tree.createFolder(drive.tree.rootId!, 'Notes (2)', {
+			app: NOTES_APP
+		});
+		const trip = await notes.createNotebook(other.id, 'Trip');
+		await notes.createNote(other.id, 'Packing', 'Socks.\n');
+		await notes.createNote(trip.id, 'Route', 'North.\n');
+		await notes.createNote(root.id, 'Here', 'Mine.\n');
+		const first = notes.root()!.id;
+		expect(
+			notes
+				.roots()
+				.map((r) => r.id)
+				.sort()
+		).toEqual([root.id, other.id].sort());
+		expect(notes.notebooks(first).map((n) => n.name)).toEqual(['Trip']);
+		expect(
+			notes
+				.all(first)
+				.map((n) => [titleOf(n.node.name), n.notebook?.name ?? null])
+				.sort()
+		).toEqual([
+			['Here', null],
+			['Packing', null],
+			['Route', 'Trip']
+		]);
+		const zip = readZip(await notes.exportAll(first));
+		expect(zip.entries.map((e) => e.name).sort()).toEqual([
+			'Here.md',
+			'Packing.md',
+			'Trip/Route.md'
+		]);
 	});
 
 	it('makes notes and notebooks, and links survive a rename', async () => {

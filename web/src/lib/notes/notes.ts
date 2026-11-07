@@ -71,11 +71,24 @@ export class Notes {
 		return this.#deps.now?.() ?? Date.now();
 	}
 
-	/** The folder of notes, if the root's list has one. Two devices racing make two: the oldest wins. */
-	root(): DriveNode | undefined {
+	/**
+	 * Every folder of notes, oldest first. Two devices racing on first use make two,
+	 * and Drive hides them all, so all of them are the notes; new ones go in the oldest.
+	 */
+	roots(): DriveNode[] {
 		const rootId = this.#tree.rootId;
-		if (rootId === null) return undefined;
-		return this.#tree.childrenOf(rootId).filter(isNotesRoot).sort(byOldest)[0];
+		if (rootId === null) return [];
+		return this.#tree.childrenOf(rootId).filter(isNotesRoot).sort(byOldest);
+	}
+
+	/** The folder of notes new notes go in: the oldest, if the root's list has one. */
+	root(): DriveNode | undefined {
+		return this.roots()[0];
+	}
+
+	/** The folders whose notes and notebooks are this user's notes: `rootId` and any other folder of notes. */
+	space(rootId: string): string[] {
+		return [rootId, ...this.roots().map((r) => r.id)].filter((id, i, all) => all.indexOf(id) === i);
 	}
 
 	/** The folder of notes, made on first use. */
@@ -95,10 +108,10 @@ export class Notes {
 		return this.#making;
 	}
 
-	/** Notebooks: the folders in the folder of notes. */
+	/** Notebooks: the folders in the folders of notes. */
 	notebooks(rootId: string): DriveNode[] {
-		return this.#tree
-			.childrenOf(rootId)
+		return this.space(rootId)
+			.flatMap((id) => this.#tree.childrenOf(id))
 			.filter((n) => n.kind === 'folder')
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
@@ -110,7 +123,9 @@ export class Notes {
 
 	/** Every note of this user's, with the notebook it is in (null at the top). */
 	all(rootId: string): { node: DriveNode; notebook: DriveNode | null }[] {
-		const out = this.notesIn(rootId).map((node) => ({ node, notebook: null as DriveNode | null }));
+		const out = this.space(rootId).flatMap((id) =>
+			this.notesIn(id).map((node) => ({ node, notebook: null as DriveNode | null }))
+		);
 		for (const nb of this.notebooks(rootId)) {
 			for (const node of this.notesIn(nb.id)) out.push({ node, notebook: nb });
 		}
@@ -221,7 +236,7 @@ export class Notes {
 		const notes: ExportNote[] = [];
 		const files: ExportFile[] = [];
 		const folders: { id: string; folder: string }[] = [
-			{ id: rootId, folder: '' },
+			...this.space(rootId).map((id) => ({ id, folder: '' })),
 			...this.notebooks(rootId).map((nb) => ({ id: nb.id, folder: nb.name }))
 		];
 		for (const { id, folder } of folders) {

@@ -5,6 +5,7 @@ import { inlineFramePool } from '$lib/drive/frame-pool';
 import { openNodes } from '$lib/drive/open-nodes';
 import { memoryResumeStore } from '$lib/drive/upload/resume';
 import { fakeDriveServer, fakeUser, USER_ID } from '$lib/testing/drive';
+import { NOTES_APP } from '$lib/notes/model';
 import { NotesState } from './notes.svelte';
 
 async function wired() {
@@ -46,6 +47,29 @@ describe('notes state', () => {
 		expect(state.counts(state.items(), 0).tasks).toBe(1);
 		state.detach();
 		expect(state.items()).toEqual([]);
+	});
+
+	it('lists and trashes notes of every folder of notes, as Drive hides them all', async () => {
+		const { drive, state } = await wired();
+		await state.ensureRoot();
+		await state.newNote(null, 'Mine');
+		const other = await drive.tree.createFolder(drive.tree.rootId!, 'Notes (2)', {
+			app: NOTES_APP
+		});
+		const lost = await state.core!.createNote(other.id, 'Made on the other device');
+		await vi.waitFor(() =>
+			expect(
+				state
+					.items()
+					.map((i) => i.title)
+					.sort()
+			).toEqual(['Made on the other device', 'Mine'])
+		);
+		expect(state.isNotesNode(lost)).toBe(true);
+		await drive.tree.trash(lost.id);
+		const trash = await drive.tree.listTrash();
+		expect(state.trashed(trash).map((n) => n.id)).toEqual([lost.id]);
+		state.detach();
 	});
 
 	it('keeps the list’s choices', async () => {

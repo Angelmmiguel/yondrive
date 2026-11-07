@@ -246,7 +246,9 @@ export class NotesState {
 		if (drive === null) return [];
 		const root = this.rootId;
 		const folders =
-			root === null ? [] : [root, ...(this.core?.notebooks(root) ?? []).map((n) => n.id)];
+			root === null || this.core === null
+				? []
+				: [...this.core.space(root), ...this.core.notebooks(root).map((n) => n.id)];
 		return buildItems(
 			drive.tree,
 			folders,
@@ -262,16 +264,22 @@ export class NotesState {
 		return this.#indexer?.index ?? null;
 	}
 
-	/** Notes in the trash: notes and notebooks of the folder of notes. */
-	trashed(trash: readonly DriveNode[]): DriveNode[] {
+	/** Every folder of notes: two devices racing on first use make two. */
+	#space(): Set<string> {
 		const root = this.rootId;
+		return new Set(root === null || this.core === null ? [] : this.core.space(root));
+	}
+
+	/** Notes in the trash: notes and notebooks of the folders of notes. */
+	trashed(trash: readonly DriveNode[]): DriveNode[] {
+		const space = this.#space();
 		const tree = this.#drive?.tree;
-		if (root === null || tree === undefined) return [];
+		if (space.size === 0 || tree === undefined) return [];
 		return trash.filter(
 			(n) =>
 				(isNoteFile(n) || n.kind === 'folder') &&
 				n.parentId !== null &&
-				(n.parentId === root || tree.nodes.get(n.parentId)?.parentId === root)
+				(space.has(n.parentId) || space.has(tree.nodes.get(n.parentId)?.parentId ?? ''))
 		);
 	}
 
@@ -314,10 +322,9 @@ export class NotesState {
 	}
 
 	isNotesNode(node: DriveNode): boolean {
-		const root = this.rootId;
 		const tree = this.#drive?.tree;
 		if (tree === undefined) return false;
-		if (root !== null && tree.isWithin(node.id, root)) return true;
+		for (const id of this.#space()) if (tree.isWithin(node.id, id)) return true;
 		const shared = this.#shared();
 		return shared.some((s) => s.node.id === node.id);
 	}

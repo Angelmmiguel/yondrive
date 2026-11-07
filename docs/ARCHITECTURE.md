@@ -874,7 +874,7 @@ at `/notes` in the app shell and `/notes/[id]` full screen.
 | Where | Holds |
 | --- | --- |
 | `model.ts` | What marks a node: the folder of notes (`app: "notes"` in its sealed metadata), notebooks (the folders in it, `notebook: {color}`), a note's own fields under `note` (pinned, archived, reminder, tags, daily). Titles and file names, tags, days. |
-| `notes.ts` | The folder made on first use (two devices racing make two; the oldest wins), notebooks, notes made with their first version, renames numbered on a clash, attachments, today's note, "Link it", the whole export. |
+| `notes.ts` | The folder made on first use (two devices racing make two: Drive hides both, so the notes and notebooks of every folder marked `app: "notes"` are the notes, and new ones go in the oldest), notebooks, notes made with their first version, renames numbered on a clash, attachments, today's note, "Link it", the whole export. |
 | `parse.ts`, `index.ts`, `indexer.ts` | What a note's Markdown says (links, `#tags`, checklists and their `@YYYY-MM-DD`, pictures, text), the index of it with backlinks and unlinked mentions, and keeping it current. |
 | `list.ts`, `items.ts` | Sections, filters, counts and order of the list. |
 | `editor.ts`, `html.ts`, `export.ts`, `templates.ts`, `reminders.ts` | The editor's additions, a note as HTML, the ZIP, templates, reminders. |
