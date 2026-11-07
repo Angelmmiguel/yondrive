@@ -7,6 +7,7 @@
 	import { replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onDestroy, tick, untrack } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
 	import type { EditorView } from 'prosemirror-view';
 	import { api } from '$lib/api/client';
 	import type { Editor } from '$lib/api/types';
@@ -78,8 +79,10 @@
 	let mode = $state<'edit' | 'view'>('edit');
 	let rev = $state(0);
 	let zoom = $state(100);
-	let outlineOpen = $state(true);
-	let panel = $state<'details' | 'versions' | null>('details');
+	/** A phone: the panels start closed and open over the page, one at a time. */
+	const narrow = new MediaQuery('max-width: 720px');
+	let outlineOpen = $state(!narrow.current);
+	let panel = $state<'details' | 'versions' | null>(narrow.current ? null : 'details');
 	let findOpen = $state(false);
 	let others = $state.raw<Editor[]>([]);
 	let othersDismissed = $state(false);
@@ -335,6 +338,17 @@
 		if (!view) return;
 		const dom = view.nodeDOM(pos) as HTMLElement | null;
 		dom?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		if (narrow.current) outlineOpen = false;
+	}
+
+	function toggleOutline() {
+		outlineOpen = !outlineOpen;
+		if (outlineOpen && narrow.current) panel = null;
+	}
+
+	function togglePanel() {
+		panel = panel ? null : 'details';
+		if (panel && narrow.current) outlineOpen = false;
 	}
 
 	const MODES = [
@@ -485,6 +499,27 @@
 		theme.choice === 'dark' ||
 			(theme.choice === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
 	);
+
+	/** On a phone, what does not fit in the header: mode, sharing, downloads and theme. */
+	const more = $derived<MenuItem[]>([
+		...(canEdit
+			? [
+					mode === 'edit'
+						? { id: 'mode', label: 'Switch to viewing', icon: 'eye' as const }
+						: { id: 'mode', label: 'Switch to editing', icon: 'pencil' as const }
+				]
+			: []),
+		...(node && isOwner(node) ? [{ id: 'share', label: 'Share…', icon: 'shared' as const }] : []),
+		...downloads.map((d) => ({ ...d, id: `download:${d.id}` })),
+		{ id: 'theme', label: dark ? 'Light theme' : 'Dark theme', icon: dark ? 'sun' : 'moon' }
+	]);
+
+	function chooseMore(id: string) {
+		if (id === 'mode') mode = mode === 'edit' ? 'view' : 'edit';
+		else if (id === 'share' && node) drive.dialog = { kind: 'share', node };
+		else if (id === 'theme') theme.choose(dark ? 'light' : 'dark');
+		else if (id.startsWith('download:')) void download(id.slice('download:'.length));
+	}
 </script>
 
 <svelte:window onbeforeunload={beforeUnload} />
@@ -515,41 +550,51 @@
 					{/if}
 				</div>
 			</div>
-			<div class="actions">
-				{#if canEdit}
-					<SegmentedControl
-						label="Mode"
-						options={MODES}
-						value={mode}
-						onchange={(v) => (mode = v as 'edit' | 'view')}
+			{#if narrow.current}
+				<Menu label="More" items={more} width={280} align="end" onselect={chooseMore}>
+					{#snippet trigger(attrs)}
+						<button type="button" class="ghost" aria-label="More" {...attrs}
+							><Icon name="more" /></button
+						>
+					{/snippet}
+				</Menu>
+			{:else}
+				<div class="actions">
+					{#if canEdit}
+						<SegmentedControl
+							label="Mode"
+							options={MODES}
+							value={mode}
+							onchange={(v) => (mode = v as 'edit' | 'view')}
+						/>
+					{/if}
+					<Menu
+						label="Download as"
+						heading="Download as"
+						triggerLabel="Download"
+						triggerIcon="download"
+						items={downloads}
+						width={280}
+						align="end"
+						onselect={(id) => void download(id)}
 					/>
-				{/if}
-				<Menu
-					label="Download as"
-					heading="Download as"
-					triggerLabel="Download"
-					triggerIcon="download"
-					items={downloads}
-					width={280}
-					align="end"
-					onselect={(id) => void download(id)}
-				/>
-				{#if node && isOwner(node)}
-					<Button
-						variant="primary"
-						icon="shared"
-						onclick={() => node && (drive.dialog = { kind: 'share', node })}>Share</Button
+					{#if node && isOwner(node)}
+						<Button
+							variant="primary"
+							icon="shared"
+							onclick={() => node && (drive.dialog = { kind: 'share', node })}>Share</Button
+						>
+					{/if}
+					<button
+						type="button"
+						class="ghost"
+						aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
+						onclick={() => theme.choose(dark ? 'light' : 'dark')}
 					>
-				{/if}
-				<button
-					type="button"
-					class="ghost"
-					aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'}
-					onclick={() => theme.choose(dark ? 'light' : 'dark')}
-				>
-					<Icon name={dark ? 'sun' : 'moon'} />
-				</button>
-			</div>
+						<Icon name={dark ? 'sun' : 'moon'} />
+					</button>
+				</div>
+			{/if}
 		</header>
 		{#if phase === 'ready' && view && editing}
 			<DocToolbar
@@ -561,26 +606,18 @@
 				onlink={openLink}
 				onimage={() => picker?.click()}
 				onfind={() => (findOpen = true)}
-				ontoggleoutline={() => (outlineOpen = !outlineOpen)}
-				ontogglepanel={() => (panel = panel ? null : 'details')}
+				ontoggleoutline={toggleOutline}
+				ontogglepanel={togglePanel}
 			/>
 		{:else if phase === 'ready' && view}
 			<div class="viewbar">
 				<button type="button" class="ghost sm" onclick={() => (findOpen = true)}
 					><Icon name="search" size={16} /> Find</button
 				>
-				<button
-					type="button"
-					class="ghost sm"
-					aria-pressed={outlineOpen}
-					onclick={() => (outlineOpen = !outlineOpen)}
+				<button type="button" class="ghost sm" aria-pressed={outlineOpen} onclick={toggleOutline}
 					><Icon name="outline" size={16} /> Outline</button
 				>
-				<button
-					type="button"
-					class="ghost sm"
-					aria-pressed={panel !== null}
-					onclick={() => (panel = panel ? null : 'details')}
+				<button type="button" class="ghost sm" aria-pressed={panel !== null} onclick={togglePanel}
 					><Icon name="panel" size={16} /> Details</button
 				>
 			</div>
@@ -596,6 +633,14 @@
 	</div>
 
 	<div class="body">
+		{#if narrow.current && phase === 'ready' && (outlineOpen || panel)}
+			<button
+				type="button"
+				class="scrim"
+				aria-label="Close the panel"
+				onclick={() => ((outlineOpen = false), (panel = null))}
+			></button>
+		{/if}
 		{#if outlineOpen && phase === 'ready'}
 			<nav class="outline" aria-label="Outline">
 				<h2>Outline</h2>
@@ -668,18 +713,20 @@
 		</main>
 
 		{#if panel && phase === 'ready'}
-			<DocSide
-				bind:tab={panel}
-				{details}
-				format={formatOf(fileName) ?? format}
-				saveFormat={saveAs}
-				{canEdit}
-				{versions}
-				{versionsError}
-				onconvert={(f) => (convertTo = f)}
-				onrestore={(v) => void restore(v)}
-				ondownload={(v) => node && void drive.download(node, v.id)}
-			/>
+			<div class="sidewrap">
+				<DocSide
+					bind:tab={panel}
+					{details}
+					format={formatOf(fileName) ?? format}
+					saveFormat={saveAs}
+					{canEdit}
+					{versions}
+					{versionsError}
+					onconvert={(f) => (convertTo = f)}
+					onrestore={(v) => void restore(v)}
+					ondownload={(v) => node && void drive.download(node, v.id)}
+				/>
+			</div>
 		{/if}
 	</div>
 
@@ -1012,9 +1059,70 @@
 		color: var(--text-strong);
 	}
 
+	.sidewrap {
+		display: contents;
+	}
+
+	.scrim {
+		display: none;
+	}
+
 	@media (max-width: 720px) {
 		.paper {
 			padding: 32px 20px;
+		}
+
+		.head {
+			flex-wrap: nowrap;
+			gap: 8px;
+			padding: 8px 12px;
+		}
+
+		.badge {
+			display: none;
+		}
+
+		.title {
+			flex: 1 1 0;
+		}
+
+		.main {
+			padding: 16px 12px 48px;
+		}
+
+		.scrim {
+			display: block;
+			position: fixed;
+			inset: 0;
+			z-index: 30;
+			border: 0;
+			padding: 0;
+			background: rgb(8 8 10 / 0.4);
+		}
+
+		.outline,
+		.sidewrap {
+			display: flex;
+			position: fixed;
+			top: 0;
+			bottom: 0;
+			z-index: 31;
+			width: min(320px, 86vw);
+			overflow-y: auto;
+			background: var(--surface-page);
+			box-shadow: var(--shadow-lg);
+		}
+
+		.outline {
+			left: 0;
+		}
+
+		.sidewrap {
+			right: 0;
+		}
+
+		.sidewrap > :global(*) {
+			flex: 1;
 		}
 	}
 
@@ -1324,7 +1432,8 @@
 		.foot,
 		.notice,
 		.note,
-		.body > :global(aside) {
+		.sidewrap,
+		.scrim {
 			display: none !important;
 		}
 

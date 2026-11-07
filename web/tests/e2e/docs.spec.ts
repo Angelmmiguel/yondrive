@@ -251,6 +251,46 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(errors).toEqual([]);
 		});
 
+		test('on a phone the header is one row and the panels open over the page', async () => {
+			await reloadHome(page, server);
+			await page.setViewportSize({ width: 390, height: 844 });
+			try {
+				await openDoc(page, `sample-${mode}.docx`);
+				const outline = page.getByRole('navigation', { name: 'Outline' });
+				const details = page.getByRole('complementary', { name: 'Document details' });
+				const scrim = page.getByRole('button', { name: 'Close the panel' });
+				await expect(outline).toHaveCount(0);
+				await expect(details).toHaveCount(0);
+				expect((await page.locator('header').first().boundingBox())!.height).toBeLessThan(64);
+				expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+					390
+				);
+
+				const paper = (await editor(page).boundingBox())!;
+				await page.getByRole('button', { name: 'Toggle outline' }).click();
+				await expect(outline).toBeVisible();
+				expect((await outline.boundingBox())!.x).toBe(0);
+				// Over the page, not beside it: the page has not moved.
+				expect((await editor(page).boundingBox())!.x).toBe(paper.x);
+				await outline.getByRole('button', { name: 'Quarterly notes' }).click();
+				await expect(outline).toHaveCount(0);
+
+				await page.getByRole('button', { name: 'Toggle details panel' }).click();
+				await expect(details).toBeVisible();
+				const side = (await details.boundingBox())!;
+				expect(Math.round(side.x + side.width)).toBe(390);
+				await scrim.click({ position: { x: 10, y: 400 } });
+				await expect(details).toHaveCount(0);
+
+				await page.getByRole('button', { name: 'More' }).click();
+				await expect(page.getByRole('menuitem', { name: /Word document/ })).toBeVisible();
+				await page.getByRole('menuitem', { name: 'Switch to viewing' }).click();
+				await expect(editor(page)).toHaveAttribute('contenteditable', 'false');
+			} finally {
+				await page.setViewportSize({ width: 1280, height: 720 });
+			}
+		});
+
 		test('two people: each is told the other is editing; a viewer only reads', async ({
 			browser
 		}) => {
