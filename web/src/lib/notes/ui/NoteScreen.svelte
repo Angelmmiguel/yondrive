@@ -137,7 +137,11 @@
 		await Promise.all(uploading.values());
 		const doc = closedDoc ?? view?.state.doc;
 		if (!doc) throw new Error('The editor is closed.');
-		return writeMarkdown({ blocks: fromDoc(doc), images: {} }, original);
+		// An empty note has nothing to keep: it is written as a new file, ending in a newline.
+		return writeMarkdown(
+			{ blocks: fromDoc(doc), images: {} },
+			original === '' ? undefined : original
+		);
 	}
 
 	async function load() {

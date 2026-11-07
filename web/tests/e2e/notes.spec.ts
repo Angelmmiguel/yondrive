@@ -302,6 +302,29 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			}
 		});
 
+		test('one note exports as Markdown and HTML, and goes to Drive as a document', async () => {
+			await openNotes(page);
+			await card(page, 'Planning').getByRole('link').click();
+			await expectEditor(page);
+			await page.getByRole('tab', { name: 'Info' }).click();
+			const side = page.getByTestId('note-side');
+			let started = page.waitForEvent('download');
+			await side.getByRole('button', { name: 'Markdown' }).click();
+			const md = await readFile(await (await started).path(), 'utf8');
+			expect(md).toMatch(
+				/^Start with the \[Sync engine\]\(yondrive:node\/[0-9a-f]{32}\) rewrite\.\n$/
+			);
+			started = page.waitForEvent('download');
+			await side.getByRole('button', { name: 'HTML' }).click();
+			const html = await readFile(await (await started).path(), 'utf8');
+			expect(html).toContain('<h1>Planning</h1>');
+			expect(html).not.toContain('yondrive:');
+			await side.getByRole('button', { name: 'Save to Drive as Doc' }).click();
+			await expect(page.getByText('Saved to My files as “Planning.docx”.')).toBeVisible({
+				timeout: 30_000
+			});
+		});
+
 		test('the export is plain Markdown with links that point at the files', async () => {
 			await openNotes(page);
 			const started = page.waitForEvent('download');
