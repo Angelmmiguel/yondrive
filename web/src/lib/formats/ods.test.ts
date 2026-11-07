@@ -190,3 +190,20 @@ describe('hostile .ods', () => {
 		}
 	});
 });
+
+describe('hostile .ods styles', () => {
+	it('bounds the digits a data style asks for', async () => {
+		const styles =
+			'<number:number-style style:name="N9"><number:number number:decimal-places="400000000" number:min-integer-digits="-3"/></number:number-style>' +
+			'<style:style style:name="ce9" style:family="table-cell" style:data-style-name="N9"/>';
+		const bytes = await odsOf(
+			'<table:table table:name="T"><table:table-row><table:table-cell table:style-name="ce9" office:value-type="float" office:value="1.5"><text:p>1.5</text:p></table:table-cell></table:table-row></table:table>',
+			styles
+		);
+		const t = performance.now();
+		const { book } = await readOds(bytes);
+		expect(performance.now() - t).toBeLessThan(2000);
+		const c = book.engine.cell(book.engine.sheets[0].id, 0, 0)!;
+		expect(book.styles[c.style].numFmt).toBe(`#.${'0'.repeat(30)}`);
+	});
+});

@@ -190,6 +190,12 @@ function styleOf(p: Props, dataStyles: Map<string, string>): CellStyle {
 const quoteLit = (t: string) =>
 	t === '' ? '' : /^[-/:., ()]+$/.test(t) ? t : `"${t.replace(/"/g, '')}"`;
 
+/** A digit count from a data style, within what a format code shows (Excel's 30 decimals). */
+const digits = (v: string | undefined, fallback: number) => {
+	const n = Math.trunc(Number(v ?? fallback));
+	return Number.isFinite(n) ? Math.min(Math.max(n, 0), 30) : fallback;
+};
+
 /** A data style as an Excel format code, as well as the two can be matched. */
 function codeOfDataStyle(el: XElement, all: Map<string, XElement>, depth = 0): string {
 	const kind = el.name.slice(el.name.indexOf(':') + 1);
@@ -201,9 +207,9 @@ function codeOfDataStyle(el: XElement, all: Map<string, XElement>, depth = 0): s
 			const long = a['number:style'] === 'long';
 			switch (n) {
 				case 'number': {
-					const dec = Number(a['number:decimal-places'] ?? 0);
-					const minDec = Number(a['number:min-decimal-places'] ?? dec);
-					const minInt = Number(a['number:min-integer-digits'] ?? 1);
+					const dec = digits(a['number:decimal-places'], 0);
+					const minDec = digits(a['number:min-decimal-places'], dec);
+					const minInt = digits(a['number:min-integer-digits'], 1);
 					let int = '0'.repeat(Math.max(minInt, 0)) || '#';
 					if (a['number:grouping'] === 'true')
 						int = int.length >= 4 ? int : `#,${'#'.repeat(Math.max(0, 3 - int.length))}${int}`;
@@ -212,13 +218,13 @@ function codeOfDataStyle(el: XElement, all: Map<string, XElement>, depth = 0): s
 					break;
 				}
 				case 'scientific-number': {
-					const dec = Number(a['number:decimal-places'] ?? 2);
-					out += `0${dec > 0 ? `.${'0'.repeat(dec)}` : ''}E+${'0'.repeat(Number(a['number:min-exponent-digits'] ?? 2))}`;
+					const dec = digits(a['number:decimal-places'], 2);
+					out += `0${dec > 0 ? `.${'0'.repeat(dec)}` : ''}E+${'0'.repeat(digits(a['number:min-exponent-digits'], 2))}`;
 					break;
 				}
 				case 'fraction': {
 					const den = a['number:denominator-value'];
-					out += `# ${'?'.repeat(Number(a['number:min-numerator-digits'] ?? 1))}/${den ?? '?'.repeat(Number(a['number:min-denominator-digits'] ?? 1))}`;
+					out += `# ${'?'.repeat(digits(a['number:min-numerator-digits'], 1))}/${den ?? '?'.repeat(digits(a['number:min-denominator-digits'], 1))}`;
 					break;
 				}
 				case 'text': {
@@ -257,7 +263,7 @@ function codeOfDataStyle(el: XElement, all: Map<string, XElement>, depth = 0): s
 					out += long ? 'mm' : 'm';
 					break;
 				case 'seconds': {
-					const dec = Number(a['number:decimal-places'] ?? 0);
+					const dec = digits(a['number:decimal-places'], 0);
 					out += (long ? 'ss' : 's') + (dec > 0 ? `.${'0'.repeat(dec)}` : '');
 					break;
 				}
