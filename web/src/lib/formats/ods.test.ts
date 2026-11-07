@@ -255,3 +255,32 @@ describe('empty .ods tables', () => {
 		expect(again.cell(again.sheets[0].id, 1, 1)!.value).toBe(5);
 	});
 });
+
+describe('.ods attributes written back', () => {
+	it('escapes a reused row style name and rewrites single-quoted attributes', async () => {
+		const bytes = await odsOf(
+			"<table:table table:name='T'><table:table-column/>" +
+				'<table:table-row table:style-name="r&amp;1"><table:table-cell office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell></table:table-row>' +
+				"<table:table-row table:number-rows-repeated='3'><table:table-cell office:value-type=\"float\" office:value=\"2\"><text:p>2</text:p></table:table-cell></table:table-row>" +
+				'</table:table>',
+			'<style:style style:name="r&amp;1" style:family="table-row"><style:table-row-properties style:row-height="1cm"/></style:style>'
+		);
+		const { book } = await readOds(bytes);
+		const s = book.engine.sheets[0].id;
+		const info = book.sheet(s);
+		info.rows.set(2, { height: info.rows.get(0)!.height });
+		book.engine.set(s, 2, 1, { value: 9 });
+		book.engine.renameSheet(s, 'Data');
+		const out = await writeOds(book, bytes);
+		const xml = await content(out);
+		expect(xml.match(/table:style-name="r&amp;1"/g)?.length).toBe(2);
+		expect(xml).not.toMatch(/number-rows-repeated='3'/);
+		const again = (await readOds(out)).book;
+		const e = again.engine;
+		const id = e.sheets[0].id;
+		expect(e.sheets[0].name).toBe('Data');
+		expect([1, 2, 3].map((r) => e.cell(id, r, 0)!.value)).toEqual([2, 2, 2]);
+		expect(e.cell(id, 4, 0)).toBeUndefined();
+		expect(again.sheet(id).rows.get(2)?.height).toBe(info.rows.get(0)!.height);
+	});
+});

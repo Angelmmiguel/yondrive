@@ -1059,7 +1059,7 @@ function cellXml(ctx: WriteCtx, row: number, col: number, repeat = 1): string {
 }
 
 const setRepeat = (tag: string, attr: string, n: number) => {
-	const re = new RegExp(`\\s${attr}="[^"]*"`);
+	const re = new RegExp(`\\s${attr}\\s*=\\s*("[^"]*"|'[^']*')`);
 	const without = tag.replace(re, '');
 	if (n <= 1) return without;
 	const at = without.endsWith('/>') ? without.length - 2 : without.length - 1;
@@ -1260,8 +1260,8 @@ function patchTable(
 		const h = info.rows.get(row)?.height;
 		if (h !== undefined && (!src || rowHeight(src) !== h))
 			tag = tag
-				.replace(/\stable:style-name="[^"]*"/, '')
-				.replace(/>$/, ` table:style-name="${ctx.styles.row(h)}">`);
+				.replace(/\stable:style-name\s*=\s*("[^"]*"|'[^']*')/, '')
+				.replace(/>$/, ` table:style-name="${escapeAttr(ctx.styles.row(h))}">`);
 		return tag;
 	};
 	const rowChanged = (src: ORow | null, row: number) => {
@@ -1367,7 +1367,7 @@ function patchTable(
 			while (c + run < total && info.cols.find((x) => c + run >= x.min && c + run <= x.max) === ci)
 				run++;
 			const styleAttr =
-				ci?.width !== undefined ? ` table:style-name="${ctx.styles.column(ci.width)}"` : '';
+				ci?.width !== undefined ? ` table:style-name="${escapeAttr(ctx.styles.column(ci.width))}"` : '';
 			const def = ci?.style ? ctx.styles.cell(ci.style) : undefined;
 			cols += `<table:table-column${styleAttr}${run > 1 ? ` table:number-columns-repeated="${Math.min(run, MAX_COLS - c)}"` : ''}${ci?.hidden ? ' table:visibility="collapse"' : ''} table:default-cell-style-name="${escapeAttr(def ?? 'Default')}"/>`;
 			c += run;
@@ -1415,7 +1415,8 @@ async function template(): Promise<Uint8Array> {
 function renamed(text: string, name: string): string {
 	const tag = /^<[^>]*>/.exec(text)![0];
 	return (
-		tag.replace(/table:name="[^"]*"/, `table:name="${escapeAttr(name)}"`) + text.slice(tag.length)
+		tag.replace(/table:name\s*=\s*("[^"]*"|'[^']*')/, `table:name="${escapeAttr(name)}"`) +
+		text.slice(tag.length)
 	);
 }
 
