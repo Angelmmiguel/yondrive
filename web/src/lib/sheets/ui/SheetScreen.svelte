@@ -96,8 +96,13 @@
 	let warnedFixed = false;
 	let mode = $state<'edit' | 'view'>('edit');
 	let zoom = $state(100);
+	/** A phone: the panel starts closed and opens over the grid. */
 	const narrow = new MediaQuery('max-width: 720px');
 	let panel = $state<'details' | 'versions' | null>(narrow.current ? null : 'details');
+	// Narrowed to a phone's width, an open panel would cover the grid: it closes.
+	$effect(() => {
+		if (narrow.current) untrack(() => (panel = null));
+	});
 	let others = $state.raw<Editor[]>([]);
 	let othersDismissed = $state(false);
 	let conflict = $state<{ copy: SessionFile; original: SessionFile } | null>(null);
@@ -1405,6 +1410,7 @@
 					{canEdit}
 					{versions}
 					{versionsError}
+					onclose={narrow.current ? () => (panel = null) : undefined}
 					onconvert={(f) => void askConvert(f)}
 					onrestore={(v) => void restore(v)}
 					ondownload={(v) => node && void drive.download(node, v.id)}

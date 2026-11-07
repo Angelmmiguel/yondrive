@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
 	import { formatBytes, formatWhen } from '$lib/app/format';
-	import { Button, Tabs, Tag } from '$lib/components';
+	import { Button, Icon, Tabs, Tag } from '$lib/components';
 	import type { VersionEntry } from '$lib/drive/versions';
 
 	interface Props {
@@ -24,6 +24,8 @@
 		onconvert: (f: string) => void;
 		onrestore: (v: VersionEntry) => void;
 		ondownload: (v: VersionEntry) => void;
+		/** Given when the panel lies over the page, as on a phone: a button closes it. */
+		onclose?: () => void;
 	}
 
 	let {
@@ -39,12 +41,18 @@
 		versionsError,
 		onconvert,
 		onrestore,
-		ondownload
+		ondownload,
+		onclose
 	}: Props = $props();
 	const uid = $props.id();
 </script>
 
 <aside class="side" aria-label={label}>
+	{#if onclose}
+		<button type="button" class="close" aria-label="Close details" onclick={onclose}
+			><Icon name="close" size={16} /></button
+		>
+	{/if}
 	<Tabs
 		label="Panel"
 		tabs={[
@@ -116,11 +124,39 @@
 
 <style>
 	.side {
+		position: relative;
 		flex: 1 1 300px;
 		max-width: 100%;
 		box-sizing: border-box;
 		background: var(--surface-page);
 		border-left: 1px solid var(--border);
+	}
+
+	.close {
+		position: absolute;
+		top: 8px;
+		right: 8px;
+		z-index: 1;
+		display: grid;
+		place-items: center;
+		width: 32px;
+		height: 32px;
+		padding: 0;
+		border: 0;
+		border-radius: 8px;
+		background: transparent;
+		color: var(--text-muted);
+		cursor: pointer;
+	}
+
+	.close:hover {
+		background: var(--surface-hover);
+		color: var(--text-strong);
+	}
+
+	.close:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
 	}
 
 	.details {

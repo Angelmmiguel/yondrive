@@ -84,6 +84,14 @@
 	const narrow = new MediaQuery('max-width: 720px');
 	let outlineOpen = $state(!narrow.current);
 	let panel = $state<'details' | 'versions' | null>(narrow.current ? null : 'details');
+	// Narrowed to a phone's width, open panels would cover the page: they close.
+	$effect(() => {
+		if (narrow.current)
+			untrack(() => {
+				outlineOpen = false;
+				panel = null;
+			});
+	});
 	let findOpen = $state(false);
 	let others = $state.raw<Editor[]>([]);
 	let othersDismissed = $state(false);
@@ -699,6 +707,7 @@
 					{canEdit}
 					{versions}
 					{versionsError}
+					onclose={narrow.current ? () => (panel = null) : undefined}
 					onconvert={(f) => (convertTo = f as SaveFormat)}
 					onrestore={(v) => void restore(v)}
 					ondownload={(v) => node && void drive.download(node, v.id)}

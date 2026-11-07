@@ -402,6 +402,26 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(cell(page, 'F21')).toHaveText('while leaving');
 		});
 
+		test('narrowed to a phone with Details open, the panel closes and the grid shows', async () => {
+			await reloadHome(page, server);
+			await openSheet(page, 'Untitled spreadsheet.xlsx');
+			const details = page.getByRole('complementary', { name: 'Spreadsheet details' });
+			await expect(details).toBeVisible();
+			await page.setViewportSize({ width: 390, height: 844 });
+			try {
+				await expect(details).toHaveCount(0);
+				await expect(page.getByRole('button', { name: 'Close the panel' })).toHaveCount(0);
+				await expect(cell(page, 'A1')).toBeVisible();
+				// Opened again, it lies over the grid and has its own way out.
+				await page.getByRole('button', { name: 'Toggle details panel' }).click();
+				await expect(details).toBeVisible();
+				await details.getByRole('button', { name: 'Close details' }).click();
+				await expect(details).toHaveCount(0);
+			} finally {
+				await page.setViewportSize({ width: 1280, height: 720 });
+			}
+		});
+
 		test('printing opens the print dialog with the sheet as a table', async () => {
 			await reloadHome(page, server);
 			await openSheet(page, `book-${mode}.xlsx`);

@@ -363,11 +363,33 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 				expect(Math.round(side.x + side.width)).toBe(390);
 				await scrim.click({ position: { x: 10, y: 400 } });
 				await expect(details).toHaveCount(0);
+				// The drawer has its own way out.
+				await page.getByRole('button', { name: 'Toggle details panel' }).click();
+				await details.getByRole('button', { name: 'Close details' }).click();
+				await expect(details).toHaveCount(0);
 
 				await page.getByRole('button', { name: 'More' }).click();
 				await expect(page.getByRole('menuitem', { name: /Word document/ })).toBeVisible();
 				await page.getByRole('menuitem', { name: 'Switch to viewing' }).click();
 				await expect(editor(page)).toHaveAttribute('contenteditable', 'false');
+			} finally {
+				await page.setViewportSize({ width: 1280, height: 720 });
+			}
+		});
+
+		test('narrowed to a phone with the panels open, they close and the page shows', async () => {
+			await reloadHome(page, server);
+			await openDoc(page, `sample-${mode}.docx`);
+			const details = page.getByRole('complementary', { name: 'Document details' });
+			const outline = page.getByRole('navigation', { name: 'Outline' });
+			await expect(details).toBeVisible();
+			await expect(outline).toBeVisible();
+			await page.setViewportSize({ width: 390, height: 844 });
+			try {
+				await expect(details).toHaveCount(0);
+				await expect(outline).toHaveCount(0);
+				await expect(page.getByRole('button', { name: 'Close the panel' })).toHaveCount(0);
+				await expect(editor(page)).toBeVisible();
 			} finally {
 				await page.setViewportSize({ width: 1280, height: 720 });
 			}
