@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { WindowCache } from './cache';
-import { htmlTableRows, parseTsv, toTsv } from './clipboard';
+import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipboard';
 import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
@@ -169,6 +169,25 @@ describe('the clipboard', () => {
 			['Line\ntwo', '$5']
 		]);
 		expect(htmlTableRows('<p>no table</p>')).toBeNull();
+	});
+
+	it('pastes formulas only into the file and sheet they were copied from', () => {
+		const cut: Copied = {
+			tsv: '3',
+			raw: [['=A1+A2']],
+			origin: { row: 2, col: 0 },
+			area: { top: 2, left: 0, bottom: 2, right: 0 },
+			file: 'book-a',
+			sheet: 1,
+			cut: true
+		};
+		expect(isOwnCopy(cut, { file: 'book-a', sheet: 1 }, '3', '')).toBe(true);
+		expect(isOwnCopy(cut, { file: 'book-a', sheet: 1 }, '', '')).toBe(true);
+		// Another workbook's first sheet has the same id.
+		expect(isOwnCopy(cut, { file: 'book-b', sheet: 1 }, '3', '')).toBe(false);
+		expect(isOwnCopy(cut, { file: 'book-a', sheet: 2 }, '3', '')).toBe(false);
+		expect(isOwnCopy(cut, { file: 'book-a', sheet: 1 }, 'other', '')).toBe(false);
+		expect(isOwnCopy(null, { file: 'book-a', sheet: 1 }, '', '')).toBe(false);
 	});
 });
 

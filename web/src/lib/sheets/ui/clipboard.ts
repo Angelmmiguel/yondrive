@@ -4,11 +4,42 @@
  * table is read for its text only; nothing of it is ever drawn.
  */
 
+import type { Area } from '$lib/formula/address';
 import { print } from '$lib/formula/ast';
 import { parseFormula } from '$lib/formula/parse';
 import { translateFormula } from '$lib/formula/shift';
 
 const NEEDS_QUOTES = /[\t\n\r"]/;
+
+/** What was last copied or cut in a grid, to paste its formulas rather than their values. */
+export interface Copied {
+	tsv: string;
+	raw: string[][];
+	origin: { row: number; col: number };
+	area: Area;
+	/** The file and sheet it came from: sheet ids repeat from one workbook to the next. */
+	file: string;
+	sheet: number;
+	cut: boolean;
+}
+
+/**
+ * Whether a paste is of what was copied here: into the same sheet of the same
+ * file, with the system clipboard still holding it (or nothing readable).
+ */
+export function isOwnCopy(
+	c: Copied | null,
+	into: { file: string; sheet: number },
+	text: string,
+	html: string
+): c is Copied {
+	return (
+		c !== null &&
+		c.file === into.file &&
+		c.sheet === into.sheet &&
+		(text === c.tsv || (text === '' && html === ''))
+	);
+}
 
 export function toTsv(rows: readonly (readonly string[])[]): string {
 	return rows

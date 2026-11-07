@@ -11,16 +11,10 @@
 -->
 <script module lang="ts">
 	import type { Area } from '$lib/formula/address';
+	import type { Copied } from './clipboard';
 
 	/** What was last copied or cut here, to paste formulas rather than their values. */
-	let clip: {
-		tsv: string;
-		raw: string[][];
-		origin: { row: number; col: number };
-		area: Area;
-		sheet: number;
-		cut: boolean;
-	} | null = null;
+	let clip: Copied | null = null;
 
 	export interface Draft {
 		text: string;
@@ -35,7 +29,7 @@
 	import type { CellStyle } from '$lib/formats/workbook';
 	import type { CellView, SheetMeta } from '../service';
 	import type { WindowCache } from './cache';
-	import { htmlTableRows, parseTsv, shiftFormulaText, toTsv } from './clipboard';
+	import { htmlTableRows, isOwnCopy, parseTsv, shiftFormulaText, toTsv } from './clipboard';
 	import ContextMenu from './ContextMenu.svelte';
 	import { Axis, colPx, colSizes, rowPx, rowSizes } from './geometry';
 	import { textOf } from './history';
@@ -58,6 +52,8 @@
 	import { cellLook } from './style';
 
 	interface Props {
+		/** The file's id, which the clipboard memory is kept for. */
+		file: string;
 		meta: SheetMeta;
 		styles: readonly CellStyle[];
 		cache: WindowCache;
@@ -84,6 +80,7 @@
 	}
 
 	let {
+		file,
 		meta,
 		styles,
 		cache,
@@ -885,7 +882,15 @@
 
 	function remember(a: Area, cut: boolean, g: { shown: string[][]; raw: string[][] }) {
 		const tsv = toTsv(g.shown);
-		clip = { tsv, raw: g.raw, origin: { row: a.top, col: a.left }, area: a, sheet: meta.id, cut };
+		clip = {
+			tsv,
+			raw: g.raw,
+			origin: { row: a.top, col: a.left },
+			area: a,
+			file,
+			sheet: meta.id,
+			cut
+		};
 		marquee = a;
 		return tsv;
 	}
@@ -943,7 +948,7 @@
 
 	function pasteRows(text: string, html: string) {
 		const at = sel.active;
-		if (clip && clip.sheet === meta.id && (text === clip.tsv || (text === '' && html === ''))) {
+		if (isOwnCopy(clip, { file, sheet: meta.id }, text, html)) {
 			const c = clip;
 			const dr = at.row - c.origin.row;
 			const dc = at.col - c.origin.col;

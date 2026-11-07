@@ -1340,6 +1340,7 @@
 							bind:this={grid}
 							bind:sel
 							bind:draft
+							file={fileId}
 							{meta}
 							{styles}
 							{cache}
