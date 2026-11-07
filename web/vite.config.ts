@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import { sveltekit } from '@sveltejs/kit/vite';
+import { svelteTesting } from '@testing-library/svelte/vite';
 
 // The Go server listens on YONDRIVE_ADDR (its own default is 127.0.0.1:8080),
 // and Vite proxies to the same address, so changing the port is one variable in
@@ -10,7 +11,7 @@ const apiTarget = `http://${addr.startsWith(':') ? `127.0.0.1${addr}` : addr}`;
 // SvelteKit options live in svelte.config.js; passing any of them here would
 // make SvelteKit ignore that file.
 export default defineConfig({
-	plugins: [sveltekit()],
+	plugins: [sveltekit(), svelteTesting()],
 	build: {
 		// The CSP allows no data: fonts, so no asset may be inlined into the CSS.
 		assetsInlineLimit: 0
