@@ -18,10 +18,12 @@
 		Menu,
 		NavItem,
 		NavSection,
+		PassphraseFields,
 		PasswordField,
 		ProgressBar,
 		RadioCard,
 		RadioGroup,
+		RecoveryKeyPanel,
 		SearchField,
 		SegmentedControl,
 		Select,
@@ -48,6 +50,8 @@
 		{ id: 'review', label: 'Review', hint: 'Check and finish' }
 	];
 
+	let newPassphrase = $state('');
+	let newConfirmation = $state('');
 	let step = $state('encryption');
 	let mode = $state('e2e');
 	let view = $state('list');
@@ -418,6 +422,22 @@
 				{#snippet action()}<Button variant="secondary">Go to My files</Button>{/snippet}
 			</EmptyState>
 		</Card>
+	</section>
+
+	<section>
+		<h2>Account</h2>
+		<div class="grid">
+			<PassphraseFields bind:passphrase={newPassphrase} bind:confirmation={newConfirmation} />
+		</div>
+		<RecoveryKeyPanel
+			pending={{
+				key: new Uint8Array(0),
+				words: Array.from({ length: 24 }, (_, i) => `word${i + 1}`),
+				asked: [2, 9, 17]
+			}}
+			username="angel"
+			server="nas-01"
+		/>
 	</section>
 
 	<section>

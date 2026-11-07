@@ -1,9 +1,10 @@
 <!--
-  The visual check for the component library: every component and variant, drawn
-  twice side by side, once forced light and once forced dark. It holds no data
-  and calls nothing.
+  The visual check for the component library: every component and variant, in the
+  theme the page is in. Use the toggle at the top to see the other one. It holds
+  no data and calls nothing.
 -->
 <script lang="ts">
+	import { ThemeToggle } from '$lib/components';
 	import Gallery from './Gallery.svelte';
 </script>
 
@@ -12,21 +13,15 @@
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
-<main class="boards">
-	{#each ['light', 'dark'] as const as scheme (scheme)}
-		<div class="board" style:color-scheme={scheme}>
-			<h1>{scheme === 'light' ? 'Light' : 'Dark'}</h1>
-			<Gallery />
-		</div>
-	{/each}
+<main class="board">
+	<header>
+		<h1>Styleguide</h1>
+		<ThemeToggle />
+	</header>
+	<Gallery />
 </main>
 
 <style>
-	.boards {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 640px), 1fr));
-	}
-
 	.board {
 		min-width: 0;
 		padding: 24px;
@@ -35,8 +30,17 @@
 		font-size: 14px;
 	}
 
+	header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		margin-bottom: 16px;
+	}
+
 	h1 {
-		margin: 0 0 16px;
+		margin: 0;
 		font-size: 26px;
 		font-weight: 600;
 		letter-spacing: -0.02em;
