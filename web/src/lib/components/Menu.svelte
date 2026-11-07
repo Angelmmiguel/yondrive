@@ -105,7 +105,10 @@
 	function hide(refocus = true) {
 		if (!open) return;
 		open = false;
-		if (refocus) root?.querySelector<HTMLElement>(`#${CSS.escape(uid)}-trigger`)?.focus();
+		// Not when the focus is elsewhere by now: a dialog, another field.
+		const active = document.activeElement;
+		if (refocus && (active === document.body || root?.contains(active ?? null)))
+			root?.querySelector<HTMLElement>(`#${CSS.escape(uid)}-trigger`)?.focus();
 	}
 
 	function choose(id: string) {

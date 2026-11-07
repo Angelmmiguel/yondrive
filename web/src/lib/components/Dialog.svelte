@@ -1,8 +1,18 @@
 <!--
   A modal dialog. Focus moves in when it opens (to the element marked
   data-autofocus, else the first control), Tab and Shift+Tab wrap inside it,
-  Escape and a click on the backdrop close it, and focus returns to where it was.
+  Escape and a click on the backdrop close it, and focus returns to where it was,
+  but only if nothing else has taken it since. While it is open, focus that falls to the
+  page (a navigation resetting it, a click on the backdrop) comes back into it.
 -->
+<script lang="ts" module>
+	/** The open dialogs, the last one on top: only that one holds the focus. */
+	const stack: symbol[] = [];
+
+	const onPage = (el: EventTarget | null) =>
+		el === null || el === document.body || el === document.documentElement;
+</script>
+
 <script lang="ts">
 	import { tick, type Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
@@ -42,15 +52,40 @@
 
 	$effect(() => {
 		if (!open) return;
+		const self = Symbol();
+		stack.push(self);
 		returnTo = document.activeElement as HTMLElement | null;
+		let within: HTMLElement | null = null;
+		let node: HTMLElement | undefined;
+
 		void tick().then(() => {
 			if (!panel) return;
+			node = panel;
+			// Not when a dialog opened over this one in the meantime: that one has it.
+			if (stack[stack.length - 1] !== self) return;
 			const target =
 				panel.querySelector<HTMLElement>('[data-autofocus]') ?? focusableIn(panel)[0] ?? panel;
 			target.focus();
 		});
+
+		// What the page does to the focus must not leave a modal without it: it goes back to
+		// what held it last. Only when it fell to the page, not when it went to another overlay.
+		const onfocusin = (event: FocusEvent) => {
+			if (stack[stack.length - 1] !== self || !node) return;
+			if (node.contains(event.target as Node)) {
+				within = event.target as HTMLElement;
+			} else if (onPage(event.target)) {
+				(within?.isConnected ? within : node).focus({ preventScroll: true });
+			}
+		};
+		document.addEventListener('focusin', onfocusin);
+
 		return () => {
-			returnTo?.focus?.();
+			document.removeEventListener('focusin', onfocusin);
+			stack.splice(stack.indexOf(self), 1);
+			// Back to where it was, unless something else has the focus by now.
+			const active = document.activeElement;
+			if (onPage(active) || node?.contains(active)) returnTo?.focus?.();
 			returnTo = null;
 		};
 	});

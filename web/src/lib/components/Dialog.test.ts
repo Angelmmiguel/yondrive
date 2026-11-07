@@ -59,6 +59,67 @@ describe('Dialog', () => {
 		expect(document.activeElement).toBe(trigger);
 	});
 
+	it('does not take the focus back from what has it since', async () => {
+		const trigger = opener();
+		const view = render(Dialog, { open: true, title: 'Viewer', children: body });
+		await waitFor(() => expect(document.activeElement).not.toBe(trigger));
+
+		// Another overlay's field has the focus when this one goes.
+		const field = document.createElement('input');
+		document.body.appendChild(field);
+		field.focus();
+		await view.rerender({ open: false });
+		await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+		expect(document.activeElement).toBe(field);
+	});
+
+	it('keeps the focus of the dialog opened as another closes', async () => {
+		const trigger = opener();
+		const first = render(Dialog, { open: true, title: 'Viewer', children: body });
+		await waitFor(() => expect(document.activeElement).not.toBe(trigger));
+		const second = render(Dialog, { open: false, title: 'Search', children: body });
+
+		// The palette opens on the same keystroke that sees the viewer closed.
+		await first.rerender({ open: false });
+		await second.rerender({ open: true });
+		await waitFor(() =>
+			expect(screen.getByRole('dialog', { name: 'Search' }).contains(document.activeElement)).toBe(
+				true
+			)
+		);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(screen.getByRole('dialog', { name: 'Search' }).contains(document.activeElement)).toBe(
+			true
+		);
+	});
+
+	it('takes the focus back when the page resets it, as a navigation does', async () => {
+		render(Dialog, { open: true, title: 'Search', children: body });
+		const input = screen.getByLabelText('Name');
+		await waitFor(() =>
+			expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+		);
+		input.focus();
+
+		document.body.tabIndex = -1;
+		document.body.focus();
+		document.body.removeAttribute('tabindex');
+		expect(document.activeElement).toBe(input);
+	});
+
+	it('leaves the focus alone when it goes to another dialog on top', async () => {
+		render(Dialog, { open: true, title: 'Under', children: body });
+		await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+		render(Dialog, { open: true, title: 'Over', children: body });
+		const over = await screen.findByRole('dialog', { name: 'Over' });
+		await waitFor(() => expect(over.contains(document.activeElement)).toBe(true));
+
+		document.body.tabIndex = -1;
+		document.body.focus();
+		document.body.removeAttribute('tabindex');
+		expect(over.contains(document.activeElement)).toBe(true);
+	});
+
 	it('ignores Escape and the backdrop when it must be answered', async () => {
 		const onclose = vi.fn();
 		render(Dialog, { open: true, title: 'Confirm', dismissible: false, onclose, children: body });

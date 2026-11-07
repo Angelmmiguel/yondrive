@@ -31,7 +31,9 @@
 
 	function hide() {
 		open = false;
-		opener?.focus();
+		// Back to the button, unless the focus went somewhere else since.
+		const active = document.activeElement;
+		if (active === document.body || drawer?.contains(active ?? null)) opener?.focus();
 	}
 </script>
 
