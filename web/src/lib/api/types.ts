@@ -36,6 +36,30 @@ export type CreatedPasswordReset = Schemas['CreatedPasswordReset'];
 export type CompletePasswordResetRequest = Schemas['CompletePasswordResetRequest'];
 export type ServerSettings = Schemas['ServerSettings'];
 export type UpdateSettingsRequest = Schemas['UpdateSettingsRequest'];
+export type AdminHealth = Schemas['AdminHealth'];
+export type Storage = Schemas['Storage'];
+export type Suite = Schemas['Suite'];
+export type NodeKind = Schemas['NodeKind'];
+export type Node = Schemas['Node'];
+export type NodePage = Schemas['NodePage'];
+export type CreateRootRequest = Schemas['CreateRootRequest'];
+export type CreateNodeRequest = Schemas['CreateNodeRequest'];
+export type UpdateNodeRequest = Schemas['UpdateNodeRequest'];
+export type MoveNodeRequest = Schemas['MoveNodeRequest'];
+export type EmptiedTrash = Schemas['EmptiedTrash'];
+export type VersionSummary = Schemas['VersionSummary'];
+export type Version = Schemas['Version'];
+export type VersionPage = Schemas['VersionPage'];
+export type RestoreVersionRequest = Schemas['RestoreVersionRequest'];
+export type CreateUploadRequest = Schemas['CreateUploadRequest'];
+export type Upload = Schemas['Upload'];
+export type CommitUploadRequest = Schemas['CommitUploadRequest'];
+export type SmallBlobKind = Schemas['SmallBlobKind'];
+export type SmallBlob = Schemas['SmallBlob'];
+export type SmallBlobPage = Schemas['SmallBlobPage'];
+export type Change = Schemas['Change'];
+export type ChangeOp = Schemas['ChangeOp'];
+export type ChangePage = Schemas['ChangePage'];
 
 /** The JSON body of every failed response. */
 export type ErrorBody = Schemas['Error'];
@@ -90,6 +114,33 @@ export type ErrorCode =
 	| 'invalid_quota'
 	| 'wrong_mode'
 	| 'reset_invalid'
+	| 'invalid_id'
+	| 'id_taken'
+	| 'suite_mismatch'
+	| 'invalid_node'
+	| 'name_conflict'
+	| 'not_a_folder'
+	| 'not_a_file'
+	| 'move_cycle'
+	| 'tree_too_deep'
+	| 'root_immutable'
+	| 'node_trashed'
+	| 'parent_trashed'
+	| 'not_trashed'
+	| 'version_conflict'
+	| 'version_current'
+	| 'invalid_framing'
+	| 'invalid_frame'
+	| 'frame_length'
+	| 'frame_hash'
+	| 'frame_conflict'
+	| 'invalid_commit'
+	| 'upload_incomplete'
+	| 'quota_exceeded'
+	| 'storage_full'
+	| 'invalid_blob'
+	| 'blob_in_use'
+	| 'invalid_cursor'
 	| 'network'
 	| 'unknown'
 	| (string & {});

@@ -52,7 +52,38 @@ const routes: [string, string, (api: Api) => Promise<unknown>, boolean][] = [
 	['DELETE', '/admin/users/u1', (a) => a.deleteUser('u1'), false],
 	['POST', '/admin/users/u1/password-reset', (a) => a.createPasswordReset('u1', body), true],
 	['GET', '/admin/settings', (a) => a.getSettings(), true],
-	['PATCH', '/admin/settings', (a) => a.updateSettings(body), true]
+	['PATCH', '/admin/settings', (a) => a.updateSettings(body), true],
+	['GET', '/admin/health', (a) => a.getAdminHealth(), true],
+	['GET', '/me/storage', (a) => a.getMyStorage(), true],
+	['GET', '/nodes/root', (a) => a.getRootNode(), true],
+	['POST', '/nodes/root', (a) => a.createRootNode(body), true],
+	['POST', '/nodes', (a) => a.createNode(body), true],
+	['GET', '/nodes/n1', (a) => a.getNode('n1'), true],
+	['PATCH', '/nodes/n1', (a) => a.updateNode('n1', body), true],
+	['GET', '/nodes/n1/children', (a) => a.listChildren('n1'), true],
+	[
+		'GET',
+		'/nodes/n1/children?cursor=c&limit=5',
+		(a) => a.listChildren('n1', { cursor: 'c', limit: 5 }),
+		true
+	],
+	['POST', '/nodes/n1/move', (a) => a.moveNode('n1', body), true],
+	['POST', '/nodes/n1/trash', (a) => a.trashNode('n1'), true],
+	['POST', '/nodes/n1/restore', (a) => a.restoreNode('n1'), true],
+	['POST', '/nodes/n1/purge', (a) => a.purgeNode('n1'), true],
+	['GET', '/trash?cursor=c', (a) => a.listTrash({ cursor: 'c' }), true],
+	['POST', '/trash/empty', (a) => a.emptyTrash(), true],
+	['GET', '/nodes/n1/versions', (a) => a.listVersions('n1'), true],
+	['GET', '/nodes/n1/versions/v1', (a) => a.getVersion('n1', 'v1'), true],
+	['DELETE', '/nodes/n1/versions/v1', (a) => a.deleteVersion('n1', 'v1'), true],
+	['POST', '/nodes/n1/versions/v1/restore', (a) => a.restoreVersion('n1', 'v1', body), true],
+	['POST', '/uploads', (a) => a.createUpload(body), true],
+	['GET', '/uploads/u1', (a) => a.getUpload('u1'), true],
+	['DELETE', '/uploads/u1', (a) => a.abortUpload('u1'), false],
+	['POST', '/uploads/u1/commit', (a) => a.commitUpload('u1', body), true],
+	['DELETE', '/blobs/b1', (a) => a.deleteSmallBlob('b1'), false],
+	['GET', '/me/index', (a) => a.listIndexBlobs(), true],
+	['GET', '/changes?cursor=c', (a) => a.listChanges({ cursor: 'c' }), true]
 ];
 
 describe('routes', () => {
@@ -79,6 +110,50 @@ describe('routes', () => {
 		await api.completeSetup('tok', body);
 		await api.getHealth();
 		expect(calls.map((c) => c.headers.get('X-Setup-Token'))).toEqual(['tok', 'tok', 'tok', null]);
+	});
+});
+
+describe('binary routes', () => {
+	it('sends a frame as bytes, with its digest', async () => {
+		const seen: { init?: RequestInit; path: string }[] = [];
+		const api = createApi((async (input: RequestInfo | URL, init?: RequestInit) => {
+			seen.push({ path: String(input), init });
+			return new Response(null, { status: 204 });
+		}) as typeof fetch);
+		const bytes = new Uint8Array([1, 2, 3]);
+		await api.putFrame('u1', 7, bytes, 'digest=');
+		expect(seen[0].path).toBe('/api/v1/uploads/u1/frames/7');
+		expect(seen[0].init?.method).toBe('PUT');
+		expect(seen[0].init?.body).toBe(bytes);
+		const headers = new Headers(seen[0].init?.headers);
+		expect(headers.get('X-Content-SHA256')).toBe('digest=');
+		expect(headers.get('Content-Type')).toBe('application/octet-stream');
+	});
+
+	it('asks for a range of a blob and returns its bytes', async () => {
+		const seen: Headers[] = [];
+		const api = createApi((async (_input: RequestInfo | URL, init?: RequestInit) => {
+			seen.push(new Headers(init?.headers));
+			return new Response(new Uint8Array([9, 8]), { status: 206 });
+		}) as typeof fetch);
+		const got = await api.getBlob('b1', { start: 4, end: 5 });
+		expect(Array.from(got)).toEqual([9, 8]);
+		expect(seen[0].get('Range')).toBe('bytes=4-5');
+	});
+
+	it('puts a small blob under its kind, suite and node', async () => {
+		const seen: string[] = [];
+		const api = createApi((async (input: RequestInfo | URL) => {
+			seen.push(String(input));
+			return new Response('{}', { status: 201 });
+		}) as typeof fetch);
+		await api.putSmallBlob(
+			'b1',
+			{ kind: 'thumb', suite: 'none', node_id: 'n1' },
+			new Uint8Array(1),
+			'd='
+		);
+		expect(seen[0]).toBe('/api/v1/blobs/b1?kind=thumb&suite=none&node_id=n1');
 	});
 });
 
