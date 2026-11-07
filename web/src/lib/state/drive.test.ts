@@ -3,7 +3,10 @@ import { DriveState } from './drive.svelte';
 import type { DriveNode } from '$lib/drive/tree';
 
 const node = (over: Partial<DriveNode>): DriveNode => ({
-	ownerId: 'u'.repeat(32), role: 'owner', keyGeneration: 1, id: over.name ?? 'n',
+	ownerId: 'u'.repeat(32),
+	role: 'owner',
+	keyGeneration: 1,
+	id: over.name ?? 'n',
 	parentId: 'root',
 	kind: 'file',
 	name: 'n',

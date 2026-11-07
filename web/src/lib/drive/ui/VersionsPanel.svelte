@@ -12,6 +12,7 @@
 		type VersionEntry
 	} from '../versions';
 	import { api } from '$lib/api/client';
+	import { canWrite, isOwner } from '$lib/sharing/roles';
 	import { session } from '$lib/state/session.svelte';
 	import { describeDriveError } from '../errors';
 
@@ -91,16 +92,19 @@
 					<Icon name="close" size={16} strokeWidth={2} />
 				</button>
 			</header>
-			<div class="add">
-				<Button size="sm" icon="upload" onclick={() => picker?.click()}>Upload new version</Button>
-				<input
-					bind:this={picker}
-					type="file"
-					hidden
-					data-testid="version-input"
-					onchange={upload}
-				/>
-			</div>
+			{#if canWrite(node)}
+				<div class="add">
+					<Button size="sm" icon="upload" onclick={() => picker?.click()}>Upload new version</Button
+					>
+					<input
+						bind:this={picker}
+						type="file"
+						hidden
+						data-testid="version-input"
+						onchange={upload}
+					/>
+				</div>
+			{/if}
 			{#if failed}<p class="failed">{failed}</p>{/if}
 			<ul>
 				{#each versions as version (version.id)}
@@ -121,8 +125,11 @@
 								onclick={() => node && drive.download(node, version.id)}>Download</Button
 							>
 							{#if !version.current}
-								<Button size="sm" variant="ghost" onclick={() => restore(version)}>Restore</Button>
-								{#if version.removeAt === null}
+								{#if canWrite(node)}
+									<Button size="sm" variant="ghost" onclick={() => restore(version)}>Restore</Button
+									>
+								{/if}
+								{#if version.removeAt === null && isOwner(node)}
 									<Button size="sm" variant="ghost" onclick={() => remove(version)}>Delete</Button>
 								{/if}
 							{/if}

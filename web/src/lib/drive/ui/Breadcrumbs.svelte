@@ -13,12 +13,18 @@
 	let { trail, rootId, count }: Props = $props();
 
 	const parents = $derived(trail.slice(0, -1));
+	/** A trail that does not start at this user's root is inside something shared with them. */
+	const inShare = $derived(trail.length > 0 && trail[0].id !== rootId);
 	const here = $derived(trail[trail.length - 1]);
 	const name = (node: DriveNode) => (node.id === rootId ? 'My files' : node.name);
 	const href = (node: DriveNode) => resolve(`/files/${node.id === rootId ? 'root' : node.id}`);
 </script>
 
 <nav aria-label="Breadcrumb" class="crumbs">
+	{#if inShare}
+		<a href={resolve('/shared')}>Shared with me</a>
+		<Icon name="chevron-right" size={14} />
+	{/if}
 	{#each parents as parent (parent.id)}
 		<a href={href(parent)}>{name(parent)}</a>
 		<Icon name="chevron-right" size={14} />

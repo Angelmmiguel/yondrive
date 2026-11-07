@@ -19,7 +19,9 @@
 		type IconName,
 		type MenuItem
 	} from '$lib/components';
+	import { canChangePlace, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
+	import { sharing } from '$lib/state/sharing.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { fileKindOf } from '../kinds';
 	import type { KindFilter, SortKey } from '../sort';
@@ -123,6 +125,15 @@
 			return tag === undefined ? [] : [{ name: tag.name, tone: tag.tone }];
 		});
 
+	/** The role over the folder it lives in, if that is known here. */
+	const movable = (node: DriveNode) =>
+		canChangePlace(node, node.parentId === null ? undefined : drive.node(node.parentId));
+
+	const peopleOf = (node: DriveNode) => {
+		void drive.rev;
+		return sharing.peopleOf(drive.core?.tree.breadcrumbs(node.id) ?? []);
+	};
+
 	function itemsOf(node: DriveNode): MenuItem[] {
 		if (trash) {
 			return [
@@ -130,18 +141,33 @@
 				...(node.removeAt === null ? [{ id: 'purge', label: 'Delete forever' }] : [])
 			];
 		}
-		if (!node.readable) return [{ id: 'trash', label: 'Move to trash', icon: 'trash' }];
+		const place = movable(node);
+		const holding = sharing.entryOf(node.id);
+		const leave: MenuItem[] =
+			holding === undefined ? [] : [{ id: 'leave', label: 'Remove from shared', icon: 'close' }];
+		if (!node.readable) {
+			return [
+				...(place ? [{ id: 'trash', label: 'Move to trash', icon: 'trash' as const }] : []),
+				...leave
+			];
+		}
 		const file = node.kind === 'file';
 		return [
 			...(file && viewerFor(node) !== null
 				? [{ id: 'open', label: 'Open', icon: 'eye' as const }]
 				: []),
 			...(file ? [{ id: 'download', label: 'Download', icon: 'download' as const }] : []),
-			{ id: 'rename', label: 'Rename', icon: 'pencil' },
-			{ id: 'move', label: 'Move', icon: 'move' },
-			{ id: 'tags', label: 'Tags', icon: 'tag' },
+			...(isOwner(node) ? [{ id: 'share', label: 'Share', icon: 'shared' as const }] : []),
+			...(place
+				? [
+						{ id: 'rename', label: 'Rename', icon: 'pencil' as const },
+						{ id: 'move', label: 'Move', icon: 'move' as const }
+					]
+				: []),
+			...(isOwner(node) ? [{ id: 'tags', label: 'Tags', icon: 'tag' as const }] : []),
 			...(file ? [{ id: 'versions', label: 'Versions', icon: 'history' as const }] : []),
-			{ id: 'trash', label: 'Move to trash', icon: 'trash' }
+			...(place ? [{ id: 'trash', label: 'Move to trash', icon: 'trash' as const }] : []),
+			...leave
 		];
 	}
 
@@ -153,6 +179,19 @@
 			case 'download':
 				await drive.download(node);
 				break;
+			case 'share':
+				drive.dialog = { kind: 'share', node };
+				break;
+			case 'leave': {
+				const entry = sharing.entryOf(node.id);
+				if (entry === undefined) break;
+				await drive.run(async (core) => {
+					await core.sharing.leave(entry.grant.id, node.id);
+					core.tree.drop(node.id);
+					sharing.publish();
+				});
+				break;
+			}
 			case 'rename':
 				drive.dialog = { kind: 'rename', node };
 				break;
@@ -309,17 +348,23 @@
 				{#if chosen.some((n) => n.kind === 'file')}
 					<Button size="sm" icon="download" onclick={downloadChosen}>Download</Button>
 				{/if}
-				<Button
-					size="sm"
-					icon="move"
-					onclick={() => (drive.dialog = { kind: 'move', nodes: chosen })}>Move</Button
-				>
-				<Button
-					size="sm"
-					icon="tag"
-					onclick={() => (drive.dialog = { kind: 'tags', nodes: chosen })}>Tags</Button
-				>
-				<Button size="sm" icon="trash" onclick={() => moveToTrash(chosen)}>Move to trash</Button>
+				{#if chosen.every(movable)}
+					<Button
+						size="sm"
+						icon="move"
+						onclick={() => (drive.dialog = { kind: 'move', nodes: chosen })}>Move</Button
+					>
+				{/if}
+				{#if chosen.every(isOwner)}
+					<Button
+						size="sm"
+						icon="tag"
+						onclick={() => (drive.dialog = { kind: 'tags', nodes: chosen })}>Tags</Button
+					>
+				{/if}
+				{#if chosen.every(movable)}
+					<Button size="sm" icon="trash" onclick={() => moveToTrash(chosen)}>Move to trash</Button>
+				{/if}
 			{/if}
 			<Button size="sm" variant="ghost" onclick={() => toggleAll(false)}>Clear</Button>
 		</div>
@@ -347,6 +392,7 @@
 						kind={fileKindOf(node)}
 						caption={captionFor(node)}
 						tags={tagsOf(node)}
+						people={peopleOf(node)}
 						modified={formatWhen(node.modified || node.updatedAt)}
 						size={node.kind === 'file' ? formatBytes(node.size) : '—'}
 						starred={node.favorite}
@@ -354,7 +400,7 @@
 						href={href(node)}
 						thumbnail={thumbOf(node)}
 						onselect={() => activate(node)}
-						onstar={(on) => void setFavorite(node, on)}
+						onstar={isOwner(node) ? (on) => void setFavorite(node, on) : undefined}
 					>
 						{#snippet leading()}{@render check(node)}{/snippet}
 						{#snippet actions()}{@render more(node)}{/snippet}
@@ -376,7 +422,7 @@
 						href={href(node)}
 						thumbnail={thumbOf(node)}
 						onselect={() => activate(node)}
-						onstar={(on) => void setFavorite(node, on)}
+						onstar={isOwner(node) ? (on) => void setFavorite(node, on) : undefined}
 					>
 						{#snippet leading()}{@render check(node)}{/snippet}
 						{#snippet actions()}{@render more(node)}{/snippet}

@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { Icon, Menu, NavItem, NavSection, type MenuItem } from '$lib/components';
 	import { drive } from '$lib/state/drive.svelte';
+	import { sharing } from '$lib/state/sharing.svelte';
 
 	interface Props {
 		onnewfolder: () => void;
@@ -50,6 +51,19 @@
 		icon="folder"
 		href={resolve('/files/root')}
 		current={path.startsWith('/files/')}
+	/>
+	<NavItem
+		label="Shared with me"
+		icon="shared"
+		href={resolve('/shared')}
+		current={path === '/shared'}
+		badge={sharing.unread.length || undefined}
+	/>
+	<NavItem
+		label="Shared by me"
+		icon="arrow-right"
+		href={resolve('/shared/by-me')}
+		current={path === '/shared/by-me'}
 	/>
 	<NavItem label="Recent" icon="recent" href={resolve('/recent')} current={path === '/recent'} />
 	<NavItem

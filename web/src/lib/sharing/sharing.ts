@@ -441,7 +441,12 @@ export class Sharing {
 	/** The address of a link made earlier. */
 	urlOf(link: Link): string {
 		const { sealer, keys } = this.#deps;
-		return urlOfLink(this.#origin(), link, sealer, keys());
+		try {
+			return urlOfLink(this.#origin(), link, sealer, keys());
+		} catch {
+			// Its copy does not open, as a server could arrange: no address to show.
+			return '';
+		}
 	}
 
 	async revokeLink(id: string): Promise<void> {

@@ -17,6 +17,9 @@
 		type MenuItem
 	} from '$lib/components';
 	import DriveDialogs from '$lib/drive/ui/DriveDialogs.svelte';
+	import NotificationBell from '$lib/sharing/ui/NotificationBell.svelte';
+	import RotationBar from '$lib/sharing/ui/RotationBar.svelte';
+	import SharingDialogs from '$lib/sharing/ui/SharingDialogs.svelte';
 	import DriveSidebar from '$lib/drive/ui/DriveSidebar.svelte';
 	import StorageCard from '$lib/drive/ui/StorageCard.svelte';
 	import { uploadPanel } from '$lib/state/uploadPanel.svelte';
@@ -25,6 +28,7 @@
 	import Viewer from '$lib/drive/ui/Viewer.svelte';
 	import { drive } from '$lib/state/drive.svelte';
 	import { session } from '$lib/state/session.svelte';
+	import { toasts } from '$lib/state/toasts.svelte';
 	import { setContext, untrack } from 'svelte';
 	import type { ShellActions } from './shell';
 
@@ -69,11 +73,21 @@
 
 	const actions: ShellActions = {
 		newFolder(parentId) {
+			if (!drive.canAddHere) {
+				toasts.push('info', 'You can only view this folder, so nothing can be added to it.');
+				return;
+			}
 			const parent = parentId ?? drive.folder ?? drive.rootId;
 			if (parent !== null) drive.dialog = { kind: 'new-folder', parentId: parent };
 		},
-		uploadFiles: () => filesInput?.click(),
-		uploadFolder: () => folderInput?.click()
+		uploadFiles: () => {
+			if (drive.canAddHere) filesInput?.click();
+			else toasts.push('info', 'You can only view this folder, so nothing can be added to it.');
+		},
+		uploadFolder: () => {
+			if (drive.canAddHere) folderInput?.click();
+			else toasts.push('info', 'You can only view this folder, so nothing can be added to it.');
+		}
 	};
 	setContext<ShellActions>('shell', actions);
 
@@ -150,14 +164,17 @@
 					<Icon name="lock-open" size={15} /> Not encrypted
 				</span>
 			{/if}
-			<Menu
-				label="Upload"
-				triggerLabel="Upload"
-				triggerIcon="upload"
-				width={200}
-				items={uploads}
-				onselect={(id) => (id === 'files' ? actions.uploadFiles() : actions.uploadFolder())}
-			/>
+			{#if drive.canAddHere}
+				<Menu
+					label="Upload"
+					triggerLabel="Upload"
+					triggerIcon="upload"
+					width={200}
+					items={uploads}
+					onselect={(id) => (id === 'files' ? actions.uploadFiles() : actions.uploadFolder())}
+				/>
+			{/if}
+			<NotificationBell />
 			<Menu label="Account" {items} onselect={choose} width={200}>
 				{#snippet trigger(attrs)}
 					<button type="button" class="me" data-testid="account-menu" {...attrs}>
@@ -168,6 +185,7 @@
 			</Menu>
 		</TopBar>
 	{/snippet}
+	<RotationBar />
 	{@render children()}
 	{#if uploadPanel.room !== 'none'}
 		<!-- Room to scroll the end of a list out from under the upload panel or its pill. -->
@@ -202,6 +220,7 @@
 <UploadPanel />
 <VersionsPanel />
 <DriveDialogs />
+<SharingDialogs />
 <Viewer />
 
 <style>

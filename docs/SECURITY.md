@@ -62,11 +62,11 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 
 | Problem | Response | What remains |
 | --- | --- | --- |
-| **The server hands out a false public key** when you share, and reads everything shared after. | Fingerprints are pinned on first use and a change raises a warning. Two people can compare a safety number over another channel. | First use is trusted unless the number is compared. |
+| **The server hands out a false public key** when you share, and reads everything shared after. | Fingerprints are pinned on first use, per device and sealed under a key from the master key. A change raises a blocking warning, and nothing is shared until someone answers it. Two people can compare a safety number over another channel. | First use is trusted unless the number is compared, and a new device is a first use again. |
 | **Username probing** through the KDF endpoint. | Unknown usernames get stable fake parameters derived from a server secret. | The parameters cannot hide everything. An account with non-default KDF parameters stands out, as fake answers carry the new-account defaults. A real salt changes on rekey and a fake one never does, so watching a username over time can tell them apart. With open sign-up on, registering reveals taken names, within the rate limit. Sign-in timing is not measured. |
 | **SSO compromise** gives access to a user's wrapped key, to attack offline. | A minimum passphrase strength, and Argon2id sets the price of each guess. Nothing derived from the unlock passphrase reaches the server. | Weak passphrases can still fall. |
 | **Removing someone from a shared folder.** They may have kept the keys. | The node key rotates on revoke, for future content, from the top of the share down. The app says plainly that earlier content may have been copied. | What they already hold stays readable to them. |
-| **A false "shared with you".** A server can make a folder whose key it knows and present it as shared, then read what is uploaded there. | Each grant is signed by its granter, over the node, both users, the role, the key generation and the sealed key. A client verifies it against the granter's pinned key, and that the granter owns the node. | A server can also make an account, and share from it. That shows as a share from someone the user does not know, which is where the safety number matters. |
+| **A false "shared with you".** A server can make a folder whose key it knows and present it as shared, then read what is uploaded there. | Each grant is signed by its granter, over the node, both users, the role, the key generation and the sealed key. A client verifies it against the granter's pinned key, and that the granter owns the node. What does not verify shows as a warning, with no name, and is never opened. | A server can also make an account, and share from it. That shows as a share from someone the user does not know, which is where the safety number matters. |
 | **A stolen session can delete files.** | Trash, version history and a grace period enforced by the server before anything is purged. | An honest server is assumed for the grace period. |
 | **Malicious documents from other users** run in the same origin as the keys. | Parsers run in workers and output a typed model, never HTML. Sanitising, a strict CSP, and SVG and HTML are downloaded rather than rendered inline, whether the name or the type says so. A service worker stream is never served as anything but media or an attachment. | A parser bug that escapes the model. |
 
@@ -98,9 +98,13 @@ It cannot see names, types, tags, dates inside metadata, or contents.
   read access to a node holds its key, and could write metadata that opens correctly. The
   server refuses the write unless they may edit, so this rests on the server. Content versions
   are signed, metadata is not.
-- **Edit rights.** A client verifies a signature against "an author who holds edit rights",
-  and the list of who holds them comes from the server. A hostile server can name a viewer as
-  an editor, or a user it controls.
+- **Edit rights.** A client verifies a signature against the author's pinned keys and checks
+  that the author holds edit rights, and the list of who holds them comes from the server. To the
+  owner it comes with the signed grants, which their client checks with their own key, so a server
+  cannot name an editor to the owner. Anyone else has only the list, and a hostile server can name a
+  viewer as an editor, or a user it controls. A version whose signer is on no such list opens with a
+  warning rather than failing: there is no record of what someone could do when they wrote it, and
+  refusing would make every file a former editor uploaded unreadable, to everyone, for good.
 - **Key commitment.** XChaCha20-Poly1305 does not commit to a key: someone who knows two keys
   can make one ciphertext that opens under both. Within a signed version, the content hash
   ties the signer to one ciphertext. A signer can still make it open differently for readers
@@ -131,7 +135,13 @@ through a referrer.
 **What a link shows.** No owner, username or quota. A reader sees the Ed25519 public key of a
 version's signer, which it needs to verify the signature, and that key is the same across links.
 It verifies only that the key signed, since a reader with no account has nothing to pin it against:
-a server can substitute content with a key of its own.
+a server can substitute content with a key of its own. If the signer's account has gone there is no
+key, and a reader with keys refuses the file.
+
+**The reader's page.** The key is read out of the fragment and taken out of the address at once, so
+reloading needs the whole link again. It stays in memory. The page asks nothing about a session, even
+in a browser that has one. Reads go through `fetch` with the token in a header, and what is read is held
+in memory, up to 1 GiB, as the service worker's streams use the session's route.
 
 **Download limits** count a file once per session, at its first byte, in a transaction, so that they
 hold under any concurrency. A file started and abandoned has counted. The count is not a statement

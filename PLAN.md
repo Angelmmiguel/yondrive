@@ -351,7 +351,7 @@ progress bar and dialog. Screens with no board are composed from these (D7), and
 | Route | Source |
 | --- | --- |
 | `/setup` | Setup board, with the changes in section 3 |
-| `/`, `/files/[id]`, `/shared`, `/recent`, `/favorites`, `/trash`, `/tags/[id]` | Home board |
+| `/`, `/files/[id]`, `/shared`, `/shared/by-me`, `/recent`, `/favorites`, `/trash`, `/tags/[id]` | Home board |
 | `/doc/[id]` | Document editor board |
 | `/sheet/[id]` | Sheets board |
 | `/notes`, `/notes/[id]` | Notes list and Note editor boards |

@@ -184,7 +184,9 @@ signature = Ed25519-Sign(granter's Ed25519 private key, message)
 a role or rotating the key signs again. Verification follows section 12. A grantee MUST verify
 the signature with the granter's pinned key (section 15), and MUST check that the granter is
 the node's owner, before using the grant or showing the node as shared with them. The server
-checks the size alone: 105 bytes for the grant and 64 for the signature.
+checks the size alone: 105 bytes for the grant and 64 for the signature. Before a rotation seals a
+new key to a grantee, the owner MUST verify that grant with their own key, as the list of grants
+comes from the server.
 
 ### Rotation
 
@@ -324,8 +326,10 @@ signature = Ed25519-Sign(author's Ed25519 private key, message)
 ```
 
 Verification follows RFC 8032 strictly: it MUST refuse non-canonical `R` and `A` encodings
-and `S` not below the group order. A client MUST verify the signature against an author
-who holds edit rights, and refuse a manifest whose `frameCount` disagrees with `size` and
+and `S` not below the group order. A client MUST verify the signature against the author's
+pinned keys, and check that the author is the owner or an editor of the node. An author who is
+neither has lost the right since, or the server is lying: a client MUST NOT present that version
+as written by someone who may edit, and says so to the reader. It MUST refuse a manifest whose `frameCount` disagrees with `size` and
 `frameSize`, or whose suite differs from the server's. After a full read, it MUST compare
 the size and the content hash.
 

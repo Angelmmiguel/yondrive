@@ -25,8 +25,11 @@
 			busy = false;
 			name = open?.kind === 'rename' ? open.node.name : '';
 			target = null;
-			browsing = drive.rootId;
-			if (open?.kind === 'move') void drive.core?.tree.loadFolder(drive.rootId as string);
+			// A move stays within one owner, and an editor's within what is shared with them.
+			const first = open?.kind === 'move' ? open.nodes[0] : undefined;
+			const trail = first === undefined ? [] : (drive.core?.tree.breadcrumbs(first.id) ?? []);
+			browsing = trail[0]?.id ?? drive.rootId;
+			if (open?.kind === 'move' && browsing !== null) void drive.core?.tree.loadFolder(browsing);
 		});
 	});
 

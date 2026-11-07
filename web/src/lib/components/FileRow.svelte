@@ -107,16 +107,18 @@
 	<span role="cell" class="meta">{modified}</span>
 	<span role="cell" class="meta size">{size}</span>
 	<span role="cell" class="star-cell">
-		<button
-			type="button"
-			class="star"
-			class:on={starred}
-			aria-label="Favorite {name}"
-			aria-pressed={starred}
-			onclick={() => onstar?.(!starred)}
-		>
-			<Icon name="star" size={17} strokeWidth={1.7} filled={starred} />
-		</button>
+		{#if onstar}
+			<button
+				type="button"
+				class="star"
+				class:on={starred}
+				aria-label="Favorite {name}"
+				aria-pressed={starred}
+				onclick={() => onstar?.(!starred)}
+			>
+				<Icon name="star" size={17} strokeWidth={1.7} filled={starred} />
+			</button>
+		{/if}
 	</span>
 	<span role="cell" class="more">{@render actions?.()}</span>
 </div>

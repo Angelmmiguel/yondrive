@@ -67,16 +67,18 @@
 			onclick={onselect}>{@render content()}</button
 		>
 	{/if}
-	<button
-		type="button"
-		class="star"
-		class:on={starred}
-		aria-label="Favorite {name}"
-		aria-pressed={starred}
-		onclick={() => onstar?.(!starred)}
-	>
-		<Icon name="star" size={16} strokeWidth={1.7} filled={starred} />
-	</button>
+	{#if onstar}
+		<button
+			type="button"
+			class="star"
+			class:on={starred}
+			aria-label="Favorite {name}"
+			aria-pressed={starred}
+			onclick={() => onstar?.(!starred)}
+		>
+			<Icon name="star" size={16} strokeWidth={1.7} filled={starred} />
+		</button>
+	{/if}
 	{#if leading}<span class="lead">{@render leading()}</span>{/if}
 	{#if actions}<span class="more">{@render actions()}</span>{/if}
 </div>

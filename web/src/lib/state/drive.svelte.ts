@@ -18,8 +18,12 @@ import type { DriveNode } from '$lib/drive/tree';
 import { fromDrop, fromInput, type Picked } from '$lib/drive/upload/pick';
 import type { UploadItem } from '$lib/drive/upload/queue';
 import { defaultResumeStore } from '$lib/drive/upload/resume';
+import { localPinStorage } from '$lib/sharing/contacts';
+import { canWrite } from '$lib/sharing/roles';
+import { localRotationJobs } from '$lib/sharing/rotation';
 import { formatBytes } from '$lib/app/format';
 import { session } from './session.svelte';
+import { sharing } from './sharing.svelte';
 import { toasts } from './toasts.svelte';
 
 const VIEW_KEY = 'yondrive-drive-view';
@@ -35,6 +39,7 @@ export type DriveDialog =
 	| { kind: 'tags'; nodes: DriveNode[] }
 	| { kind: 'new-tag' }
 	| { kind: 'purge'; node: DriveNode }
+	| { kind: 'share'; node: DriveNode }
 	| { kind: 'empty-trash' };
 
 function readView(): { mode: ViewMode; sort: SortKey } {
@@ -120,9 +125,15 @@ export class DriveState {
 				)
 			),
 			saveUrl,
-			saveBlob
+			saveBlob,
+			pins: localPinStorage(account.user.id),
+			rotationJobs: localRotationJobs(account.user.id),
+			onResumeRotation: (progress) => {
+				sharing.rotation = progress;
+			}
 		});
 		this.core = core;
+		sharing.attach(core.sharing);
 		this.#stops.push(() => opener.stop());
 		core.tree.onchange = () => this.#changed();
 		core.queue.onchange = () => {
@@ -137,6 +148,7 @@ export class DriveState {
 			.then(() => {
 				if (this.core !== core) return;
 				this.status = 'ready';
+				void sharing.sync();
 				void this.refreshStorage();
 				void this.loadTrash().catch(() => {});
 				if (account.user.role === 'admin') void this.#loadBackup();
@@ -160,6 +172,7 @@ export class DriveState {
 	stop(): void {
 		for (const stop of this.#stops) stop();
 		this.#stops = [];
+		sharing.detach();
 		this.core?.stop();
 		this.core = null;
 		this.status = 'idle';
@@ -187,6 +200,7 @@ export class DriveState {
 
 	#message(e: unknown): string {
 		if (isApiError(e, 'unauthorized')) session.signedOut();
+		sharing.warn(e);
 		return describeDriveError(e);
 	}
 
@@ -201,6 +215,14 @@ export class DriveState {
 			toasts.push('danger', this.#message(e));
 			return undefined;
 		}
+	}
+
+	/** Whether what is on screen can be added to. */
+	get canAddHere(): boolean {
+		void this.rev;
+		const id = this.folder ?? this.rootId;
+		const node = id === null ? undefined : this.core?.tree.nodes.get(id);
+		return node === undefined || canWrite(node);
 	}
 
 	get rootId(): string | null {
@@ -332,6 +354,7 @@ export class DriveState {
 		this.#pollRunning = true;
 		try {
 			if (await core.poll()) {
+				await sharing.sync();
 				await this.refreshStorage();
 				await this.loadTrash();
 			}
@@ -347,6 +370,11 @@ export class DriveState {
 	upload(picked: Picked, parentId: string | null = this.folder ?? this.rootId): void {
 		const core = this.core;
 		if (core === null || parentId === null) return;
+		const target = core.tree.nodes.get(parentId);
+		if (target !== undefined && !canWrite(target)) {
+			toasts.push('info', 'You can only view this folder, so nothing can be added to it.');
+			return;
+		}
 		if (picked.folders.length > 0) {
 			void core.queue.addFolders(parentId, picked.folders).catch((e) => {
 				toasts.push('danger', this.#message(e));
