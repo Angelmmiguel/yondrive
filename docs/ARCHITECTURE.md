@@ -994,7 +994,8 @@ machine.
 `web/tests/tour.ts` walks every screen, and two specs stop at each. `a11y.spec.ts` runs axe-core's WCAG 2.1 AA
 rules in the light and the dark theme and fails on a serious or critical finding; no rule is turned off. It also
 works the app from the keyboard: a skip link first, a visible focus at every stop in reading order, menus on the
-arrows, dialogs that hold the focus and give it back, Escape, and a document and a sheet edited without a pointer.
+arrows, dialogs that hold the focus and give it back, Escape, and a document and a sheet edited without a pointer,
+and measures the focus ring and the edges of fields at 3:1 or more in each theme.
 Under `prefers-reduced-motion` a global rule ends every transition and animation at once. `phone.spec.ts` walks
 the same screens at 390 × 844 and 360 × 740: no sideways scroll of the page, no text under 11px, every control on
 screen or in a box that scrolls to it, and 44px to touch, which `app.css` sets as a floor on narrow screens and

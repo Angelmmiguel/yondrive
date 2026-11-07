@@ -652,6 +652,13 @@ binaries, SHA256SUMS, SBOMs, keyless signatures and provenance ([docs/RELEASE.md
 back in, [docs/OPERATIONS.md](docs/OPERATIONS.md) and [docs/API.md](docs/API.md). Open: the first
 tagged release, which is the only way to exercise the signing, provenance and publishing steps.
 
+Built for accessibility and performance: every screen checked with axe's WCAG 2.1 AA rules in both themes, from
+the keyboard, and at 390 and 360 wide (a skip link, a 3:1 focus ring and field edges, reduced motion, 44px touch
+targets on phones); size budgets that fail the build, with the office formats out of the shell; page timings for
+1,000 files, a document, a 100,000-cell sheet and 500 notes; and a WebKit project running a smoke subset, now that
+WebKit starts here with Mesa's EGL driver ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)). Open: Safari itself,
+a real 4 GB video, and throughput and memory on a phone, which need real devices.
+
 **Exit: Release 1.0.**
 
 ## 9. Testing
