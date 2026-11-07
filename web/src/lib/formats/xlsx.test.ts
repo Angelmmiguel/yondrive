@@ -251,6 +251,22 @@ describe('writing .xlsx back', () => {
 		expect(sheet).toContain('<c r="B2"><f>A2*100</f><v>200</v></c>');
 	});
 
+	it('keeps new rows in order after a deleted row', async () => {
+		const bytes = await xlsxOf([
+			'<sheetData><row r="1"><c r="A1"><v>1</v></c></row><row r="2"><c r="A2"><v>2</v></c></row>' +
+				'<row r="3"><c r="A3"><v>3</v></c></row></sheetData>'
+		]);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		book.deleteRows(s, 1, 1);
+		book.engine.set(s, 5, 0, { value: 6 });
+		const out = await writeXlsx(book, bytes);
+		const sheet = (await part(out, 'xl/worksheets/sheet1.xml'))!;
+		expect([...sheet.matchAll(/<row r="(\d+)"/g)].map((m) => m[1])).toEqual(['1', '2', '6']);
+		const again = (await readXlsx(out)).book.engine;
+		expect([0, 1, 5].map((r) => again.cell(s, r, 0)!.value)).toEqual([1, 3, 6]);
+	});
+
 	it('writes a workbook from nothing that reads back the same', async () => {
 		const { book } = await readXlsx(fixture('book.xlsx'));
 		book.source = { format: 'csv', styles: 0, sheets: 0 };

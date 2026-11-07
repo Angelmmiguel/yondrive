@@ -1027,18 +1027,22 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 		let cursor = sd.tagEnd;
 		for (const r of scan.rows) {
 			const cur = rowAxis(steps, r.row);
-			const ins = insertNew(cur ?? Number.POSITIVE_INFINITY);
-			if (ins) splices.push({ start: r.start, end: r.start, text: ins });
+			cursor = r.end;
 			if (cur === null) {
+				// A deleted row has no place in the new order: new rows wait for
+				// the next row that is kept.
 				for (const c of r.cells) {
 					if (c.formula !== undefined) formulasMoved = true;
 					if (c.t === 's') ctx.strings.refsDelta--;
 				}
 				splices.push({ start: r.start, end: r.end, text: '' });
-			} else if (!rowUnchanged(r, cur)) {
+				continue;
+			}
+			const ins = insertNew(cur);
+			if (ins) splices.push({ start: r.start, end: r.start, text: ins });
+			if (!rowUnchanged(r, cur)) {
 				splices.push({ start: r.start, end: r.end, text: rowText(r, cur) });
 			}
-			cursor = r.end;
 		}
 		const tail = insertNew(MAX_ROWS);
 		if (tail) splices.push({ start: cursor, end: cursor, text: tail });
