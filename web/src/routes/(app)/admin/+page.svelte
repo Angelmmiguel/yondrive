@@ -1,14 +1,18 @@
 <!-- Server administration. Each tab owns its data. -->
 <script lang="ts">
 	import { Tabs } from '$lib/components';
+	import Audit from './Audit.svelte';
 	import Invites from './Invites.svelte';
 	import ServerSettings from './ServerSettings.svelte';
+	import SignInSettings from './SignInSettings.svelte';
 	import Users from './Users.svelte';
 
 	const tabs = [
 		{ id: 'users', label: 'Users' },
 		{ id: 'invites', label: 'Invites' },
-		{ id: 'settings', label: 'Server' }
+		{ id: 'settings', label: 'Server' },
+		{ id: 'sign-in', label: 'Sign-in' },
+		{ id: 'audit', label: 'Audit' }
 	];
 	let tab = $state('users');
 </script>
@@ -19,8 +23,17 @@
 <Tabs label="Administration" {tabs} bind:value={tab}>
 	{#snippet children(id)}
 		<div class="panel">
-			{#if id === 'users'}<Users />{:else if id === 'invites'}<Invites />{:else}<ServerSettings
-				/>{/if}
+			{#if id === 'users'}
+				<Users />
+			{:else if id === 'invites'}
+				<Invites />
+			{:else if id === 'sign-in'}
+				<SignInSettings />
+			{:else if id === 'audit'}
+				<Audit />
+			{:else}
+				<ServerSettings />
+			{/if}
 		</div>
 	{/snippet}
 </Tabs>

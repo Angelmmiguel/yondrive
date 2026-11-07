@@ -1,6 +1,7 @@
 <!-- Inviting people. Inviting an admin asks for the passphrase. A link is shown once. -->
 <script lang="ts">
 	import { createInvite } from '$lib/account/security';
+	import ConfirmPassphrase from '$lib/account/ui/ConfirmPassphrase.svelte';
 	import { api } from '$lib/api/client';
 	import type { CreatedInvite, Invite, Role } from '$lib/api/types';
 	import { failure } from '$lib/app/failure';
@@ -12,11 +13,11 @@
 		CodeBlock,
 		EmptyState,
 		Field,
-		PasswordField,
 		Select,
 		Tag,
 		TextInput
 	} from '$lib/components';
+	import { session } from '$lib/state/session.svelte';
 
 	const DAY = 24 * 60 * 60;
 	const EXPIRY = [
@@ -119,11 +120,7 @@
 					/>{/snippet}
 			</Field>
 			{#if needsPassphrase}
-				<Field label="Your passphrase" hint="Needed to invite an administrator." required>
-					{#snippet children(field)}
-						<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
-					{/snippet}
-				</Field>
+				<ConfirmPassphrase bind:value={passphrase} hint="Needed to invite an administrator." />
 			{/if}
 		</div>
 		<div>
@@ -131,7 +128,7 @@
 				type="submit"
 				variant="primary"
 				{busy}
-				disabled={needsPassphrase && passphrase === ''}
+				disabled={needsPassphrase && session.asksPassphrase && passphrase === ''}
 			>
 				{busy ? 'Creating…' : 'Create invite'}
 			</Button>

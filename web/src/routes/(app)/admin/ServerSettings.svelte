@@ -7,6 +7,7 @@
 	import { Banner, Button, Card, Field, Select, Switch, TextInput } from '$lib/components';
 	import { session } from '$lib/state/session.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
+	import Health from './Health.svelte';
 
 	let settings = $state<ServerSettings | null>(null);
 	let quota = $state('0');
@@ -54,6 +55,7 @@
 
 {#if error}<Banner tone="danger">{error}</Banner>{/if}
 {#if settings}
+	<Health proxyUntrusted={settings.proxy_untrusted} />
 	<Card padding="lg" as="section" label="Server settings">
 		<form onsubmit={save}>
 			<div class="fields">

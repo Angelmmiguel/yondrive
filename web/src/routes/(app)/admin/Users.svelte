@@ -1,25 +1,21 @@
 <!--
   Everyone on the server: disable, delete, quota and, where no key depends on the
-  password, a reset link. Deleting and resetting ask for the administrator's
-  passphrase.
+  password, a reset link. Someone from a provider can have that identity forgotten, so
+  that their next sign-in links again. All but quota and disabling ask for the
+  administrator's passphrase.
 -->
 <script lang="ts">
-	import { createPasswordResetLink, deleteUserAccount } from '$lib/account/security';
+	import {
+		createPasswordResetLink,
+		deleteUserAccount,
+		unlinkUserIdentity
+	} from '$lib/account/security';
+	import ConfirmPassphrase from '$lib/account/ui/ConfirmPassphrase.svelte';
 	import { api } from '$lib/api/client';
 	import type { CreatedPasswordReset, Profile } from '$lib/api/types';
 	import { failure } from '$lib/app/failure';
 	import { formatDate, formatQuota, QUOTA_OPTIONS } from '$lib/app/format';
-	import {
-		Avatar,
-		Banner,
-		Button,
-		CodeBlock,
-		Dialog,
-		Field,
-		PasswordField,
-		Select,
-		Tag
-	} from '$lib/components';
+	import { Avatar, Banner, Button, CodeBlock, Dialog, Field, Select, Tag } from '$lib/components';
 	import { session } from '$lib/state/session.svelte';
 
 	let users = $state<Profile[]>([]);
@@ -29,6 +25,7 @@
 	let quotaValue = $state('0');
 	let deleting = $state<Profile | null>(null);
 	let resetFor = $state<Profile | null>(null);
+	let unlinking = $state<Profile | null>(null);
 	let passphrase = $state('');
 	let resetLink = $state<CreatedPasswordReset | null>(null);
 	let busy = $state(false);
@@ -36,6 +33,7 @@
 
 	const self = $derived(session.account?.user.id);
 	const canReset = $derived(session.sealer?.encrypted === false);
+	const unready = $derived(session.asksPassphrase && passphrase === '');
 	const quotaOptions = $derived.by(() => {
 		const current = String(quotaFor?.quota_bytes ?? 0);
 		return QUOTA_OPTIONS.some((o) => o.value === current)
@@ -112,6 +110,20 @@
 		});
 	}
 
+	function confirmUnlink(event: SubmitEvent) {
+		event.preventDefault();
+		void act(async () => {
+			if (unlinking) await unlinkUserIdentity({ userId: unlinking.id, passphrase });
+			closeUnlink();
+		});
+	}
+
+	function closeUnlink() {
+		unlinking = null;
+		passphrase = '';
+		dialogError = null;
+	}
+
 	function closeReset() {
 		resetFor = null;
 		resetLink = null;
@@ -130,6 +142,8 @@
 					{user.username}
 					{#if user.role === 'admin'}<Tag tone="blue">Admin</Tag>{/if}
 					{#if user.disabled}<Tag tone="danger">Disabled</Tag>{/if}
+					{#if user.sign_in_method === 'sso'}<Tag tone="green">Single sign-on</Tag>{/if}
+					{#if user.sign_in_method === 'both'}<Tag tone="green">Local + SSO</Tag>{/if}
 				</span>
 				<span class="meta">
 					{user.email ? `${user.email} · ` : ''}{formatQuota(user.quota_bytes)} · joined {formatDate(
@@ -139,8 +153,13 @@
 			</span>
 			<span class="actions">
 				<Button size="sm" onclick={() => openQuota(user)}>Quota</Button>
-				{#if canReset}
+				{#if canReset && user.sign_in_method !== 'sso'}
 					<Button size="sm" onclick={() => (resetFor = user)}>Reset password</Button>
+				{/if}
+				{#if user.sign_in_method === 'sso' || user.sign_in_method === 'both'}
+					<Button size="sm" disabled={user.id === self} onclick={() => (unlinking = user)}>
+						Unlink identity
+					</Button>
 				{/if}
 				<Button
 					size="sm"
@@ -182,16 +201,30 @@
 >
 	{#if dialogError}<Banner tone="danger">{dialogError}</Banner>{/if}
 	<form id="delete-form" onsubmit={confirmDelete}>
-		<Field label="Your passphrase" hint="Confirms it is you deleting this account." required>
-			{#snippet children(field)}
-				<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
-			{/snippet}
-		</Field>
+		<ConfirmPassphrase bind:value={passphrase} hint="Confirms it is you deleting this account." />
 	</form>
 	{#snippet footer()}
 		<Button onclick={closeDelete}>Cancel</Button>
-		<Button type="submit" form="delete-form" variant="primary" {busy} disabled={passphrase === ''}>
+		<Button type="submit" form="delete-form" variant="primary" {busy} disabled={unready}>
 			{busy ? 'Checking…' : 'Delete'}
+		</Button>
+	{/snippet}
+</Dialog>
+
+<Dialog
+	open={unlinking !== null}
+	title="Unlink {unlinking?.username}’s identity?"
+	description="Their sessions and tokens end, and the next sign-in through the provider links this account again under the match mode. Use this after changing provider."
+	onclose={closeUnlink}
+>
+	{#if dialogError}<Banner tone="danger">{dialogError}</Banner>{/if}
+	<form id="unlink-form" onsubmit={confirmUnlink}>
+		<ConfirmPassphrase bind:value={passphrase} hint="Confirms it is you doing this." />
+	</form>
+	{#snippet footer()}
+		<Button onclick={closeUnlink}>Cancel</Button>
+		<Button type="submit" form="unlink-form" variant="primary" {busy} disabled={unready}>
+			{busy ? 'Checking…' : 'Unlink'}
 		</Button>
 	{/snippet}
 </Dialog>
@@ -207,11 +240,7 @@
 		<CodeBlock code={resetLink.link} label="reset link" />
 	{:else}
 		<form id="reset-form" onsubmit={issueReset}>
-			<Field label="Your passphrase" hint="Confirms it is you issuing this." required>
-				{#snippet children(field)}
-					<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
-				{/snippet}
-			</Field>
+			<ConfirmPassphrase bind:value={passphrase} hint="Confirms it is you issuing this." />
 		</form>
 	{/if}
 	{#snippet footer()}
@@ -219,7 +248,7 @@
 			<Button variant="primary" onclick={closeReset}>Done</Button>
 		{:else}
 			<Button onclick={closeReset}>Cancel</Button>
-			<Button type="submit" form="reset-form" variant="primary" {busy} disabled={passphrase === ''}>
+			<Button type="submit" form="reset-form" variant="primary" {busy} disabled={unready}>
 				{busy ? 'Checking…' : 'Issue link'}
 			</Button>
 		{/if}
