@@ -468,6 +468,13 @@ function scanContent(xml: string, budget: { cells: number }): Scan {
 	let nextCol = 0;
 	let colCursor = 0;
 	let paras: string[] = [];
+	/** The cell's text so far, line breaks between paragraphs included, against the cap. */
+	let textLength = 0;
+	const addText = (s: string) => {
+		textLength += s.length;
+		if (textLength > ODS_LIMITS.text) throw new OdsError('text too long');
+		paras[paras.length - 1] += s;
+	};
 	let inP = 0;
 	let annotation = 0;
 	for (const t of tokenize(xml)) {
@@ -555,19 +562,21 @@ function scanContent(xml: string, budget: { cells: number }): Scan {
 				row.cells.push(cell);
 				nextCol = Math.min(nextCol + repeat, MAX_COLS);
 				paras = [];
+				textLength = 0;
 				if (t.selfClosing) {
 					finishCell(cell, paras);
 					cell = null;
 				}
 			} else if (n === 'text:p' && cell) {
 				inP++;
+				if (paras.length > 0) textLength++;
 				paras.push('');
 			} else if (cell && inP > 0) {
-				const last = paras.length - 1;
-				if (n === 'text:s')
-					paras[last] += ' '.repeat(Math.min(Number(t.attrs['text:c'] ?? 1) || 1, 1000));
-				else if (n === 'text:tab') paras[last] += '\t';
-				else if (n === 'text:line-break') paras[last] += '\n';
+				if (n === 'text:s') {
+					const c = Math.trunc(Number(t.attrs['text:c'] ?? 1));
+					addText(' '.repeat(Number.isFinite(c) ? Math.min(Math.max(c, 1), 1000) : 1));
+				} else if (n === 'text:tab') addText('\t');
+				else if (n === 'text:line-break') addText('\n');
 			}
 		} else if (t.type === 'end') {
 			const n = t.name;
@@ -594,8 +603,7 @@ function scanContent(xml: string, budget: { cells: number }): Scan {
 				table.colsEnd = t.end;
 			}
 		} else if (t.type === 'text' && cell && inP > 0 && annotation === 0) {
-			paras[paras.length - 1] += t.text;
-			if (paras[paras.length - 1].length > ODS_LIMITS.text) throw new OdsError('text too long');
+			addText(t.text);
 		}
 		if (t.type === 'start' && t.name === 'table:table-column' && t.selfClosing && table)
 			table.colsEnd = t.end;

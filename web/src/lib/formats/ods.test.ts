@@ -207,3 +207,24 @@ describe('hostile .ods styles', () => {
 		expect(book.styles[c.style].numFmt).toBe(`#.${'0'.repeat(30)}`);
 	});
 });
+
+describe('long .ods text', () => {
+	it('caps a cell built of spaces and paragraphs', async () => {
+		const spaces = '<text:s text:c="1000"/>'.repeat(40);
+		const paras = '<text:p>x</text:p>'.repeat(20000);
+		for (const inner of [`<text:p>${spaces}</text:p>`, paras]) {
+			const bytes = await odsOf(
+				`<table:table table:name="T"><table:table-row><table:table-cell office:value-type="string">${inner}</table:table-cell></table:table-row></table:table>`
+			);
+			await expect(readOds(bytes)).rejects.toThrow(OdsError);
+		}
+	});
+
+	it('reads a negative space count as one space', async () => {
+		const bytes = await odsOf(
+			'<table:table table:name="T"><table:table-row><table:table-cell office:value-type="string"><text:p>a<text:s text:c="-4"/>b</text:p></table:table-cell></table:table-row></table:table>'
+		);
+		const { book } = await readOds(bytes);
+		expect(book.engine.cell(book.engine.sheets[0].id, 0, 0)!.value).toBe('a b');
+	});
+});
