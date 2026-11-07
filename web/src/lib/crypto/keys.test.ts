@@ -1,5 +1,5 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { seal, SealError } from './aead';
 import { encodeFields } from './encoding';
 import {
@@ -54,6 +54,18 @@ describe('wrapMasterKey and unwrapMasterKey', () => {
 
 	it('refuses a zeroed kek', () => {
 		expect(() => wrapMasterKey(master, new Uint8Array(32), 'passphrase')).toThrow(ZeroKeyError);
+	});
+
+	it('refuses to wrap a zeroed master key', () => {
+		expect(() => wrapMasterKey(new Uint8Array(32), kek, 'passphrase')).toThrow(ZeroKeyError);
+	});
+
+	it('refuses an opened value of all zeros', () => {
+		const zeros = seal(kek, new Uint8Array(32), encodeFields('yondrive/master/passphrase/v1'));
+
+		expect(() => unwrapMasterKey(zeros, kek, 'passphrase')).toThrow(
+			expect.objectContaining({ code: 'format' })
+		);
 	});
 
 	it('refuses a sealed value that is not 32 bytes', () => {
@@ -125,6 +137,44 @@ describe('identity', () => {
 		);
 
 		expect(() => openIdentity(sealed, master)).toThrow(expect.objectContaining({ code: 'format' }));
+	});
+
+	it.each(['x25519', 'ed25519'] as const)('refuses to seal a zeroed %s private key', (kind) => {
+		const identity = generateIdentity();
+		identity[kind].privateKey.fill(0);
+
+		expect(() => sealIdentity(identity, master)).toThrow(ZeroKeyError);
+	});
+
+	it('refuses a sealed private key of all zeros', () => {
+		const sealed = sealIdentity(generateIdentity(), master);
+		sealed.sealedEd25519 = seal(
+			master,
+			new Uint8Array(32),
+			encodeFields('yondrive/identity/ed25519/v1', sealed.publicKeys.ed25519)
+		);
+
+		expect(() => openIdentity(sealed, master)).toThrow(expect.objectContaining({ code: 'format' }));
+	});
+
+	it('zeroes the opened X25519 private key when the Ed25519 one fails to open', () => {
+		const identity = generateIdentity();
+		const sealed = sealIdentity(identity, master);
+		sealed.sealedEd25519[sealed.sealedEd25519.length - 1] ^= 1;
+		const filled: string[] = [];
+		const original = Uint8Array.prototype.fill;
+		const spy = vi.spyOn(Uint8Array.prototype, 'fill').mockImplementation(function (
+			this: Uint8Array,
+			...args
+		) {
+			filled.push(Array.from(this).join());
+			return original.apply(this, args);
+		});
+
+		expect(() => openIdentity(sealed, master)).toThrow(SealError);
+
+		spy.mockRestore();
+		expect(filled).toContain(Array.from(identity.x25519.privateKey).join());
 	});
 
 	it('zeroes both private keys', () => {

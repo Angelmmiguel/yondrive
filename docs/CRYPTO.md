@@ -14,7 +14,7 @@ All integers are unsigned big-endian. `u32(n)` is 4 bytes, `u64(n)` is 8 bytes. 
 concatenation. `utf8(s)` is the UTF-8 encoding of `s`.
 
 **Keys** are 32 bytes. An implementation MUST refuse to seal, open or derive under a key
-of the wrong length or under a key of all zeros. Locking overwrites keys with zeros, and
+of the wrong length or under a key of all zeros, and MUST refuse to wrap or seal such a key. Locking overwrites keys with zeros, and
 anyone can forge a message under the all-zero key.
 
 **Randomness** comes only from the platform's cryptographic source (in a browser,
@@ -103,7 +103,7 @@ uniformly random.
 | recovery KEK | `fields("yondrive/master/recovery/v1")` |
 | session key | `fields("yondrive/master/session/v1")` |
 
-The opened value MUST be 32 bytes.
+The opened value MUST be 32 bytes and not all zeros.
 
 **Session key.** To survive a reload, the client draws a random 32-byte session key, gives
 it to the server, which holds it in memory on the session, and keeps the wrapped master
@@ -120,7 +120,7 @@ sealed X25519  = Seal(master key, X25519 private,  fields("yondrive/identity/x25
 sealed Ed25519 = Seal(master key, Ed25519 private, fields("yondrive/identity/ed25519/v1", Ed25519 public))
 ```
 
-After opening, a client MUST recompute each public key from its private key and refuse a
+An opened private key MUST be 32 bytes and not all zeros. After opening, a client MUST recompute each public key from its private key and refuse a
 mismatch.
 
 ## 7. Node keys
@@ -148,7 +148,7 @@ Seal(node-wrap subkey of parent, node key,
      fields("yondrive/node/child/v1", utf8(parent id), utf8(node id)))
 ```
 
-The opened value MUST be 32 bytes.
+The opened value MUST be 32 bytes and not all zeros.
 
 ## 8. Grants
 
@@ -164,7 +164,7 @@ grant      = E || Seal(wrap key, node key, aad)
 
 The grant is 105 bytes for a 32-byte node key. To open, split off the first 32 bytes as
 `E`, compute `shared = X25519(r, E)`, refuse all zeros, derive the same `wrap key` and `aad` using
-the recipient's own `R`, and open. The opened value MUST be 32 bytes. `e` MUST be zeroed.
+the recipient's own `R`, and open. The opened value MUST be 32 bytes and not all zeros. `e` MUST be zeroed.
 
 A grant does not authenticate its sender.
 

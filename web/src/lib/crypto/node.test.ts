@@ -68,6 +68,23 @@ describe('root node key', () => {
 	});
 });
 
+describe('zeroed key material', () => {
+	const zeroed = new Uint8Array(32);
+
+	it('cannot be wrapped', () => {
+		expect(() => wrapRootNodeKey(zeroed, master, 'n1')).toThrow(ZeroKeyError);
+		expect(() => wrapNodeKey(zeroed, parentKey, 'parent', 'child')).toThrow(ZeroKeyError);
+	});
+
+	it('is refused when opened', () => {
+		const root = seal(master, zeroed, encodeFields('yondrive/node/root/v1', utf8('n1')));
+
+		expect(() => unwrapRootNodeKey(root, master, 'n1')).toThrow(
+			expect.objectContaining({ code: 'format' })
+		);
+	});
+});
+
 describe('wrapNodeKey', () => {
 	const sealed = wrapNodeKey(nodeKey, parentKey, 'parent', 'child');
 

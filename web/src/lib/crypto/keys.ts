@@ -7,7 +7,7 @@
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
 import { open, seal, SealError } from './aead';
 import { encodeFields, type Bytes } from './encoding';
-import { constantTimeEqual, KEY_LENGTH, randomBytes, zero } from './random';
+import { assertKey, constantTimeEqual, KEY_LENGTH, randomBytes, zero } from './random';
 
 /** What a wrapped master key opens with; each gets its own AAD. */
 export type WrapPurpose = 'passphrase' | 'recovery' | 'session';
@@ -42,6 +42,7 @@ export function generateMasterKey(): Bytes {
 
 /** Seals the master key under `kek` for one purpose. */
 export function wrapMasterKey(master: Uint8Array, kek: Uint8Array, purpose: WrapPurpose): Bytes {
+	assertKey(master);
 	return seal(kek, master, masterAad(purpose));
 }
 
@@ -66,6 +67,8 @@ export function generateIdentity(): Identity {
 
 /** Seals both private keys under the master key. */
 export function sealIdentity(identity: Identity, master: Uint8Array): SealedIdentity {
+	assertKey(identity.x25519.privateKey);
+	assertKey(identity.ed25519.privateKey);
 	return {
 		publicKeys: { x25519: identity.x25519.publicKey, ed25519: identity.ed25519.publicKey },
 		sealedX25519: seal(master, identity.x25519.privateKey, x25519Aad(identity.x25519.publicKey)),
@@ -77,7 +80,13 @@ export function sealIdentity(identity: Identity, master: Uint8Array): SealedIden
 export function openIdentity(sealed: SealedIdentity, master: Uint8Array): Identity {
 	const { publicKeys } = sealed;
 	const x = exactKey(open(master, sealed.sealedX25519, x25519Aad(publicKeys.x25519)));
-	const ed = exactKey(open(master, sealed.sealedEd25519, ed25519Aad(publicKeys.ed25519)));
+	let ed: Bytes;
+	try {
+		ed = exactKey(open(master, sealed.sealedEd25519, ed25519Aad(publicKeys.ed25519)));
+	} catch (e) {
+		zero(x);
+		throw e;
+	}
 	if (
 		!constantTimeEqual(x25519.getPublicKey(x), publicKeys.x25519) ||
 		!constantTimeEqual(ed25519.getPublicKey(ed), publicKeys.ed25519)
@@ -104,7 +113,10 @@ function ed25519Aad(publicKey: Uint8Array): Bytes {
 	return encodeFields('yondrive/identity/ed25519/v1', publicKey);
 }
 
+/** An opened key must be a live one: a sender who holds the wrapping key could seal zeros. */
 function exactKey(key: Bytes): Bytes {
-	if (key.length !== KEY_LENGTH) throw new SealError('format');
+	if (key.length !== KEY_LENGTH || constantTimeEqual(key, new Uint8Array(KEY_LENGTH))) {
+		throw new SealError('format');
+	}
 	return key;
 }

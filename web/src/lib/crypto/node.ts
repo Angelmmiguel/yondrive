@@ -9,7 +9,7 @@ import { open, seal, SealError } from './aead';
 import { encodeFields, idBytes, type Bytes } from './encoding';
 import { expand } from './kdf';
 import type { KeyPair } from './keys';
-import { assertKey, KEY_LENGTH, randomBytes, zero } from './random';
+import { assertKey, constantTimeEqual, KEY_LENGTH, randomBytes, zero } from './random';
 
 /** The keys derived from a node key for its own metadata, children's names and content. */
 export interface NodeSubkeys {
@@ -36,6 +36,7 @@ export function deriveNodeSubkeys(nodeKey: Uint8Array): NodeSubkeys {
 
 /** Wraps a user's root node key under the master key. */
 export function wrapRootNodeKey(nodeKey: Uint8Array, master: Uint8Array, nodeId: string): Bytes {
+	assertKey(nodeKey);
 	return seal(master, nodeKey, rootAad(nodeId));
 }
 
@@ -55,6 +56,7 @@ export function wrapNodeKey(
 	parentId: string,
 	nodeId: string
 ): Bytes {
+	assertKey(nodeKey);
 	const wrapKey = expand(parentKey, 'yondrive/node-wrap/v1');
 	try {
 		return seal(wrapKey, nodeKey, childAad(parentId, nodeId));
@@ -151,7 +153,10 @@ function grantAad(ephemeralPublic: Uint8Array, recipientPublic: Uint8Array, node
 	return encodeFields('yondrive/node/grant/v1', ephemeralPublic, recipientPublic, idBytes(nodeId));
 }
 
+/** An opened key must be a live one: a sender who holds the wrapping key could seal zeros. */
 function exactKey(key: Bytes): Bytes {
-	if (key.length !== KEY_LENGTH) throw new SealError('format');
+	if (key.length !== KEY_LENGTH || constantTimeEqual(key, new Uint8Array(KEY_LENGTH))) {
+		throw new SealError('format');
+	}
 	return key;
 }
