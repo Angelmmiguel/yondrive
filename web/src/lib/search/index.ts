@@ -415,7 +415,7 @@ export class SearchIndex {
 				seq,
 				docs: chunk.entries.map(writeDoc),
 				gone: c === 0 ? gone : [],
-				terms: {}
+				terms: Object.create(null) as Record<string, number[]>
 			};
 		});
 		for (const [word, postings] of this.#postings) {
@@ -436,8 +436,10 @@ export class SearchIndex {
 		const entries = [...this.#entries.values()].filter((entry) => entry.origin === null);
 		const gone = [...this.#gone];
 		if (entries.length === 0 && gone.length === 0) return null;
+		const seq = this.#seq + 1;
+		const add = this.#write(entries, gone, seq);
 		this.#gone = new Set();
-		const add = this.#write(entries, gone, ++this.#seq);
+		this.#seq = seq;
 		add.forEach(({ id, body }) => {
 			this.#segments.set(id, { id, seq: body.seq, size: 0, gone: body.gone });
 			for (const stored of body.docs) {

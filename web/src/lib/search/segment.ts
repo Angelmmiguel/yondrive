@@ -100,12 +100,15 @@ export function decodeSegment(bytes: Uint8Array): SegmentBody {
 	if (terms === null || typeof terms !== 'object' || Array.isArray(terms)) {
 		throw new BadSegmentError();
 	}
-	for (const postings of Object.values(terms)) {
+	// Words are keys: a null prototype keeps `constructor` and `__proto__` plain words.
+	const safe: Record<string, number[]> = Object.create(null);
+	for (const [word, postings] of Object.entries(terms)) {
 		if (!Array.isArray(postings) || !postings.every(Number.isSafeInteger)) {
 			throw new BadSegmentError();
 		}
+		safe[word] = postings;
 	}
-	return body as SegmentBody;
+	return { ...(body as SegmentBody), terms: safe };
 }
 
 export interface SegmentMeta {

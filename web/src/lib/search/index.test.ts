@@ -267,6 +267,25 @@ describe('segments', () => {
 		expect(index.flush()!.add[0].body.gone).toEqual(['a']);
 	});
 
+	it('takes words named like Object.prototype members as plain words', () => {
+		const index = new SearchIndex();
+		index.upsert(doc('old', 'old.txt'));
+		index.flush();
+		index.remove('old');
+		index.upsert(doc('a', 'constructor.txt'));
+		index.upsert(doc('b', 'b.txt'));
+		index.setText('b', 'v1', '__proto__ hasOwnProperty toString');
+		const write = index.flush()!;
+		expect(write.add[0].body.gone).toEqual(['old']);
+		const bytes = encodeSegment(write.add[0].body);
+		const fresh = reload([{ body: decodeSegment(bytes) }]);
+		expect(names(fresh, 'constructor')).toEqual(['constructor.txt']);
+		expect(names(fresh, '__proto__')).toEqual(['b.txt']);
+		expect(names(fresh, 'hasOwnProperty')).toEqual(['b.txt']);
+		fresh.upsert(doc('c', 'c.txt'));
+		expect(() => fresh.flush()).not.toThrow();
+	});
+
 	it('refuses bytes of the wrong shape', () => {
 		const good = encodeSegment({ v: 1, seq: 1, docs: [], gone: [], terms: {} });
 		expect(decodeSegment(good).seq).toBe(1);
