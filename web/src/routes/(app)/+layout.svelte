@@ -1,4 +1,4 @@
-<!-- The app shell every signed-in screen sits in. -->
+<!-- The app shell every signed-in screen sits in, and what stays around between them. -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -12,12 +12,20 @@
 		Icon,
 		Menu,
 		NavItem,
-		NavSection,
 		Sidebar,
 		TopBar,
 		type MenuItem
 	} from '$lib/components';
+	import DriveDialogs from '$lib/drive/ui/DriveDialogs.svelte';
+	import DriveSidebar from '$lib/drive/ui/DriveSidebar.svelte';
+	import StorageCard from '$lib/drive/ui/StorageCard.svelte';
+	import UploadPanel from '$lib/drive/ui/UploadPanel.svelte';
+	import VersionsPanel from '$lib/drive/ui/VersionsPanel.svelte';
+	import Viewer from '$lib/drive/ui/Viewer.svelte';
+	import { drive } from '$lib/state/drive.svelte';
 	import { session } from '$lib/state/session.svelte';
+	import { setContext, untrack } from 'svelte';
+	import type { ShellActions } from './shell';
 
 	let { children } = $props();
 
@@ -40,7 +48,60 @@
 		else if (id === 'lock') void lock();
 		else void signOut();
 	}
+
+	// The drive lives as long as this shell: a lock or sign-out unmounts it, which
+	// zeroes every key the drive holds, however the lock arrived.
+	$effect(() => {
+		if (session.status !== 'unlocked') return;
+		untrack(() => drive.start());
+		return () => drive.stop();
+	});
+
+	let filesInput = $state<HTMLInputElement>();
+	let folderInput = $state<HTMLInputElement>();
+	let dragging = $state(false);
+
+	const uploads = [
+		{ id: 'files', label: 'Upload files' },
+		{ id: 'folder', label: 'Upload a folder' }
+	];
+
+	const actions: ShellActions = {
+		newFolder(parentId) {
+			const parent = parentId ?? drive.folder ?? drive.rootId;
+			if (parent !== null) drive.dialog = { kind: 'new-folder', parentId: parent };
+		},
+		uploadFiles: () => filesInput?.click(),
+		uploadFolder: () => folderInput?.click()
+	};
+	setContext<ShellActions>('shell', actions);
+
+	function picked(event: Event & { currentTarget: HTMLInputElement }) {
+		drive.uploadInput(event.currentTarget.files);
+		event.currentTarget.value = '';
+	}
+
+	const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false;
+
+	function dragover(event: DragEvent) {
+		if (!hasFiles(event)) return;
+		event.preventDefault();
+		dragging = true;
+	}
+
+	function dragleave(event: DragEvent) {
+		if (event.relatedTarget === null) dragging = false;
+	}
+
+	function drop(event: DragEvent) {
+		dragging = false;
+		if (!hasFiles(event) || event.dataTransfer === null) return;
+		event.preventDefault();
+		void drive.uploadDrop(event.dataTransfer);
+	}
 </script>
+
+<svelte:window ondragover={dragover} ondragleave={dragleave} ondrop={drop} />
 
 <AppShell>
 	{#snippet rail()}
@@ -51,10 +112,13 @@
 	{/snippet}
 	{#snippet sidebar()}
 		<Sidebar title="Drive" label="Drive">
-			<NavSection title="Files">
-				<NavItem label="My files" icon="folder" href={resolve('/')} current={path === '/'} />
-			</NavSection>
+			<DriveSidebar
+				onnewfolder={() => actions.newFolder()}
+				onuploadfiles={actions.uploadFiles}
+				onuploadfolder={actions.uploadFolder}
+			/>
 			{#snippet footer()}
+				<StorageCard />
 				<div class="foot">
 					<NavItem
 						label="Settings"
@@ -85,9 +149,17 @@
 					<Icon name="lock-open" size={15} /> Not encrypted
 				</span>
 			{/if}
+			<Menu
+				label="Upload"
+				triggerLabel="Upload"
+				triggerIcon="upload"
+				width={200}
+				items={uploads}
+				onselect={(id) => (id === 'files' ? actions.uploadFiles() : actions.uploadFolder())}
+			/>
 			<Menu label="Account" {items} onselect={choose} width={200}>
 				{#snippet trigger(attrs)}
-					<button type="button" class="me" {...attrs}>
+					<button type="button" class="me" data-testid="account-menu" {...attrs}>
 						<Avatar name={displayName} size={30} />
 						<span class="who">{displayName}</span>
 					</button>
@@ -96,7 +168,40 @@
 		</TopBar>
 	{/snippet}
 	{@render children()}
+	{#if drive.uploads.length > 0}
+		<!-- Room to scroll the end of a list out from under the upload panel. -->
+		<div class="under-panel"></div>
+	{/if}
 </AppShell>
+
+<input
+	bind:this={filesInput}
+	type="file"
+	multiple
+	hidden
+	data-testid="upload-input"
+	onchange={picked}
+/>
+<input
+	bind:this={folderInput}
+	type="file"
+	webkitdirectory
+	hidden
+	data-testid="upload-folder-input"
+	onchange={picked}
+/>
+
+{#if dragging}
+	<div class="drop" aria-hidden="true">
+		<Icon name="upload" size={36} />
+		<span>Drop to upload here</span>
+	</div>
+{/if}
+
+<UploadPanel />
+<VersionsPanel />
+<DriveDialogs />
+<Viewer />
 
 <style>
 	.foot {
@@ -136,6 +241,28 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	.under-panel {
+		height: min(420px, 60vh);
+	}
+
+	.drop {
+		position: fixed;
+		inset: 12px;
+		z-index: 60;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 10px;
+		border: 2px dashed var(--accent);
+		border-radius: 20px;
+		background: var(--surface-selected);
+		color: var(--accent-ink);
+		font-size: 18px;
+		font-weight: 600;
+		pointer-events: none;
 	}
 
 	@media (max-width: 480px) {
