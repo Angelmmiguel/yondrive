@@ -90,6 +90,28 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(was).not.toContain('Quarterly notes');
 		});
 
+		test('what is typed while a save is under way is saved after it', async () => {
+			await reloadHome(page, server);
+			await upload(page, await box.add(`slow-${mode}.docx`, await fixture('docs/sample.docx')));
+			await openDoc(page, `slow-${mode}.docx`);
+			const commit = '**/api/v1/uploads/*/commit';
+			let held = 0;
+			await page.route(commit, async (route) => {
+				if (held++ === 0) await new Promise((r) => setTimeout(r, 4000));
+				await route.continue();
+			});
+			await typeAfter(page, 'for more.', ' During one.');
+			await expect(saveStatus(page)).toHaveText('Saving…', { timeout: 30_000 });
+			await typeAfter(page, 'During one.', ' During two.');
+			await expect(saveStatus(page)).toHaveText('Saved', { timeout: 30_000 });
+			await page.unroute(commit);
+			expect(held).toBe(2);
+
+			await reloadHome(page, server);
+			await openDoc(page, `slow-${mode}.docx`);
+			await expect(editor(page)).toContainText('for more. During one. During two.');
+		});
+
 		test('.odt, .rtf and Markdown save back in their own format', async () => {
 			for (const [name, fixtureName, marker] of [
 				[`sample-${mode}.odt`, 'docs/sample.odt', 'for more.'],

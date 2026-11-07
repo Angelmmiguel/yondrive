@@ -55,6 +55,32 @@ describe('a document session', () => {
 		expect(saves.length).toBe(2);
 	});
 
+	it('keeps an edit made while a save runs, and saves it next', async () => {
+		const { d, timers, saves } = deps();
+		const save = d.save;
+		let release = () => {};
+		d.save = vi.fn(async (f: SessionFile, b: Uint8Array) => {
+			await new Promise<void>((r) => (release = r));
+			return save(f, b);
+		});
+		const s = new DocSession(d, file, { bytes: new Uint8Array(), format: 'docx' });
+		s.changed();
+		timers.shift()!();
+		await vi.waitFor(() => expect(d.save).toHaveBeenCalledTimes(1));
+		s.changed();
+		release();
+		await vi.waitFor(() => expect(saves.length).toBe(1));
+		await vi.waitFor(() => expect(s.status).toBe('unsaved'));
+		expect(s.dirty).toBe(true);
+		expect(timers.length).toBe(1);
+		timers.shift()!();
+		await vi.waitFor(() => expect(d.save).toHaveBeenCalledTimes(2));
+		release();
+		await vi.waitFor(() => expect(s.status).toBe('saved'));
+		expect(saves.length).toBe(2);
+		expect(s.dirty).toBe(false);
+	});
+
 	it('turns a save that meets a newer version into a copy, and goes on there', async () => {
 		const { d } = deps({
 			save: vi.fn(async () => Promise.reject(new ApiError(412, 'version_conflict')))

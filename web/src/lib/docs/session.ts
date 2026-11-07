@@ -70,6 +70,8 @@ export class DocSession {
 	#firstChange: number | null = null;
 	#running: Promise<void> | null = null;
 	#again = false;
+	/** An edit was made that no save has taken the bytes of yet. */
+	#dirty = false;
 	#closed = false;
 
 	constructor(
@@ -115,9 +117,14 @@ export class DocSession {
 	/** An edit was made: a save follows when typing pauses, or after a while regardless. */
 	changed(): void {
 		if (this.#closed) return;
+		this.#dirty = true;
+		if (this.#status !== 'saving') this.#set('unsaved');
+		this.#schedule();
+	}
+
+	#schedule(): void {
 		const now = Date.now();
 		this.#firstChange ??= now;
-		if (this.#status !== 'saving') this.#set('unsaved');
 		const set = this.#deps.setTimeout ?? ((fn: () => void, ms: number) => setTimeout(fn, ms));
 		const clear = this.#deps.clearTimeout ?? ((h: unknown) => clearTimeout(h as number));
 		if (this.#timer !== null) clear(this.#timer);
@@ -136,7 +143,11 @@ export class DocSession {
 
 	get dirty(): boolean {
 		return (
-			this.#status === 'unsaved' || this.#status === 'failed' || this.#again || this.#timer !== null
+			this.#dirty ||
+			this.#status === 'unsaved' ||
+			this.#status === 'failed' ||
+			this.#again ||
+			this.#timer !== null
 		);
 	}
 
@@ -165,18 +176,19 @@ export class DocSession {
 
 	async #save(): Promise<void> {
 		this.#firstChange = null;
+		this.#dirty = false;
 		this.#set('saving');
 		let bytes: Uint8Array;
 		try {
 			bytes = await this.bytes();
 			if (this.converting && !this.#file.name.toLowerCase().endsWith(`.${this.#saveAs}`)) {
 				await this.#convertFile(bytes);
-				this.#set(this.#again ? 'unsaved' : 'saved');
+				this.#done();
 				return;
 			}
 			const version = await this.#deps.save(this.#file, bytes);
 			this.#file = { ...this.#file, version };
-			this.#set(this.#again ? 'unsaved' : 'saved');
+			this.#done();
 		} catch (e) {
 			if (isApiError(e, 'version_conflict')) {
 				try {
@@ -184,7 +196,7 @@ export class DocSession {
 					this.#file = copy;
 					this.#deps.onfile(copy);
 					this.#deps.onconflict(copy);
-					this.#set('saved');
+					this.#done();
 					return;
 				} catch (copyError) {
 					this.#set('failed', copyError);
@@ -193,6 +205,16 @@ export class DocSession {
 			}
 			this.#set('failed', e);
 		}
+	}
+
+	/** A save went through: saved, unless edits came while it ran, which wait for the next. */
+	#done(): void {
+		if (!this.#dirty && !this.#again) {
+			this.#set('saved');
+			return;
+		}
+		this.#set('unsaved');
+		if (this.#timer === null && !this.#again) this.#schedule();
 	}
 
 	/** The first save in a new format: a new version under the new name, or a new file. */
