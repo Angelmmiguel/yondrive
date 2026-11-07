@@ -179,7 +179,20 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          # The tags, for the version below.
+          fetch-depth: 0
           persist-credentials: false
+
+      # What the image reports as its version: `git describe` once a release
+      # exists (1.0.0-4-gabc123def456, four commits past 1.0.0), and
+      # 0.0.0-main+<commit> before, never `latest`.
+      - name: Stamp
+        run: |
+          described=$(git describe --tags --match 'v[0-9]*' --abbrev=12 2>/dev/null | sed 's/^v//' || true)
+          {
+            echo "YONDRIVE_VERSION=${described:-0.0.0-main+${GITHUB_SHA::12}}"
+            echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)"
+          } >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -189,8 +202,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # main publishes `latest`. The package name must be lower case, which
-      # the owner's login is not.
+      # main publishes `latest`, unsigned. The package name must be lower case,
+      # which the owner's login is not.
       - id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
@@ -201,7 +214,8 @@ jobs:
 
       # linux/amd64 only, the platform Unraid runs, as `just image` builds.
       # Provenance is off so the package holds one image per tag rather than
-      # an index with an attestation beside it.
+      # an index with an attestation beside it, which also lets GHCR read the
+      # description and the repository from the image's labels (Dockerfile).
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
@@ -209,9 +223,9 @@ jobs:
           push: true
           provenance: false
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ env.YONDRIVE_VERSION }}
             COMMIT=${{ github.sha }}
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

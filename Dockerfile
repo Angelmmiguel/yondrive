@@ -57,6 +57,18 @@ FROM scratch AS binary
 COPY --from=server /yondrive /yondrive
 
 FROM scratch
+# What GHCR and other registries show of the package: the source links it to
+# the repository. The version and the commit are the build's.
+ARG VERSION
+ARG COMMIT
+LABEL org.opencontainers.image.title="YonDrive" \
+      org.opencontainers.image.description="Self-hosted files, documents and notes with zero-knowledge encryption." \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/Angelmmiguel/yondrive" \
+      org.opencontainers.image.url="https://github.com/Angelmmiguel/yondrive" \
+      org.opencontainers.image.documentation="https://github.com/Angelmmiguel/yondrive/blob/main/docs/OPERATIONS.md" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}"
 # The server never dials out for content, but single sign-on has to verify an
 # identity provider's certificate. YONDRIVE_CA_FILE adds an internal authority.
 COPY --from=server /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt

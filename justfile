@@ -11,7 +11,7 @@ set dotenv-filename := ".env.local"
 # builds the same bytes. The Dockerfile and the release workflow are given the
 # same values. SOURCE_DATE_EPOCH is the commit's time, for any tool that would
 # otherwise write the current one.
-export YONDRIVE_VERSION := env("YONDRIVE_VERSION", `git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null | sed 's/^v//' | grep . || echo dev`)
+export YONDRIVE_VERSION := env("YONDRIVE_VERSION", `git describe --tags --match 'v[0-9]*' --dirty --abbrev=12 2>/dev/null | sed 's/^v//' | grep . || echo "0.0.0-dev+$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"`)
 export YONDRIVE_COMMIT := env("YONDRIVE_COMMIT", `git rev-parse HEAD 2>/dev/null || echo unknown`)
 export SOURCE_DATE_EPOCH := env("SOURCE_DATE_EPOCH", `git log -1 --format=%ct 2>/dev/null || echo 0`)
 
@@ -121,9 +121,11 @@ verify-reproducible docker="false":
 
 # Build the container image for linux/amd64, the platform Unraid runs. The
 # Dockerfile builds the web app and the binary itself, so nothing here
-# depends on a prior `just build`.
-image version="latest":
-    docker build --platform linux/amd64 --build-arg VERSION={{version}} --build-arg COMMIT=$YONDRIVE_COMMIT --build-arg SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH -t ghcr.io/angelmmiguel/yondrive:{{version}} -t ghcr.io/angelmmiguel/yondrive:latest .
+# depends on a prior `just build`. It reports the version git gives, as
+# `just build` does, and is tagged with it (a tag cannot hold a +, which
+# becomes -) and as latest.
+image version=YONDRIVE_VERSION:
+    docker build --platform linux/amd64 --build-arg VERSION={{version}} --build-arg COMMIT=$YONDRIVE_COMMIT --build-arg SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH -t ghcr.io/angelmmiguel/yondrive:{{replace(version, "+", "-")}} -t ghcr.io/angelmmiguel/yondrive:latest .
 
 # Report files that gofmt would change.
 fmt:
