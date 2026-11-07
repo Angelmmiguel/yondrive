@@ -176,6 +176,7 @@ func TestJournalReachesGrantees(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantJournal(t, st, bob.ID, shared.ID, OpRevoked)
+	wantJournal(t, st, owner.ID, shared.ID, OpRevoked)
 	before := len(journal(t, st, bob.ID))
 	addNode(t, st, owner.ID, shared.ID, KindFile, "after")
 	if got := journal(t, st, bob.ID); len(got) != before {
@@ -217,6 +218,9 @@ func TestGrantGoesWithNodeAndUsers(t *testing.T) {
 		t.Fatalf("delete owner: %v", err)
 	}
 	wantJournal(t, st, bob.ID, f.ID, OpRevoked)
+	if got := journal(t, st, owner.ID); slices.Contains(got, f.ID+":"+OpRevoked) {
+		t.Errorf("a cascade wrote an owner row: %v", got)
+	}
 	if grants, err := st.ListGrantsForGrantee(ctx, bob.ID, "", 10); err != nil || len(grants) != 0 {
 		t.Errorf("grants %v, %v", grants, err)
 	}

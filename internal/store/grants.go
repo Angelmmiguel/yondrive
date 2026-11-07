@@ -181,6 +181,14 @@ func (s *Store) DeleteGrant(ctx context.Context, id string) error {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM grants WHERE id = ?", id); err != nil {
 			return fmt.Errorf("store: delete grant: %w", err)
 		}
+		// The owner is told here, so that their client rotates the node key
+		// whoever removed the grant. A grant that goes with its node or its
+		// owner does not pass through here, so nothing doubles up.
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO changes (user_id, node_id, op, at) VALUES (?, ?, 'revoked', unixepoch())",
+			g.GranterID, g.NodeID); err != nil {
+			return fmt.Errorf("store: tell the owner: %w", err)
+		}
 		return dropLostUploads(ctx, tx, g.GranteeID, g.GranterID)
 	})
 }
