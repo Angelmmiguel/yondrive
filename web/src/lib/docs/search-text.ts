@@ -4,7 +4,8 @@
  * told from the bytes, never from a name.
  */
 import { registerExtractor } from '$lib/search/extract';
-import { formatOf, type DocFormat } from '$lib/formats/document';
+import type { DocFormat } from '$lib/formats/document';
+import { formatOf } from '$lib/formats/names';
 import { plainText } from '$lib/formats/model';
 import { createFormats, type Formats } from './formats-client';
 

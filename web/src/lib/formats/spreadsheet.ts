@@ -13,19 +13,11 @@ import type { Book, OpenedSheets, SheetFormat } from './workbook';
 import { readXls } from './xls';
 import { readXlsx, writeXlsx } from './xlsx';
 
+export { sheetFormatOf, sniffSheetFormat } from './names';
+
 export type { SheetFormat };
 /** What can be written: everything but `.xls`, which is read only. */
 export type SheetSaveFormat = Exclude<SheetFormat, 'xls'>;
-
-const EXTENSIONS: Record<string, SheetFormat> = {
-	xlsx: 'xlsx',
-	xlsm: 'xlsx',
-	ods: 'ods',
-	csv: 'csv',
-	tsv: 'tsv',
-	tab: 'tsv',
-	xls: 'xls'
-};
 
 export const SHEET_MIME: Record<SheetSaveFormat, string> = {
 	xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -42,13 +34,6 @@ export const SHEET_FORMAT_NAMES: Record<SheetFormat, string> = {
 	xls: 'Excel 97–2003 workbook'
 };
 
-/** The format a file opens as in the spreadsheet editor, from its name; null if it does not. */
-export function sheetFormatOf(name: string): SheetFormat | null {
-	const at = name.lastIndexOf('.');
-	if (at <= 0) return null;
-	return EXTENSIONS[name.slice(at + 1).toLowerCase()] ?? null;
-}
-
 /** Where a format is saved: `.xls` becomes `.xlsx`. */
 export const sheetSaveFormatOf = (f: SheetFormat): SheetSaveFormat => (f === 'xls' ? 'xlsx' : f);
 
@@ -56,18 +41,6 @@ export const sheetSaveFormatOf = (f: SheetFormat): SheetSaveFormat => (f === 'xl
 export function renameSheetFile(name: string, f: SheetSaveFormat): string {
 	const at = name.lastIndexOf('.');
 	return `${at > 0 ? name.slice(0, at) : name}.${f}`;
-}
-
-/** The format bytes are in, for those that need no name to tell: null for text. */
-export function sniffSheetFormat(head: Uint8Array): 'xlsx' | 'ods' | 'xls' | null {
-	if (head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0) return 'xls';
-	const ascii = new TextDecoder('latin1').decode(head.subarray(0, 512));
-	if (ascii.startsWith('PK\u0003\u0004')) {
-		return ascii.includes('mimetypeapplication/vnd.oasis.opendocument.spreadsheet')
-			? 'ods'
-			: 'xlsx';
-	}
-	return null;
 }
 
 export async function readSpreadsheet(

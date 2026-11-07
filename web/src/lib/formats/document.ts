@@ -12,19 +12,11 @@ import { readOdt, writeOdt } from './odf';
 import { readRtf, writeRtf } from './rtf';
 import { readText, writeText, decodeText } from './txt';
 
+export { formatOf } from './names';
+
 export type DocFormat = 'docx' | 'odt' | 'rtf' | 'md' | 'txt' | 'doc';
 /** What can be written: everything but `.doc`, which is read only. */
 export type SaveFormat = Exclude<DocFormat, 'doc'>;
-
-const EXTENSIONS: Record<string, DocFormat> = {
-	docx: 'docx',
-	odt: 'odt',
-	rtf: 'rtf',
-	md: 'md',
-	markdown: 'md',
-	txt: 'txt',
-	doc: 'doc'
-};
 
 export const MIME: Record<SaveFormat, string> = {
 	docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -42,13 +34,6 @@ export const FORMAT_NAMES: Record<DocFormat, string> = {
 	txt: 'Plain text',
 	doc: 'Word 97–2003 document'
 };
-
-/** The format a file opens as in the editor, from its name; null if it does not. */
-export function formatOf(name: string): DocFormat | null {
-	const at = name.lastIndexOf('.');
-	if (at <= 0) return null;
-	return EXTENSIONS[name.slice(at + 1).toLowerCase()] ?? null;
-}
 
 /** Where a format is saved: `.doc` becomes `.docx`. */
 export const saveFormatOf = (f: DocFormat): SaveFormat => (f === 'doc' ? 'docx' : f);

@@ -5,7 +5,7 @@
  * CSV and TSV are plain text and need nothing here.
  */
 import { registerExtractor } from '$lib/search/extract';
-import { sheetFormatOf, sniffSheetFormat } from '$lib/formats/spreadsheet';
+import { sheetFormatOf, sniffSheetFormat } from '$lib/formats/names';
 import { createSheets } from './client';
 import type { Remote } from './rpc';
 import type { SheetService } from './service';

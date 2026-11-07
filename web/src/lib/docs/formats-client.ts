@@ -1,15 +1,10 @@
 /**
  * Document reading and writing in a worker, so that a large or hostile file does
  * not freeze the page; one that takes too long has its worker ended. Where there
- * is no `Worker` (tests) the same code runs here.
+ * is no `Worker` (tests) the same code runs here, loaded when first called so
+ * that the readers stay out of the page's own bundle.
  */
-import {
-	readDocument,
-	writeDocument,
-	type DocFormat,
-	type Opened,
-	type SaveFormat
-} from '$lib/formats/document';
+import type { DocFormat, Opened, SaveFormat } from '$lib/formats/document';
 import type { DocModel } from '$lib/formats/model';
 import type { FormatsReply, FormatsRequest } from './formats.worker';
 
@@ -40,9 +35,11 @@ type Payload = FormatsRequest extends infer R
 
 export function createFormats(timeoutMs = TIMEOUT_MS): Formats {
 	if (typeof Worker === 'undefined') {
+		const here = () => import('$lib/formats/document');
 		return {
-			read: (bytes, format) => readDocument(bytes, format),
-			write: (format, model, original) => writeDocument(format, model, original),
+			read: async (bytes, format) => (await here()).readDocument(bytes, format),
+			write: async (format, model, original) =>
+				(await here()).writeDocument(format, model, original),
 			stop: () => {}
 		};
 	}
