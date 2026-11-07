@@ -68,6 +68,37 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await openNotes(page);
 		});
 
+		test('quick notes in a row leave one toast, not one each', async () => {
+			for (const title of ['Buy stamps', 'Water the plants', 'Return the drill']) {
+				await page.getByLabel('Quick note').fill(title);
+				await page.getByLabel('Quick note').press('Enter');
+				await expect(card(page, title)).toBeVisible();
+			}
+			await expect(page.getByText('Saved “Return the drill”.')).toBeVisible();
+			// Counted once, now: toasts that pile up would also go in time.
+			expect(await page.getByText(/^Saved “/).count()).toBe(1);
+		});
+
+		test('a note card is one card, with its pin inside it', async () => {
+			const one = card(page, 'Buy stamps');
+			const link = one.getByRole('link');
+			const border = (el: Element) => getComputedStyle(el).borderTopWidth;
+			expect(await one.evaluate(border)).toBe('0px');
+			expect(await link.evaluate(border)).toBe('1px');
+			const outer = (await one.boundingBox())!;
+			const inner = (await link.boundingBox())!;
+			expect(Math.abs(outer.width - inner.width)).toBeLessThanOrEqual(1);
+			expect(Math.abs(outer.height - inner.height)).toBeLessThanOrEqual(1);
+			await link.hover();
+			const pin = one.getByRole('button', { name: 'Pin Buy stamps' });
+			await expect(pin).toBeVisible();
+			const at = (await pin.boundingBox())!;
+			expect(at.x).toBeGreaterThanOrEqual(inner.x);
+			expect(at.y).toBeGreaterThanOrEqual(inner.y);
+			expect(at.x + at.width).toBeLessThanOrEqual(inner.x + inner.width);
+			expect(at.y + at.height).toBeLessThanOrEqual(inner.y + inner.height);
+		});
+
 		test('a note in a notebook, written in the editor', async () => {
 			await newNotebook(page, 'Work');
 			await notebookButton(page, 'Work').click();

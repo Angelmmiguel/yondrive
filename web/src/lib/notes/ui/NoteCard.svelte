@@ -1,7 +1,7 @@
 <!--
   One note in the list, as a card or a row: its title, the start of its text or
   its tasks, a picture if it has one, and its notebook, time, reminder and links.
-  The pin sits over it, shown on hover, focus, or when pinned.
+  The pin sits inside it, shown on hover, focus, or when pinned.
 -->
 <script lang="ts">
 	import { resolve } from '$app/paths';
@@ -54,7 +54,7 @@
 	});
 </script>
 
-<div class="wrap {layout}" data-testid="note-card" data-note={item.id}>
+<div class="wrap" class:in-cards={layout === 'card'} data-testid="note-card" data-note={item.id}>
 	{#if layout === 'card'}
 		<a class="card" class:daily={item.meta.daily !== null} {href}>
 			{#if imageUrl}
@@ -136,7 +136,8 @@
 		position: relative;
 	}
 
-	.wrap.card {
+	/* Not `.card`: the wrapper is no card of its own, only the one card it holds. */
+	.wrap.in-cards {
 		break-inside: avoid;
 		margin: 0 0 14px;
 	}

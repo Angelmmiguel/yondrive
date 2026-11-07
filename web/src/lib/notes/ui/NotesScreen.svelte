@@ -4,6 +4,14 @@
   pinned first. Search runs on the device: words through the search index, `#`
   for tags, `[[` for a note by its title.
 -->
+<script lang="ts" module>
+	/**
+	 * The toast of the last quick note, kept while the list comes and goes: the next one
+	 * replaces it rather than piling up.
+	 */
+	let captured: number | null = null;
+</script>
+
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -173,7 +181,8 @@
 			const made = await notes.newNote(folder(), title, title === text ? '' : `${text}\n`);
 			if (made) {
 				capture = '';
-				toasts.push('ok', `Saved “${title}”.`);
+				if (captured !== null) toasts.dismiss(captured);
+				captured = toasts.push('ok', `Saved “${title}”.`);
 			}
 		} finally {
 			busy = false;
