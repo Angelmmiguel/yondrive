@@ -145,6 +145,7 @@ export interface paths {
          * @description Takes either auth key, passphrase or recovery. Sets the session cookie
          *     and returns the account, whose sealed keys are opaque to the server. A
          *     wrong username and a wrong key answer the same `invalid_credentials`.
+         *     With TOTP on and no code, the right key answers `totp_required`.
          */
         post: operations["login"];
         delete?: never;
@@ -217,6 +218,69 @@ export interface paths {
          *     `recovery_auth_key` and `wrapped_master_key_recovery`.
          */
         post: operations["rekey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/totp/enrol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start enrolling in TOTP
+         * @description Needs a current auth key, so that a stolen session cannot lock the owner
+         *     out. The secret is not in force until confirmed. Secrets are stored on
+         *     the server, readable by it: they protect sign-in only and decrypt
+         *     nothing.
+         */
+        post: operations["enrolTOTP"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/totp/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put TOTP in force
+         * @description Proves the app works and returns the recovery codes, shown only here.
+         */
+        post: operations["confirmTOTP"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/totp/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn TOTP off
+         * @description Needs a current auth key and either a code or a recovery code.
+         */
+        post: operations["disableTOTP"];
         delete?: never;
         options?: never;
         head?: never;
@@ -367,6 +431,8 @@ export interface components {
              *     - `invalid_rekey`: the groups of a rekey are incomplete
              *     - `user_disabled`: right credentials, disabled account
              *     - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
+             *     - `totp_required`, `totp_invalid`, `totp_already_enabled`,
+             *       `totp_not_pending`, `totp_not_enabled`
              * @example not_found
              */
             code: string;
@@ -540,6 +606,10 @@ export interface components {
              * @description Either auth key, 32 bytes.
              */
             auth_key: string;
+            /** @description Needed when TOTP is on, unless a recovery code is given. */
+            totp_code?: string;
+            /** @description Single use, in place of `totp_code`. */
+            totp_recovery_code?: string;
         };
         RegisterRequest: {
             /** @description Required unless the server allows open sign-up. */
@@ -607,6 +677,35 @@ export interface components {
             token: string;
             /** @description The address to send, with the token in the fragment. */
             link: string;
+        };
+        CurrentCredential: {
+            /**
+             * Format: byte
+             * @description Either current auth key.
+             */
+            current_auth_key: string;
+        };
+        TOTPEnrolment: {
+            /** @description The secret in base32, to type by hand. */
+            secret: string;
+            /** @description The `otpauth://` address, to show as a QR code. */
+            uri: string;
+        };
+        ConfirmTOTPRequest: {
+            /** @example 123456 */
+            code: string;
+        };
+        RecoveryCodes: {
+            recovery_codes: string[];
+        };
+        DisableTOTPRequest: {
+            /**
+             * Format: byte
+             * @description Either current auth key.
+             */
+            current_auth_key: string;
+            code?: string;
+            recovery_code?: string;
         };
     };
     responses: {
@@ -853,6 +952,79 @@ export interface operations {
         };
         responses: {
             /** @description The credentials are replaced. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    enrolTOTP: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurrentCredential"];
+            };
+        };
+        responses: {
+            /** @description The secret, to show once. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TOTPEnrolment"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    confirmTOTP: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmTOTPRequest"];
+            };
+        };
+        responses: {
+            /** @description In force. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecoveryCodes"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    disableTOTP: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisableTOTPRequest"];
+            };
+        };
+        responses: {
+            /** @description Off. */
             204: {
                 headers: {
                     [name: string]: unknown;

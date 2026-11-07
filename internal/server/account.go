@@ -15,12 +15,12 @@ import (
 // Audit actions for accounts. They name the event and nothing else: no
 // username typed at a sign-in form goes in, since people type passwords there.
 const (
-	auditLoginSucceeded = "login_succeeded"
-	auditLoginFailed    = "login_failed"
-	auditLogout         = "logout"
-	auditRegistered     = "user_registered"
-	auditRekeyed        = "credentials_rekeyed"
-	auditRekeyFailed    = "rekey_failed"
+	auditLoginSucceeded     = "login_succeeded"
+	auditLoginFailed        = "login_failed"
+	auditLogout             = "logout"
+	auditRegistered         = "user_registered"
+	auditRekeyed            = "credentials_rekeyed"
+	auditCredentialRejected = "credential_rejected"
 )
 
 // GetKDF returns the stored parameters of a username, or stable fake ones of
@@ -80,6 +80,14 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 	if user.Disabled {
 		s.audit(ctx, auditLoginFailed, "", user.ID)
 		return nil, fail(http.StatusForbidden, codeUserDisabled)
+	}
+	if user.TOTPEnabled {
+		if req.Body.TotpCode == nil && req.Body.TotpRecoveryCode == nil {
+			return nil, fail(http.StatusUnauthorized, codeTOTPRequired)
+		}
+		if err := s.checkSecondFactor(ctx, user, req.Body.TotpCode, req.Body.TotpRecoveryCode); err != nil {
+			return nil, err
+		}
 	}
 
 	token := auth.NewToken()
@@ -179,9 +187,6 @@ func (s *Server) Register(ctx context.Context, req oapi.RegisterRequestObject) (
 // the sign-in limit. A rejected key answers wrong_credential, distinct from the
 // unauthorized of a dead session.
 func (s *Server) Rekey(ctx context.Context, req oapi.RekeyRequestObject) (oapi.RekeyResponseObject, error) {
-	if err := s.checkAttempt(ctx); err != nil {
-		return nil, err
-	}
 	up, err := rekeyUpdate(req.Body, *s.mode.Load())
 	if err != nil {
 		return nil, err
@@ -190,13 +195,9 @@ func (s *Server) Rekey(ctx context.Context, req oapi.RekeyRequestObject) (oapi.R
 
 	s.accountMu.Lock()
 	defer s.accountMu.Unlock()
-	user, err := s.store.UserByID(ctx, p.user.ID)
+	user, err := s.verifyCurrentKey(ctx, req.Body.CurrentAuthKey)
 	if err != nil {
 		return nil, err
-	}
-	if !auth.VerifyKey(req.Body.CurrentAuthKey, user.AuthKeyHash, user.RecoveryAuthKeyHash) {
-		s.audit(ctx, auditRekeyFailed, user.ID, user.ID)
-		return nil, fail(http.StatusUnauthorized, codeWrongCredential)
 	}
 	revoked, err := s.store.UpdateCredentials(ctx, user.ID, up, p.sessionHash, "")
 	if err != nil {

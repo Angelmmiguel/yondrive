@@ -177,6 +177,7 @@ paths:
         Takes either auth key, passphrase or recovery. Sets the session cookie
         and returns the account, whose sealed keys are opaque to the server. A
         wrong username and a wrong key answer the same `invalid_credentials`.
+        With TOTP on and no code, the right key answers `totp_required`.
       security: []
       requestBody:
         required: true
@@ -263,6 +264,69 @@ paths:
       responses:
         "204":
           description: The credentials are replaced.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/totp/enrol:
+    post:
+      operationId: enrolTOTP
+      tags: [auth]
+      summary: Start enrolling in TOTP
+      description: |
+        Needs a current auth key, so that a stolen session cannot lock the owner
+        out. The secret is not in force until confirmed. Secrets are stored on
+        the server, readable by it: they protect sign-in only and decrypt
+        nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentCredential"
+      responses:
+        "200":
+          description: The secret, to show once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TOTPEnrolment"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/totp/confirm:
+    post:
+      operationId: confirmTOTP
+      tags: [auth]
+      summary: Put TOTP in force
+      description: Proves the app works and returns the recovery codes, shown only here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmTOTPRequest"
+      responses:
+        "200":
+          description: In force.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryCodes"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/totp/disable:
+    post:
+      operationId: disableTOTP
+      tags: [auth]
+      summary: Turn TOTP off
+      description: Needs a current auth key and either a code or a recovery code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisableTOTPRequest"
+      responses:
+        "204":
+          description: Off.
         default:
           $ref: "#/components/responses/Error"
   /api/v1/session/key:
@@ -449,6 +513,8 @@ components:
             - `invalid_rekey`: the groups of a rekey are incomplete
             - `user_disabled`: right credentials, disabled account
             - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
+            - `totp_required`, `totp_invalid`, `totp_already_enabled`,
+              `totp_not_pending`, `totp_not_enabled`
           examples: [not_found]
     KDF:
       type: object
@@ -669,6 +735,12 @@ components:
           type: string
           format: byte
           description: Either auth key, 32 bytes.
+        totp_code:
+          type: string
+          description: Needed when TOTP is on, unless a recovery code is given.
+        totp_recovery_code:
+          type: string
+          description: Single use, in place of `totp_code`.
     RegisterRequest:
       type: object
       required: [account]
@@ -768,6 +840,51 @@ components:
         link:
           type: string
           description: The address to send, with the token in the fragment.
+    CurrentCredential:
+      type: object
+      required: [current_auth_key]
+      properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key.
+    TOTPEnrolment:
+      type: object
+      required: [secret, uri]
+      properties:
+        secret:
+          type: string
+          description: The secret in base32, to type by hand.
+        uri:
+          type: string
+          description: The `otpauth://` address, to show as a QR code.
+    ConfirmTOTPRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          examples: ["123456"]
+    RecoveryCodes:
+      type: object
+      required: [recovery_codes]
+      properties:
+        recovery_codes:
+          type: array
+          items:
+            type: string
+    DisableTOTPRequest:
+      type: object
+      required: [current_auth_key]
+      properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key.
+        code:
+          type: string
+        recovery_code:
+          type: string
   parameters:
     ID:
       name: id

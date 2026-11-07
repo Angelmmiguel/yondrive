@@ -726,7 +726,7 @@ func TestASessionAloneCannotRekey(t *testing.T) {
 		t.Errorf("a refused rekey changed the user: %+v", after)
 	}
 	other.call(http.MethodGet, mePath, nil).wantStatus(t, http.StatusOK)
-	if !e.audited("rekey_failed") {
+	if !e.audited("credential_rejected") {
 		t.Error("no audit row")
 	}
 }

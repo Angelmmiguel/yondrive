@@ -119,6 +119,12 @@ type AccountKeys struct {
 	WrappedMasterKeyRecovery []byte `json:"wrapped_master_key_recovery"`
 }
 
+// ConfirmTOTPRequest defines model for ConfirmTOTPRequest.
+type ConfirmTOTPRequest struct {
+	// Code Examples: 123456
+	Code string `json:"code"`
+}
+
 // CreateInviteRequest defines model for CreateInviteRequest.
 type CreateInviteRequest struct {
 	// Email Becomes the new user's address.
@@ -147,6 +153,21 @@ type CreatedUser struct {
 	UserId string `json:"user_id"`
 }
 
+// CurrentCredential defines model for CurrentCredential.
+type CurrentCredential struct {
+	// CurrentAuthKey Either current auth key.
+	CurrentAuthKey []byte `json:"current_auth_key"`
+}
+
+// DisableTOTPRequest defines model for DisableTOTPRequest.
+type DisableTOTPRequest struct {
+	Code *string `json:"code,omitempty"`
+
+	// CurrentAuthKey Either current auth key.
+	CurrentAuthKey []byte  `json:"current_auth_key"`
+	RecoveryCode   *string `json:"recovery_code,omitempty"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Stable machine-readable identifier, never a free-form message:
@@ -165,6 +186,8 @@ type Error struct {
 	// - `invalid_rekey`: the groups of a rekey are incomplete
 	// - `user_disabled`: right credentials, disabled account
 	// - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
+	// - `totp_required`, `totp_invalid`, `totp_already_enabled`,
+	//   `totp_not_pending`, `totp_not_enabled`
 	//
 	//
 	// Examples: not_found
@@ -231,8 +254,14 @@ type KDFName string
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// AuthKey Either auth key, 32 bytes.
-	AuthKey  []byte `json:"auth_key"`
-	Username string `json:"username"`
+	AuthKey []byte `json:"auth_key"`
+
+	// TotpCode Needed when TOTP is on, unless a recovery code is given.
+	TotpCode *string `json:"totp_code,omitempty"`
+
+	// TotpRecoveryCode Single use, in place of `totp_code`.
+	TotpRecoveryCode *string `json:"totp_recovery_code,omitempty"`
+	Username         string  `json:"username"`
 }
 
 // Mode The encryption mode of the whole server, fixed at setup. Absent from
@@ -288,6 +317,11 @@ type PublicKeys struct {
 
 	// X25519 32 bytes.
 	X25519 []byte `json:"x25519"`
+}
+
+// RecoveryCodes defines model for RecoveryCodes.
+type RecoveryCodes struct {
+	RecoveryCodes []string `json:"recovery_codes"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -364,6 +398,15 @@ type SetupRequest struct {
 	Settings ServerSettingsInput `json:"settings"`
 }
 
+// TOTPEnrolment defines model for TOTPEnrolment.
+type TOTPEnrolment struct {
+	// Secret The secret in base32, to type by hand.
+	Secret string `json:"secret"`
+
+	// Uri The `otpauth://` address, to show as a QR code.
+	Uri string `json:"uri"`
+}
+
 // UserKeys defines model for UserKeys.
 type UserKeys struct {
 	PublicKeys PublicKeys `json:"public_keys"`
@@ -405,6 +448,15 @@ type RegisterJSONRequestBody = RegisterRequest
 // RekeyJSONRequestBody defines body for Rekey for application/json ContentType.
 type RekeyJSONRequestBody = RekeyRequest
 
+// ConfirmTOTPJSONRequestBody defines body for ConfirmTOTP for application/json ContentType.
+type ConfirmTOTPJSONRequestBody = ConfirmTOTPRequest
+
+// DisableTOTPJSONRequestBody defines body for DisableTOTP for application/json ContentType.
+type DisableTOTPJSONRequestBody = DisableTOTPRequest
+
+// EnrolTOTPJSONRequestBody defines body for EnrolTOTP for application/json ContentType.
+type EnrolTOTPJSONRequestBody = CurrentCredential
+
 // PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
 type PutSessionKeyJSONRequestBody = SessionKey
 
@@ -443,6 +495,15 @@ type ServerInterface interface {
 	// Rekey Change the passphrase or the recovery key
 	// (POST /api/v1/auth/rekey)
 	Rekey(w http.ResponseWriter, r *http.Request)
+	// ConfirmTOTP Put TOTP in force
+	// (POST /api/v1/auth/totp/confirm)
+	ConfirmTOTP(w http.ResponseWriter, r *http.Request)
+	// DisableTOTP Turn TOTP off
+	// (POST /api/v1/auth/totp/disable)
+	DisableTOTP(w http.ResponseWriter, r *http.Request)
+	// EnrolTOTP Start enrolling in TOTP
+	// (POST /api/v1/auth/totp/enrol)
+	EnrolTOTP(w http.ResponseWriter, r *http.Request)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -629,6 +690,48 @@ func (siw *ServerInterfaceWrapper) Rekey(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Rekey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmTOTP operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmTOTP(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmTOTP(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisableTOTP operation middleware
+func (siw *ServerInterfaceWrapper) DisableTOTP(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisableTOTP(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EnrolTOTP operation middleware
+func (siw *ServerInterfaceWrapper) EnrolTOTP(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EnrolTOTP(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -906,6 +1009,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/rekey", wrapper.Rekey)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/totp/enrol", wrapper.EnrolTOTP)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/totp/confirm", wrapper.ConfirmTOTP)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/totp/disable", wrapper.DisableTOTP)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/session/key", wrapper.DeleteSessionKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session/key", wrapper.GetSessionKey)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/session/key", wrapper.PutSessionKey)
@@ -1263,6 +1369,117 @@ type RekeydefaultJSONResponse struct {
 }
 
 func (response RekeydefaultJSONResponse) VisitRekeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmTOTPRequestObject struct {
+	Body *ConfirmTOTPJSONRequestBody
+}
+
+type ConfirmTOTPResponseObject interface {
+	VisitConfirmTOTPResponse(w http.ResponseWriter) error
+}
+
+type ConfirmTOTP200JSONResponse RecoveryCodes
+
+func (response ConfirmTOTP200JSONResponse) VisitConfirmTOTPResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmTOTPdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ConfirmTOTPdefaultJSONResponse) VisitConfirmTOTPResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DisableTOTPRequestObject struct {
+	Body *DisableTOTPJSONRequestBody
+}
+
+type DisableTOTPResponseObject interface {
+	VisitDisableTOTPResponse(w http.ResponseWriter) error
+}
+
+type DisableTOTP204Response struct {
+}
+
+func (response DisableTOTP204Response) VisitDisableTOTPResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DisableTOTPdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DisableTOTPdefaultJSONResponse) VisitDisableTOTPResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EnrolTOTPRequestObject struct {
+	Body *EnrolTOTPJSONRequestBody
+}
+
+type EnrolTOTPResponseObject interface {
+	VisitEnrolTOTPResponse(w http.ResponseWriter) error
+}
+
+type EnrolTOTP200JSONResponse TOTPEnrolment
+
+func (response EnrolTOTP200JSONResponse) VisitEnrolTOTPResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EnrolTOTPdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EnrolTOTPdefaultJSONResponse) VisitEnrolTOTPResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -1637,6 +1854,15 @@ type StrictServerInterface interface {
 	// Rekey Change the passphrase or the recovery key
 	// (POST /api/v1/auth/rekey)
 	Rekey(ctx context.Context, request RekeyRequestObject) (RekeyResponseObject, error)
+	// ConfirmTOTP Put TOTP in force
+	// (POST /api/v1/auth/totp/confirm)
+	ConfirmTOTP(ctx context.Context, request ConfirmTOTPRequestObject) (ConfirmTOTPResponseObject, error)
+	// DisableTOTP Turn TOTP off
+	// (POST /api/v1/auth/totp/disable)
+	DisableTOTP(ctx context.Context, request DisableTOTPRequestObject) (DisableTOTPResponseObject, error)
+	// EnrolTOTP Start enrolling in TOTP
+	// (POST /api/v1/auth/totp/enrol)
+	EnrolTOTP(ctx context.Context, request EnrolTOTPRequestObject) (EnrolTOTPResponseObject, error)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -1946,6 +2172,99 @@ func (sh *strictHandler) Rekey(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RekeyResponseObject); ok {
 		if err := validResponse.VisitRekeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfirmTOTP operation middleware
+func (sh *strictHandler) ConfirmTOTP(w http.ResponseWriter, r *http.Request) {
+	var request ConfirmTOTPRequestObject
+
+	var body ConfirmTOTPJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmTOTP(ctx, request.(ConfirmTOTPRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmTOTP")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfirmTOTPResponseObject); ok {
+		if err := validResponse.VisitConfirmTOTPResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DisableTOTP operation middleware
+func (sh *strictHandler) DisableTOTP(w http.ResponseWriter, r *http.Request) {
+	var request DisableTOTPRequestObject
+
+	var body DisableTOTPJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DisableTOTP(ctx, request.(DisableTOTPRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DisableTOTP")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DisableTOTPResponseObject); ok {
+		if err := validResponse.VisitDisableTOTPResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EnrolTOTP operation middleware
+func (sh *strictHandler) EnrolTOTP(w http.ResponseWriter, r *http.Request) {
+	var request EnrolTOTPRequestObject
+
+	var body EnrolTOTPJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EnrolTOTP(ctx, request.(EnrolTOTPRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EnrolTOTP")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EnrolTOTPResponseObject); ok {
+		if err := validResponse.VisitEnrolTOTPResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

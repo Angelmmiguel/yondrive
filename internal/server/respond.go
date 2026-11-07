@@ -43,6 +43,11 @@ const (
 	codeInvalidSessionKey  = "invalid_session_key"
 	codeNoSessionKey       = "no_session_key"
 	codeNoKeys             = "no_keys"
+	codeTOTPRequired       = "totp_required"
+	codeTOTPInvalid        = "totp_invalid"
+	codeTOTPAlreadyEnabled = "totp_already_enabled"
+	codeTOTPNotPending     = "totp_not_pending"
+	codeTOTPNotEnabled     = "totp_not_enabled"
 )
 
 type errorBody struct {
