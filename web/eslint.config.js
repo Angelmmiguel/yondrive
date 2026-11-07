@@ -21,6 +21,12 @@ export default defineConfig(
 		}
 	},
 	{
+		// Components take their hrefs from the route that composes them, which has
+		// already resolved them; resolving here would do it twice.
+		files: ['src/lib/components/**/*.svelte'],
+		rules: { 'svelte/no-navigation-without-resolve': 'off' }
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		languageOptions: {
 			parserOptions: {

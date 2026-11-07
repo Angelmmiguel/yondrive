@@ -95,6 +95,36 @@
 	--stone-600: #57534e;
 	--stone-900: #25262c;
 
+	--blue-60: #e6ebff;
+	--blue-400: #a9b8ff;
+	--blue-500: #4c6bff;
+	--orange-50: #fdebd8;
+	--orange-300: #f5b36b;
+	--orange-500: #ee8b2e;
+	--orange-700: #8a4a0b;
+	--orange-900: #33230f;
+	--rose-50: #fce4ec;
+	--rose-300: #f5a3c0;
+	--rose-500: #e0608a;
+	--rose-700: #962449;
+	--rose-900: #341a25;
+	--grey-50: #eeeeec;
+	--grey-300: #b7b8c0;
+	--grey-700: #4a4a50;
+	--green-500: #2fa866;
+	--red-500: #e5484d;
+	--avatar-blue: #c3ccff;
+	--avatar-green: #a8dcc0;
+	--avatar-pink: #f4b6c6;
+	--avatar-yellow: #f6d776;
+	--switch-off-l: #d4d4cf;
+	--switch-off-d: #3a3b43;
+	--code-d: #121316;
+	--rail-logo-l: #2e2e33;
+	--rail-logo-d: #1e1f24;
+	--primary-line-l: #3a3a40;
+	--primary-sub-d: #2a3570;
+	--primary-line-d: #6f84e6;
 	--gold-300: #f5b83d;
 	--gold-700: #c98a12;
 
@@ -142,6 +172,44 @@
 	--warn-soft: light-dark(var(--amber-50), var(--amber-900));
 	--warn-line: light-dark(var(--amber-200), var(--amber-800));
 
+	/* Semantic: control chrome. */
+	--track: light-dark(var(--n-6), var(--d-6));
+	--switch-off: light-dark(var(--switch-off-l), var(--switch-off-d));
+	--code: light-dark(var(--n-2), var(--code-d));
+	--on-accent: light-dark(var(--n-0), var(--blue-950));
+	--primary-sub: light-dark(var(--n-8), var(--primary-sub-d));
+	--primary-line: light-dark(var(--primary-line-l), var(--primary-line-d));
+	--rail-logo: light-dark(var(--rail-logo-l), var(--rail-logo-d));
+	--rail-active: rgb(255 255 255 / 0.12);
+	--rail-hover: rgb(255 255 255 / 0.07);
+	--rail-line: rgb(255 255 255 / 0.12);
+	--rail-strong: #ffffff;
+	--logo-ink: var(--n-1);
+	--rail-accent: var(--blue-300);
+	--knob: #ffffff;
+	--unread: var(--red-500);
+	--info: var(--accent);
+	--info-soft: var(--accent-soft);
+	--info-ink: var(--accent-ink);
+	--danger-ink: light-dark(var(--red-600), var(--red-300));
+
+	/* Semantic: tags and people. */
+	--tag-green: light-dark(var(--green-800), var(--green-200));
+	--tag-green-soft: light-dark(var(--green-100), var(--green-900));
+	--tag-blue: light-dark(var(--blue-700), var(--blue-400));
+	--tag-blue-soft: light-dark(var(--blue-60), var(--blue-900));
+	--tag-orange: light-dark(var(--orange-700), var(--orange-300));
+	--tag-orange-soft: light-dark(var(--orange-50), var(--orange-900));
+	--tag-rose: light-dark(var(--rose-700), var(--rose-300));
+	--tag-rose-soft: light-dark(var(--rose-50), var(--rose-900));
+	--tag-grey: light-dark(var(--grey-700), var(--grey-300));
+	--tag-grey-soft: light-dark(var(--grey-50), var(--stone-900));
+	--dot-green: var(--green-500);
+	--dot-blue: var(--blue-500);
+	--dot-orange: var(--orange-500);
+	--dot-rose: var(--rose-500);
+	--avatar-ink: var(--n-14);
+
 	/* Semantic: the apps. Each has an ink and a tint. */
 	--drive: light-dark(var(--blue-600), var(--blue-300));
 	--drive-soft: light-dark(var(--blue-50), var(--blue-900));
@@ -160,6 +228,7 @@
 	--file-folder: light-dark(var(--stone-600), var(--d-11));
 	--file-folder-soft: light-dark(var(--stone-50), var(--stone-900));
 
+	--star-off: light-dark(var(--n-9), var(--d-8));
 	--star: light-dark(var(--gold-300), var(--amber-300));
 	--star-line: light-dark(var(--gold-700), var(--amber-300));
 	--selection: var(--accent-ring);
