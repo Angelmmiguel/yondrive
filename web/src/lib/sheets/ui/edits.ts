@@ -210,14 +210,27 @@ export class SheetEditor {
 	): Promise<Outcome> {
 		if (edits.length === 0) return Promise.resolve({ changed: [], layout: false });
 		const area = {
-			top: Math.min(...edits.map((e) => e.row)),
-			left: Math.min(...edits.map((e) => e.col)),
-			bottom: Math.max(...edits.map((e) => e.row)),
-			right: Math.max(...edits.map((e) => e.col))
+			top: edits[0].row,
+			left: edits[0].col,
+			bottom: edits[0].row,
+			right: edits[0].col
 		};
+		for (const e of edits) {
+			area.top = Math.min(area.top, e.row);
+			area.left = Math.min(area.left, e.col);
+			area.bottom = Math.max(area.bottom, e.row);
+			area.right = Math.max(area.right, e.col);
+		}
 		return this.#step(label, sheet, area, [{ t: 'cells', sheet, edits }], async () => {
 			if (edits.length > SNAPSHOT_LIMIT) return null;
-			const before = await Promise.all(edits.map((e) => this.#api.cell(sheet, e.row, e.col)));
+			// One read of the area when it is small enough, rather than one call per cell.
+			let before: (CellView | null | undefined)[];
+			if (cellCount(area) <= SNAPSHOT_LIMIT) {
+				const got = new Map(
+					(await this.#snapshot(sheet, area)).cells.map((c) => [`${c.row}:${c.col}`, c])
+				);
+				before = edits.map((e) => got.get(`${e.row}:${e.col}`));
+			} else before = await Promise.all(edits.map((e) => this.#api.cell(sheet, e.row, e.col)));
 			// What a General cell's style becomes on typing a percentage, money or a date is put back too.
 			const undo: Op[] = [
 				{

@@ -157,3 +157,31 @@ describe('the sizes a step puts back', () => {
 		expect(performance.now() - started).toBeLessThan(2_000);
 	});
 });
+
+describe('the undo snapshot of typed cells', () => {
+	it('reads the cells as one window, not one call per cell', async () => {
+		const { api, sheet, text } = await open('1,2\n3,4\n');
+		let cellCalls = 0;
+		let windowCalls = 0;
+		const counted = new Proxy(api, {
+			get(target, key, receiver) {
+				if (key === 'cell') cellCalls++;
+				if (key === 'window') windowCalls++;
+				return Reflect.get(target, key, receiver);
+			}
+		});
+		const loaded = await api.styles();
+		const ed = new SheetEditor(counted, loaded, 5);
+		const edits = [];
+		for (let r = 0; r < 100; r++)
+			for (let c = 0; c < 20; c++) edits.push({ row: r, col: c, text: `${r}x${c}` });
+		await ed.setCells(sheet, edits);
+		expect(cellCalls).toBe(0);
+		expect(windowCalls).toBe(1);
+		expect(await text(1, 1)).toBe('1x1');
+		await ed.undo();
+		expect(await text(0, 0)).toBe('1');
+		expect(await text(1, 1)).toBe('4');
+		expect(await text(50, 5)).toBe('');
+	});
+});
