@@ -77,6 +77,7 @@ test('an admin invites a second user, who registers and signs in', async ({ page
 	await expect(guest.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 
 	await bob.getByRole('button', { name: 'Delete' }).click();
+	await page.getByRole('dialog').getByLabel(/passphrase/i).fill(PASSPHRASE);
 	await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
 	await expect(page.getByTestId('users')).not.toContainText('bob');
 
