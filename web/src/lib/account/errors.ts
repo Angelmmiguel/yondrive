@@ -36,6 +36,14 @@ export class WrongRecoveryKeyError extends Error {
 	}
 }
 
+/** A rekey was sent and its outcome unknown, and the retry was refused: the first may have gone through. */
+export class RekeyMaybeAppliedError extends Error {
+	constructor() {
+		super('the change may already have gone through');
+		this.name = 'RekeyMaybeAppliedError';
+	}
+}
+
 /** The operation needs unlocked keys, or a lock arrived while it was running. */
 export class LockedError extends Error {
 	constructor() {
@@ -94,6 +102,9 @@ export function describeError(e: unknown): string {
 	if (e instanceof WrongPassphraseError) return 'That passphrase is not correct.';
 	if (e instanceof WrongRecoveryKeyError) {
 		return 'Those words do not open this account. Check the username and the recovery key.';
+	}
+	if (e instanceof RekeyMaybeAppliedError) {
+		return 'The change may already have gone through. Sign in with your new passphrase.';
 	}
 	if (e instanceof LockedError) return 'The app was locked before this could finish.';
 	if (e instanceof PassphraseTooShortError) return 'A passphrase needs at least 12 characters.';

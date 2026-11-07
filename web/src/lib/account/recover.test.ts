@@ -9,7 +9,12 @@ import {
 	testDeps,
 	TOTP_CODE
 } from '$lib/testing/account';
-import { WrongCredentialsError, WrongRecoveryKeyError } from './errors';
+import {
+	describeError,
+	RekeyMaybeAppliedError,
+	WrongCredentialsError,
+	WrongRecoveryKeyError
+} from './errors';
 import type { LoginStep } from './login';
 import { openRecovery, type Recovery } from './recover';
 import { newRecovery } from './recovery-key';
@@ -137,6 +142,29 @@ describe('recovery', () => {
 		server.api.rekey = rekey;
 		await recovery.finish({ passphrase: OTHER_PASSPHRASE, recoveryKey: next.key });
 		expect(deps.session.status).toBe('unlocked');
+	});
+
+	it('says the change may have gone through when a retry is refused after a lost response', async () => {
+		const { server, deps, phrase } = await setUp();
+		const recovery = done(await openRecovery({ username: 'admin', phrase, sealer }, deps));
+		const rekey = server.api.rekey;
+		server.api.rekey = async (body) => {
+			await rekey(body);
+			throw new TypeError('lost');
+		};
+		const next = newRecovery(sealer);
+		await expect(
+			recovery.finish({ passphrase: OTHER_PASSPHRASE, recoveryKey: next.key })
+		).rejects.toThrow('lost');
+
+		server.api.rekey = rekey;
+		const retry = recovery.finish({ passphrase: OTHER_PASSPHRASE, recoveryKey: next.key });
+		await expect(retry).rejects.toBeInstanceOf(RekeyMaybeAppliedError);
+		await retry.catch((e) =>
+			expect(describeError(e)).toBe(
+				'The change may already have gone through. Sign in with your new passphrase.'
+			)
+		);
 	});
 
 	it('zeroes everything and ends the login when abandoned', async () => {

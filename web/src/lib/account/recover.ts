@@ -9,10 +9,10 @@ import type { Bytes } from '$lib/crypto/encoding';
 import { zero } from '$lib/crypto/random';
 import type { Sealer } from '$lib/crypto/sealer';
 import { SealError } from '$lib/crypto/aead';
-import { isApiError } from '$lib/api/types';
+import { ApiError, isApiError } from '$lib/api/types';
 import { deriveKeys } from './credentials';
 import { defaultDeps, type Deps } from './deps';
-import { WrongRecoveryKeyError } from './errors';
+import { RekeyMaybeAppliedError, WrongRecoveryKeyError } from './errors';
 import { attemptLogin, type LoginStep } from './login';
 import { acceptSigningIn, rememberSession } from './session';
 import { recordOf, rekeyBody } from './wire';
@@ -60,6 +60,8 @@ export class Recovery {
 	#master: Bytes | null;
 	#authKey: Bytes;
 	#deps: Deps;
+	/** A rekey failed without an answer from the server, so it may have been applied. */
+	#unanswered = false;
 
 	constructor(sealer: Sealer, account: Account, master: Bytes, authKey: Bytes, deps: Deps) {
 		this.#sealer = sealer;
@@ -80,6 +82,7 @@ export class Recovery {
 		const deps = this.#deps;
 		const kdf = deps.newKdfParams();
 		const passphrase = await deriveKeys(input.passphrase, kdf, deps);
+		const priorUnanswered = this.#unanswered;
 		const recovery = this.#sealer.expandRecoveryKey(input.recoveryKey);
 		try {
 			await deps.api.rekey(
@@ -97,7 +100,11 @@ export class Recovery {
 				})
 			);
 		} catch (e) {
-			throw isApiError(e, 'wrong_credential') ? new WrongRecoveryKeyError() : e;
+			if (!(e instanceof ApiError) || e.code === 'network') this.#unanswered = true;
+			if (isApiError(e, 'wrong_credential')) {
+				throw priorUnanswered ? new RekeyMaybeAppliedError() : new WrongRecoveryKeyError();
+			}
+			throw e;
 		} finally {
 			zero(passphrase.kek, passphrase.authKey, recovery.kek, recovery.authKey);
 		}
