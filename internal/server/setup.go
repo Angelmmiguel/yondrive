@@ -14,6 +14,16 @@ import (
 
 const auditSetupCompleted = "setup_completed"
 
+// freeBytes returns the free space in a directory, if it can be told.
+func freeBytes(dir string) *int64 {
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(dir, &fs); err != nil {
+		return nil
+	}
+	free := int64(fs.Bavail) * int64(fs.Bsize) //nolint:gosec // no filesystem holds 2^63 bytes
+	return &free
+}
+
 // GetSetupInfo describes the environment to the wizard.
 func (s *Server) GetSetupInfo(context.Context, oapi.GetSetupInfoRequestObject) (oapi.GetSetupInfoResponseObject, error) {
 	dir, err := filepath.Abs(s.cfg.DataDir)
@@ -21,11 +31,7 @@ func (s *Server) GetSetupInfo(context.Context, oapi.GetSetupInfoRequestObject) (
 		dir = s.cfg.DataDir
 	}
 	info := oapi.GetSetupInfo200JSONResponse{DataDir: dir, Version: s.cfg.Version}
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(dir, &fs); err == nil {
-		free := int64(fs.Bavail) * int64(fs.Bsize) //nolint:gosec // no filesystem holds 2^63 bytes
-		info.FreeBytes = &free
-	}
+	info.FreeBytes = freeBytes(dir)
 	if s.cfg.PublicURL != "" {
 		info.PublicUrl = &s.cfg.PublicURL
 	}
@@ -46,7 +52,7 @@ func (s *Server) ValidateSetupURL(_ context.Context, req oapi.ValidateSetupURLRe
 // is what decides between two calls racing here, and it writes the mode once.
 func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupRequestObject) (oapi.CompleteSetupResponseObject, error) {
 	in := req.Body.Settings
-	if in.Mode != oapi.E2e && in.Mode != oapi.None {
+	if in.Mode != oapi.ModeE2e && in.Mode != oapi.ModeNone {
 		return nil, badRequest(codeInvalidMode)
 	}
 	publicURL, err := ParsePublicURL(in.PublicUrl)

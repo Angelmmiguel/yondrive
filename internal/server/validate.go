@@ -118,7 +118,7 @@ func newUser(account oapi.NewAccount, mode oapi.Mode, now time.Time) (store.User
 			KDF:         kdf,
 		},
 	}
-	if mode == oapi.None {
+	if mode == oapi.ModeNone {
 		if account.RecoveryAuthKey != nil || account.Keys != nil {
 			return store.User{}, badRequest(codeKeysNotAllowed)
 		}

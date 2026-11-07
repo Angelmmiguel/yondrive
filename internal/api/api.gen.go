@@ -18,6 +18,48 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for ChangeOp.
+const (
+	ChangeOpCreated        ChangeOp = "created"
+	ChangeOpMoved          ChangeOp = "moved"
+	ChangeOpPurged         ChangeOp = "purged"
+	ChangeOpRemoved        ChangeOp = "removed"
+	ChangeOpRestored       ChangeOp = "restored"
+	ChangeOpThumbnail      ChangeOp = "thumbnail"
+	ChangeOpTrashed        ChangeOp = "trashed"
+	ChangeOpUpdated        ChangeOp = "updated"
+	ChangeOpVersion        ChangeOp = "version"
+	ChangeOpVersionDeleted ChangeOp = "version_deleted"
+)
+
+// Valid indicates whether the value is a known member of the ChangeOp enum.
+func (e ChangeOp) Valid() bool {
+	switch e {
+	case ChangeOpCreated:
+		return true
+	case ChangeOpMoved:
+		return true
+	case ChangeOpPurged:
+		return true
+	case ChangeOpRemoved:
+		return true
+	case ChangeOpRestored:
+		return true
+	case ChangeOpThumbnail:
+		return true
+	case ChangeOpTrashed:
+		return true
+	case ChangeOpUpdated:
+		return true
+	case ChangeOpVersion:
+		return true
+	case ChangeOpVersionDeleted:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for HealthStatus.
 const (
 	Ok HealthStatus = "ok"
@@ -50,16 +92,34 @@ func (e KDFName) Valid() bool {
 
 // Defines values for Mode.
 const (
-	E2e  Mode = "e2e"
-	None Mode = "none"
+	ModeE2e  Mode = "e2e"
+	ModeNone Mode = "none"
 )
 
 // Valid indicates whether the value is a known member of the Mode enum.
 func (e Mode) Valid() bool {
 	switch e {
-	case E2e:
+	case ModeE2e:
 		return true
-	case None:
+	case ModeNone:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NodeKind.
+const (
+	File   NodeKind = "file"
+	Folder NodeKind = "folder"
+)
+
+// Valid indicates whether the value is a known member of the NodeKind enum.
+func (e NodeKind) Valid() bool {
+	switch e {
+	case File:
+		return true
+	case Folder:
 		return true
 	default:
 		return false
@@ -78,6 +138,42 @@ func (e Role) Valid() bool {
 	case Admin:
 		return true
 	case User:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SmallBlobKind.
+const (
+	Index SmallBlobKind = "index"
+	Thumb SmallBlobKind = "thumb"
+)
+
+// Valid indicates whether the value is a known member of the SmallBlobKind enum.
+func (e SmallBlobKind) Valid() bool {
+	switch e {
+	case Index:
+		return true
+	case Thumb:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Suite.
+const (
+	SuiteNone                Suite = "none"
+	SuiteXchacha20poly1305V1 Suite = "xchacha20poly1305-v1"
+)
+
+// Valid indicates whether the value is a known member of the Suite enum.
+func (e Suite) Valid() bool {
+	switch e {
+	case SuiteNone:
+		return true
+	case SuiteXchacha20poly1305V1:
 		return true
 	default:
 		return false
@@ -119,6 +215,61 @@ type AccountKeys struct {
 	WrappedMasterKeyRecovery []byte `json:"wrapped_master_key_recovery"`
 }
 
+// AdminHealth defines model for AdminHealth.
+type AdminHealth struct {
+	Blobs int64 `json:"blobs"`
+
+	// FreeBytes Free space in the data directory, if it can be told.
+	FreeBytes *int64 `json:"free_bytes,omitempty"`
+
+	// LastBackupAt When `yondrive backup` last finished, if ever.
+	LastBackupAt *time.Time `json:"last_backup_at,omitempty"`
+
+	// Mode The encryption mode of the whole server, fixed at setup. Absent from
+	// health until then.
+	Mode Mode `json:"mode"`
+
+	// PendingRemovals Files whose records are gone and which the sweeper has yet to unlink.
+	PendingRemovals int64  `json:"pending_removals"`
+	ReservedBytes   int64  `json:"reserved_bytes"`
+	StoredBytes     int64  `json:"stored_bytes"`
+	Uploads         int64  `json:"uploads"`
+	Version         string `json:"version"`
+}
+
+// Change defines model for Change.
+type Change struct {
+	At     time.Time `json:"at"`
+	NodeId string    `json:"node_id"`
+	Op     ChangeOp  `json:"op"`
+	Seq    int64     `json:"seq"`
+}
+
+// ChangeOp defines model for ChangeOp.
+type ChangeOp string
+
+// ChangePage defines model for ChangePage.
+type ChangePage struct {
+	Changes []Change `json:"changes"`
+
+	// NextCursor Where to read from next, also when this page is empty.
+	NextCursor string `json:"next_cursor"`
+}
+
+// CommitUploadRequest defines model for CommitUploadRequest.
+type CommitUploadRequest struct {
+	// ExpectedVersion The version this save started from. An empty string means the file must
+	// have no version yet. Left out, nothing is checked and the last commit
+	// wins. On a mismatch the answer is `version_conflict` (412).
+	ExpectedVersion *string `json:"expected_version,omitempty"`
+
+	// Manifest 1 byte to 4 KiB, opaque, kept as sent.
+	Manifest []byte `json:"manifest"`
+
+	// Signature 64 bytes in `e2e` mode, empty in `none`.
+	Signature []byte `json:"signature"`
+}
+
 // CompletePasswordResetRequest defines model for CompletePasswordResetRequest.
 type CompletePasswordResetRequest struct {
 	// AuthKey 32 bytes.
@@ -149,6 +300,41 @@ type CreateInviteRequest struct {
 	Role             *Role  `json:"role,omitempty"`
 }
 
+// CreateNodeRequest defines model for CreateNodeRequest.
+type CreateNodeRequest struct {
+	Id   string   `json:"id"`
+	Kind NodeKind `json:"kind"`
+
+	// NameTag 32 bytes.
+	NameTag  []byte `json:"name_tag"`
+	ParentId string `json:"parent_id"`
+
+	// SealedMetadata 1 byte to 64 KiB.
+	SealedMetadata []byte `json:"sealed_metadata"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+
+	// WrappedKey Required in `e2e` mode, empty in `none`.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// CreateRootRequest defines model for CreateRootRequest.
+type CreateRootRequest struct {
+	Id string `json:"id"`
+
+	// SealedMetadata At most 64 KiB.
+	SealedMetadata *[]byte `json:"sealed_metadata,omitempty"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+
+	// WrappedKey Required in `e2e` mode, empty in `none`.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
 // CreateTokenRequest defines model for CreateTokenRequest.
 type CreateTokenRequest struct {
 	// CurrentAuthKey Either current auth key.
@@ -156,6 +342,23 @@ type CreateTokenRequest struct {
 
 	// Name 1 to 128 characters.
 	Name string `json:"name"`
+}
+
+// CreateUploadRequest defines model for CreateUploadRequest.
+type CreateUploadRequest struct {
+	FrameCount int64 `json:"frame_count"`
+
+	// FrameSize Plaintext bytes per frame.
+	FrameSize  int64  `json:"frame_size"`
+	NodeId     string `json:"node_id"`
+	StoredSize int64  `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+
+	// VersionId Chosen by the client, as it enters the frames' AAD.
+	VersionId string `json:"version_id"`
 }
 
 // CreatedInvite defines model for CreatedInvite.
@@ -218,6 +421,11 @@ type DisableTOTPRequest struct {
 	RecoveryCode   *string `json:"recovery_code,omitempty"`
 }
 
+// EmptiedTrash defines model for EmptiedTrash.
+type EmptiedTrash struct {
+	Marked int `json:"marked"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Stable machine-readable identifier, never a free-form message:
@@ -241,6 +449,25 @@ type Error struct {
 	// - `invalid_token_name`
 	// - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
 	// - `session_required`: the route needs a browser session, not a token
+	// - `invalid_id`: an id is not 32 lowercase hex characters
+	// - `id_taken`: a client-chosen id exists
+	// - `suite_mismatch`: the suite is not the one of the server's mode
+	// - `invalid_node`: a sealed field is missing, or the wrong size for the mode
+	// - `name_conflict`: a sibling outside the trash has the name tag
+	// - `not_a_folder`, `not_a_file`, `move_cycle`, `tree_too_deep`, `root_immutable`
+	// - `node_trashed`, `parent_trashed`, `not_trashed`
+	// - `version_conflict`: the current version has moved on (412)
+	// - `version_current`: the current version cannot be deleted
+	// - `invalid_framing`: an upload's sizes do not agree
+	// - `invalid_frame`: no such frame in this upload
+	// - `frame_length`, `frame_hash`, `frame_conflict`: a frame was refused
+	// - `invalid_commit`: the signature or manifest is the wrong size
+	// - `upload_incomplete`: frames are missing
+	// - `quota_exceeded`: the owner's quota has no room (413)
+	// - `storage_full`: the server's disk has no room (507)
+	// - `invalid_blob`: the kind and node of a small blob do not agree
+	// - `blob_in_use`: content goes with its versions
+	// - `invalid_cursor`
 	//
 	//
 	// Examples: not_found
@@ -321,6 +548,16 @@ type LoginRequest struct {
 // health until then.
 type Mode string
 
+// MoveNodeRequest defines model for MoveNodeRequest.
+type MoveNodeRequest struct {
+	// NameTag 32 bytes, under the new parent.
+	NameTag  []byte `json:"name_tag"`
+	ParentId string `json:"parent_id"`
+
+	// WrappedKey The node key wrapped under the new parent. Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
 // NewAccount Everything a new local account stores. In `e2e` mode `recovery_auth_key`
 // and `keys` are required; in `none` they must be absent.
 type NewAccount struct {
@@ -347,6 +584,50 @@ type NewAccount struct {
 	//
 	// Examples: alice
 	Username string `json:"username"`
+}
+
+// Node A file or folder. The server cannot read the sealed fields.
+type Node struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// CurrentVersion Absent until a file's first commit.
+	CurrentVersion *string  `json:"current_version,omitempty"`
+	Id             string   `json:"id"`
+	Kind           NodeKind `json:"kind"`
+
+	// NameTag Absent on a root.
+	NameTag *[]byte `json:"name_tag,omitempty"`
+	OwnerId string  `json:"owner_id"`
+
+	// ParentId Absent on a root.
+	ParentId *string    `json:"parent_id,omitempty"`
+	PurgedAt *time.Time `json:"purged_at,omitempty"`
+
+	// RemoveAt When the bytes go. Restoring before then cancels it.
+	RemoveAt       *time.Time `json:"remove_at,omitempty"`
+	SealedMetadata []byte     `json:"sealed_metadata"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite       Suite   `json:"suite"`
+	ThumbBlobId *string `json:"thumb_blob_id,omitempty"`
+
+	// TrashedAt Set on the node that was trashed, not on what is under it.
+	TrashedAt *time.Time `json:"trashed_at,omitempty"`
+	UpdatedAt time.Time  `json:"updated_at"`
+
+	// WrappedKey Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// NodeKind defines model for NodeKind.
+type NodeKind string
+
+// NodePage defines model for NodePage.
+type NodePage struct {
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
+	Nodes      []Node  `json:"nodes"`
 }
 
 // Profile defines model for Profile.
@@ -401,6 +682,16 @@ type RekeyRequest struct {
 	WrappedMasterKeyRecovery *[]byte `json:"wrapped_master_key_recovery,omitempty"`
 }
 
+// RestoreVersionRequest defines model for RestoreVersionRequest.
+type RestoreVersionRequest struct {
+	// ExpectedVersion The version the client believes is current. Left out, nothing is
+	// checked.
+	ExpectedVersion *string `json:"expected_version,omitempty"`
+
+	// VersionId The id of the new version, chosen by the client.
+	VersionId string `json:"version_id"`
+}
+
 // Role defines model for Role.
 type Role string
 
@@ -422,7 +713,13 @@ type ServerSettings struct {
 	// HTTPS detection are wrong: the most likely misconfiguration.
 	ProxyUntrusted bool   `json:"proxy_untrusted"`
 	PublicUrl      string `json:"public_url"`
+
+	// PurgeGraceDays How many days purged data stays before its bytes are removed.
+	PurgeGraceDays int    `json:"purge_grace_days"`
 	TimeZone       string `json:"time_zone"`
+
+	// TrashRetentionDays How many days the trash keeps a node before purging it; 0 keeps it until someone does.
+	TrashRetentionDays int `json:"trash_retention_days"`
 }
 
 // ServerSettingsInput defines model for ServerSettingsInput.
@@ -472,6 +769,46 @@ type SetupRequest struct {
 	Settings ServerSettingsInput `json:"settings"`
 }
 
+// SmallBlob defines model for SmallBlob.
+type SmallBlob struct {
+	CreatedAt time.Time     `json:"created_at"`
+	Id        string        `json:"id"`
+	Kind      SmallBlobKind `json:"kind"`
+	NodeId    *string       `json:"node_id,omitempty"`
+	Size      int64         `json:"size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+}
+
+// SmallBlobKind defines model for SmallBlobKind.
+type SmallBlobKind string
+
+// SmallBlobPage defines model for SmallBlobPage.
+type SmallBlobPage struct {
+	Blobs []SmallBlob `json:"blobs"`
+
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// Storage defines model for Storage.
+type Storage struct {
+	// QuotaBytes Storage allowed; 0 means no limit.
+	QuotaBytes int64 `json:"quota_bytes"`
+
+	// ReservedBytes Held for uploads in progress.
+	ReservedBytes int64 `json:"reserved_bytes"`
+
+	// UsedBytes Stored bytes, including the trash until the bytes are removed.
+	UsedBytes int64 `json:"used_bytes"`
+}
+
+// Suite How an item is protected. It is recorded on every item, and must be the
+// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+type Suite string
+
 // TOTPEnrolment defines model for TOTPEnrolment.
 type TOTPEnrolment struct {
 	// Secret The secret in base32, to type by hand.
@@ -481,20 +818,60 @@ type TOTPEnrolment struct {
 	Uri string `json:"uri"`
 }
 
+// UpdateNodeRequest Fields left out stay as they are.
+type UpdateNodeRequest struct {
+	// NameTag 32 bytes. A root has none.
+	NameTag        *[]byte `json:"name_tag,omitempty"`
+	SealedMetadata *[]byte `json:"sealed_metadata,omitempty"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+}
+
 // UpdateSettingsRequest Fields left out stay as they are. There is no field for the mode.
 type UpdateSettingsRequest struct {
+	// CurrentAuthKey Either current auth key. Required to shorten the grace period, as a
+	// stolen admin session must not be able to bring removal closer.
+	CurrentAuthKey    *[]byte `json:"current_auth_key,omitempty"`
 	DefaultQuotaBytes *int64  `json:"default_quota_bytes,omitempty"`
 	Language          *string `json:"language,omitempty"`
 	Name              *string `json:"name,omitempty"`
 	OpenSignup        *bool   `json:"open_signup,omitempty"`
 	PublicUrl         *string `json:"public_url,omitempty"`
-	TimeZone          *string `json:"time_zone,omitempty"`
+
+	// PurgeGraceDays 1 to 3650. Applies to what is purged from now on.
+	PurgeGraceDays *int    `json:"purge_grace_days,omitempty"`
+	TimeZone       *string `json:"time_zone,omitempty"`
+
+	// TrashRetentionDays 0 to 3650.
+	TrashRetentionDays *int `json:"trash_retention_days,omitempty"`
 }
 
 // UpdateUserRequest defines model for UpdateUserRequest.
 type UpdateUserRequest struct {
 	Disabled   *bool  `json:"disabled,omitempty"`
 	QuotaBytes *int64 `json:"quota_bytes,omitempty"`
+}
+
+// Upload defines model for Upload.
+type Upload struct {
+	CreatedAt  time.Time `json:"created_at"`
+	FrameCount int64     `json:"frame_count"`
+	FrameSize  int64     `json:"frame_size"`
+
+	// Frames The indexes of the frames that have arrived, in order.
+	Frames []int64 `json:"frames"`
+
+	// Id Also the id of the blob this upload becomes.
+	Id         string `json:"id"`
+	NodeId     string `json:"node_id"`
+	StoredSize int64  `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite     Suite  `json:"suite"`
+	VersionId string `json:"version_id"`
 }
 
 // UserKeys defines model for UserKeys.
@@ -518,12 +895,169 @@ type ValidatedURL struct {
 	Url string `json:"url"`
 }
 
+// Version defines model for Version.
+type Version struct {
+	// AuthorId Who made this version, by upload or by restoring.
+	AuthorId string `json:"author_id"`
+	BlobId   string `json:"blob_id"`
+
+	// ContentAuthorId Who signed the manifest, whose key verifies it.
+	ContentAuthorId string `json:"content_author_id"`
+
+	// ContentVersionId The version id the frames were sealed and signed under: the one to use
+	// for the version key, the frame AAD and the manifest. It differs from
+	// `id` only on a restored version.
+	ContentVersionId string     `json:"content_version_id"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+	FrameCount       int64      `json:"frame_count"`
+
+	// FrameHashes 32 bytes of SHA-256 per stored frame, in order.
+	FrameHashes []byte `json:"frame_hashes"`
+	FrameSize   int64  `json:"frame_size"`
+	Id          string `json:"id"`
+
+	// Manifest As sent at commit.
+	Manifest []byte `json:"manifest"`
+	NodeId   string `json:"node_id"`
+
+	// RemoveAt When a deleted version goes.
+	RemoveAt *time.Time `json:"remove_at,omitempty"`
+
+	// Signature As sent at commit. Empty in `none` mode.
+	Signature  []byte `json:"signature"`
+	StoredSize int64  `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+}
+
+// VersionPage defines model for VersionPage.
+type VersionPage struct {
+	// NextCursor Present if there may be more.
+	NextCursor *string          `json:"next_cursor,omitempty"`
+	Versions   []VersionSummary `json:"versions"`
+}
+
+// VersionSummary defines model for VersionSummary.
+type VersionSummary struct {
+	// AuthorId Who made this version, by upload or by restoring.
+	AuthorId string `json:"author_id"`
+	BlobId   string `json:"blob_id"`
+
+	// ContentAuthorId Who signed the manifest, whose key verifies it.
+	ContentAuthorId string `json:"content_author_id"`
+
+	// ContentVersionId The version id the frames were sealed and signed under: the one to use
+	// for the version key, the frame AAD and the manifest. It differs from
+	// `id` only on a restored version.
+	ContentVersionId string     `json:"content_version_id"`
+	CreatedAt        time.Time  `json:"created_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
+	FrameCount       int64      `json:"frame_count"`
+	FrameSize        int64      `json:"frame_size"`
+	Id               string     `json:"id"`
+	NodeId           string     `json:"node_id"`
+
+	// RemoveAt When a deleted version goes.
+	RemoveAt   *time.Time `json:"remove_at,omitempty"`
+	StoredSize int64      `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
+}
+
+// ContentSHA256 defines model for ContentSHA256.
+type ContentSHA256 = string
+
 // ID defines model for ID.
 type ID = string
+
+// IDCursor defines model for IDCursor.
+type IDCursor = string
+
+// Limit defines model for Limit.
+type Limit = int
+
+// VersionID defines model for VersionID.
+type VersionID = string
 
 // GetKDFParams defines parameters for GetKDF.
 type GetKDFParams struct {
 	Username string `form:"username" json:"username"`
+}
+
+// GetBlobParams defines parameters for GetBlob.
+type GetBlobParams struct {
+	Range *string `json:"Range,omitempty"`
+
+	// IfRange The `ETag` of an earlier answer. A blob's bytes never change.
+	IfRange *string `json:"If-Range,omitempty"`
+}
+
+// PutSmallBlobParams defines parameters for PutSmallBlob.
+type PutSmallBlobParams struct {
+	Kind  SmallBlobKind `form:"kind" json:"kind"`
+	Suite Suite         `form:"suite" json:"suite"`
+
+	// NodeId The node of a thumbnail.
+	NodeId *string `form:"node_id,omitempty" json:"node_id,omitempty"`
+
+	// XContentSHA256 The SHA-256 of the body, in padded standard base64.
+	XContentSHA256 ContentSHA256 `json:"X-Content-SHA256"`
+}
+
+// ListChangesParams defines parameters for ListChanges.
+type ListChangesParams struct {
+	// Cursor The `next_cursor` of the previous page. Absent starts at the beginning.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListIndexBlobsParams defines parameters for ListIndexBlobs.
+type ListIndexBlobsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListChildrenParams defines parameters for ListChildren.
+type ListChildrenParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListVersionsParams defines parameters for ListVersions.
+type ListVersionsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListTrashParams defines parameters for ListTrash.
+type ListTrashParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// PutFrameParams defines parameters for PutFrame.
+type PutFrameParams struct {
+	// XContentSHA256 The SHA-256 of the body, in padded standard base64.
+	XContentSHA256 ContentSHA256 `json:"X-Content-SHA256"`
 }
 
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
@@ -562,6 +1096,21 @@ type EnrolTOTPJSONRequestBody = CurrentCredential
 // CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
 type CreateTokenJSONRequestBody = CreateTokenRequest
 
+// CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
+type CreateNodeJSONRequestBody = CreateNodeRequest
+
+// CreateRootNodeJSONRequestBody defines body for CreateRootNode for application/json ContentType.
+type CreateRootNodeJSONRequestBody = CreateRootRequest
+
+// UpdateNodeJSONRequestBody defines body for UpdateNode for application/json ContentType.
+type UpdateNodeJSONRequestBody = UpdateNodeRequest
+
+// MoveNodeJSONRequestBody defines body for MoveNode for application/json ContentType.
+type MoveNodeJSONRequestBody = MoveNodeRequest
+
+// RestoreVersionJSONRequestBody defines body for RestoreVersion for application/json ContentType.
+type RestoreVersionJSONRequestBody = RestoreVersionRequest
+
 // PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
 type PutSessionKeyJSONRequestBody = SessionKey
 
@@ -571,11 +1120,20 @@ type CompleteSetupJSONRequestBody = SetupRequest
 // ValidateSetupURLJSONRequestBody defines body for ValidateSetupURL for application/json ContentType.
 type ValidateSetupURLJSONRequestBody = ValidateURLRequest
 
+// CreateUploadJSONRequestBody defines body for CreateUpload for application/json ContentType.
+type CreateUploadJSONRequestBody = CreateUploadRequest
+
+// CommitUploadJSONRequestBody defines body for CommitUpload for application/json ContentType.
+type CommitUploadJSONRequestBody = CommitUploadRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(w http.ResponseWriter, r *http.Request)
+	// GetAdminHealth Report the health of the server's storage
+	// (GET /api/v1/admin/health)
+	GetAdminHealth(w http.ResponseWriter, r *http.Request)
 	// ListInvites List invites
 	// (GET /api/v1/admin/invites)
 	ListInvites(w http.ResponseWriter, r *http.Request)
@@ -630,12 +1188,30 @@ type ServerInterface interface {
 	// EnrolTOTP Start enrolling in TOTP
 	// (POST /api/v1/auth/totp/enrol)
 	EnrolTOTP(w http.ResponseWriter, r *http.Request)
+	// DeleteSmallBlob Remove a thumbnail or an index segment
+	// (DELETE /api/v1/blobs/{id})
+	DeleteSmallBlob(w http.ResponseWriter, r *http.Request, id ID)
+	// GetBlob Read a stored file
+	// (GET /api/v1/blobs/{id})
+	GetBlob(w http.ResponseWriter, r *http.Request, id ID, params GetBlobParams)
+	// PutSmallBlob Store a thumbnail or an index segment
+	// (PUT /api/v1/blobs/{id})
+	PutSmallBlob(w http.ResponseWriter, r *http.Request, id ID, params PutSmallBlobParams)
+	// ListChanges Read the change journal
+	// (GET /api/v1/changes)
+	ListChanges(w http.ResponseWriter, r *http.Request, params ListChangesParams)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// GetMe Fetch the signed-in account
 	// (GET /api/v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListIndexBlobs List the signed-in user's index segments
+	// (GET /api/v1/me/index)
+	ListIndexBlobs(w http.ResponseWriter, r *http.Request, params ListIndexBlobsParams)
+	// GetMyStorage Report the signed-in user's storage
+	// (GET /api/v1/me/storage)
+	GetMyStorage(w http.ResponseWriter, r *http.Request)
 	// ListTokens List the signed-in user's device tokens
 	// (GET /api/v1/me/tokens)
 	ListTokens(w http.ResponseWriter, r *http.Request)
@@ -645,6 +1221,48 @@ type ServerInterface interface {
 	// RevokeToken Revoke a device token
 	// (DELETE /api/v1/me/tokens/{id})
 	RevokeToken(w http.ResponseWriter, r *http.Request, id ID)
+	// CreateNode Create a file or folder
+	// (POST /api/v1/nodes)
+	CreateNode(w http.ResponseWriter, r *http.Request)
+	// GetRootNode Fetch the signed-in user's root node
+	// (GET /api/v1/nodes/root)
+	GetRootNode(w http.ResponseWriter, r *http.Request)
+	// CreateRootNode Create the signed-in user's root node on demand
+	// (POST /api/v1/nodes/root)
+	CreateRootNode(w http.ResponseWriter, r *http.Request)
+	// GetNode Fetch a node
+	// (GET /api/v1/nodes/{id})
+	GetNode(w http.ResponseWriter, r *http.Request, id ID)
+	// UpdateNode Replace a node's metadata and, on a rename, its name tag
+	// (PATCH /api/v1/nodes/{id})
+	UpdateNode(w http.ResponseWriter, r *http.Request, id ID)
+	// ListChildren List a folder's children outside the trash
+	// (GET /api/v1/nodes/{id}/children)
+	ListChildren(w http.ResponseWriter, r *http.Request, id ID, params ListChildrenParams)
+	// MoveNode Move a node to another folder
+	// (POST /api/v1/nodes/{id}/move)
+	MoveNode(w http.ResponseWriter, r *http.Request, id ID)
+	// PurgeNode Mark a trashed node for removal
+	// (POST /api/v1/nodes/{id}/purge)
+	PurgeNode(w http.ResponseWriter, r *http.Request, id ID)
+	// RestoreNode Take a node out of the trash
+	// (POST /api/v1/nodes/{id}/restore)
+	RestoreNode(w http.ResponseWriter, r *http.Request, id ID)
+	// TrashNode Put a node and its subtree in the trash
+	// (POST /api/v1/nodes/{id}/trash)
+	TrashNode(w http.ResponseWriter, r *http.Request, id ID)
+	// ListVersions List a file's versions, newest first
+	// (GET /api/v1/nodes/{id}/versions)
+	ListVersions(w http.ResponseWriter, r *http.Request, id ID, params ListVersionsParams)
+	// DeleteVersion Mark a version that is not current for removal
+	// (DELETE /api/v1/nodes/{id}/versions/{version_id})
+	DeleteVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID)
+	// GetVersion Fetch a version, with what a client needs to verify it
+	// (GET /api/v1/nodes/{id}/versions/{version_id})
+	GetVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID)
+	// RestoreVersion Make a new current version from an older one
+	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
+	RestoreVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(w http.ResponseWriter, r *http.Request)
@@ -663,6 +1281,27 @@ type ServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(w http.ResponseWriter, r *http.Request)
+	// ListTrash List the signed-in user's trash
+	// (GET /api/v1/trash)
+	ListTrash(w http.ResponseWriter, r *http.Request, params ListTrashParams)
+	// EmptyTrash Mark everything in the trash for removal
+	// (POST /api/v1/trash/empty)
+	EmptyTrash(w http.ResponseWriter, r *http.Request)
+	// CreateUpload Start uploading a version of a file
+	// (POST /api/v1/uploads)
+	CreateUpload(w http.ResponseWriter, r *http.Request)
+	// AbortUpload Abandon an upload and release its reservation
+	// (DELETE /api/v1/uploads/{id})
+	AbortUpload(w http.ResponseWriter, r *http.Request, id ID)
+	// GetUpload Report which frames of an upload have arrived
+	// (GET /api/v1/uploads/{id})
+	GetUpload(w http.ResponseWriter, r *http.Request, id ID)
+	// CommitUpload Turn a complete upload into the file's current version
+	// (POST /api/v1/uploads/{id}/commit)
+	CommitUpload(w http.ResponseWriter, r *http.Request, id ID)
+	// PutFrame Send one stored frame
+	// (PUT /api/v1/uploads/{id}/frames/{n})
+	PutFrame(w http.ResponseWriter, r *http.Request, id ID, n int64, params PutFrameParams)
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(w http.ResponseWriter, r *http.Request, id ID)
@@ -682,6 +1321,20 @@ func (siw *ServerInterfaceWrapper) GetOpenAPISpec(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOpenAPISpec(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAdminHealth operation middleware
+func (siw *ServerInterfaceWrapper) GetAdminHealth(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAdminHealth(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1010,6 +1663,240 @@ func (siw *ServerInterfaceWrapper) EnrolTOTP(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteSmallBlob operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSmallBlob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSmallBlob(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBlob operation middleware
+func (siw *ServerInterfaceWrapper) GetBlob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetBlobParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Range")]; found {
+		var Range string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Range", valueList[0], &Range, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Range", Err: err})
+			return
+		}
+
+		params.Range = &Range
+
+	}
+
+	// ------------- Optional header parameter "If-Range" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Range")]; found {
+		var IfRange string
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Range", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Range", valueList[0], &IfRange, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Range", Err: err})
+			return
+		}
+
+		params.IfRange = &IfRange
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBlob(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutSmallBlob operation middleware
+func (siw *ServerInterfaceWrapper) PutSmallBlob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutSmallBlobParams
+
+	// ------------- Required query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "suite" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "suite", r.URL.Query(), &params.Suite, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "suite"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "suite", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "node_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "node_id", r.URL.Query(), &params.NodeId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "node_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Content-SHA256" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Content-SHA256")]; found {
+		var XContentSHA256 ContentSHA256
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Content-SHA256", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Content-SHA256", valueList[0], &XContentSHA256, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Content-SHA256", Err: err})
+			return
+		}
+
+		params.XContentSHA256 = XContentSHA256
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Content-SHA256 is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Content-SHA256", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutSmallBlob(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChanges operation middleware
+func (siw *ServerInterfaceWrapper) ListChanges(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChangesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChanges(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
 
@@ -1029,6 +1916,66 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIndexBlobs operation middleware
+func (siw *ServerInterfaceWrapper) ListIndexBlobs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIndexBlobsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIndexBlobs(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyStorage operation middleware
+func (siw *ServerInterfaceWrapper) GetMyStorage(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyStorage(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1083,6 +2030,419 @@ func (siw *ServerInterfaceWrapper) RevokeToken(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RevokeToken(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNode operation middleware
+func (siw *ServerInterfaceWrapper) CreateNode(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRootNode operation middleware
+func (siw *ServerInterfaceWrapper) GetRootNode(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRootNode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRootNode operation middleware
+func (siw *ServerInterfaceWrapper) CreateRootNode(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRootNode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetNode operation middleware
+func (siw *ServerInterfaceWrapper) GetNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateNode operation middleware
+func (siw *ServerInterfaceWrapper) UpdateNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChildren operation middleware
+func (siw *ServerInterfaceWrapper) ListChildren(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChildrenParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChildren(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveNode operation middleware
+func (siw *ServerInterfaceWrapper) MoveNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PurgeNode operation middleware
+func (siw *ServerInterfaceWrapper) PurgeNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PurgeNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreNode operation middleware
+func (siw *ServerInterfaceWrapper) RestoreNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TrashNode operation middleware
+func (siw *ServerInterfaceWrapper) TrashNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TrashNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListVersionsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListVersions(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteVersion operation middleware
+func (siw *ServerInterfaceWrapper) DeleteVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId VersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteVersion(w, r, id, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetVersion operation middleware
+func (siw *ServerInterfaceWrapper) GetVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId VersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetVersion(w, r, id, versionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestoreVersion operation middleware
+func (siw *ServerInterfaceWrapper) RestoreVersion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "version_id" -------------
+	var versionId VersionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "version_id", r.PathValue("version_id"), &versionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "version_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestoreVersion(w, r, id, versionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1167,6 +2527,221 @@ func (siw *ServerInterfaceWrapper) ValidateSetupURL(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ValidateSetupURL(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTrash operation middleware
+func (siw *ServerInterfaceWrapper) ListTrash(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTrashParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTrash(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmptyTrash operation middleware
+func (siw *ServerInterfaceWrapper) EmptyTrash(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmptyTrash(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateUpload operation middleware
+func (siw *ServerInterfaceWrapper) CreateUpload(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AbortUpload operation middleware
+func (siw *ServerInterfaceWrapper) AbortUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AbortUpload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUpload operation middleware
+func (siw *ServerInterfaceWrapper) GetUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUpload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CommitUpload operation middleware
+func (siw *ServerInterfaceWrapper) CommitUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CommitUpload(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutFrame operation middleware
+func (siw *ServerInterfaceWrapper) PutFrame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutFrameParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Content-SHA256" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Content-SHA256")]; found {
+		var XContentSHA256 ContentSHA256
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Content-SHA256", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Content-SHA256", valueList[0], &XContentSHA256, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Content-SHA256", Err: err})
+			return
+		}
+
+		params.XContentSHA256 = XContentSHA256
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Content-SHA256 is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Content-SHA256", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutFrame(w, r, id, n, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1353,6 +2928,34 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/admin/users/{id}/password-reset", wrapper.CreatePasswordReset)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.GetSettings)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.UpdateSettings)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/health", wrapper.GetAdminHealth)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/storage", wrapper.GetMyStorage)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/root", wrapper.GetRootNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/root", wrapper.CreateRootNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes", wrapper.CreateNode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}", wrapper.GetNode)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/nodes/{id}", wrapper.UpdateNode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/children", wrapper.ListChildren)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/move", wrapper.MoveNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/trash", wrapper.TrashNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/restore", wrapper.RestoreNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/purge", wrapper.PurgeNode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/trash", wrapper.ListTrash)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/trash/empty", wrapper.EmptyTrash)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/versions", wrapper.ListVersions)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.DeleteVersion)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}", wrapper.GetVersion)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}/restore", wrapper.RestoreVersion)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads", wrapper.CreateUpload)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.AbortUpload)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.GetUpload)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/uploads/{id}/frames/{n}", wrapper.PutFrame)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/{id}/commit", wrapper.CommitUpload)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/blobs/{id}", wrapper.DeleteSmallBlob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/blobs/{id}", wrapper.GetBlob)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/blobs/{id}", wrapper.PutSmallBlob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/index", wrapper.ListIndexBlobs)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/changes", wrapper.ListChanges)
 
 	return m
 }
@@ -1392,6 +2995,44 @@ type GetOpenAPISpecdefaultJSONResponse struct {
 }
 
 func (response GetOpenAPISpecdefaultJSONResponse) VisitGetOpenAPISpecResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdminHealthRequestObject struct {
+}
+
+type GetAdminHealthResponseObject interface {
+	VisitGetAdminHealthResponse(w http.ResponseWriter) error
+}
+
+type GetAdminHealth200JSONResponse AdminHealth
+
+func (response GetAdminHealth200JSONResponse) VisitGetAdminHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAdminHealthdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetAdminHealthdefaultJSONResponse) VisitGetAdminHealthResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2085,6 +3726,226 @@ func (response EnrolTOTPdefaultJSONResponse) VisitEnrolTOTPResponse(w http.Respo
 	return err
 }
 
+type DeleteSmallBlobRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type DeleteSmallBlobResponseObject interface {
+	VisitDeleteSmallBlobResponse(w http.ResponseWriter) error
+}
+
+type DeleteSmallBlob204Response struct {
+}
+
+func (response DeleteSmallBlob204Response) VisitDeleteSmallBlobResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSmallBlobdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSmallBlobdefaultJSONResponse) VisitDeleteSmallBlobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBlobRequestObject struct {
+	Id     ID `json:"id"`
+	Params GetBlobParams
+}
+
+type GetBlobResponseObject interface {
+	VisitGetBlobResponse(w http.ResponseWriter) error
+}
+
+type GetBlob200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetBlob200ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetBlob200ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetBlob200ApplicationoctetStreamResponse) VisitGetBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetBlob206ResponseHeaders struct {
+	ContentRange *string
+	ETag         *string
+}
+
+type GetBlob206ApplicationoctetStreamResponse struct {
+	Body          io.Reader
+	Headers       GetBlob206ResponseHeaders
+	ContentLength int64
+}
+
+func (response GetBlob206ApplicationoctetStreamResponse) VisitGetBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	if response.Headers.ContentRange != nil {
+		w.Header().Set("Content-Range", fmt.Sprint(*response.Headers.ContentRange))
+	}
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(206)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetBlob416ResponseHeaders struct {
+	ContentRange *string
+}
+
+type GetBlob416TextResponse struct {
+	Body    string
+	Headers GetBlob416ResponseHeaders
+}
+
+func (response GetBlob416TextResponse) VisitGetBlobResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/plain")
+	if response.Headers.ContentRange != nil {
+		w.Header().Set("Content-Range", fmt.Sprint(*response.Headers.ContentRange))
+	}
+	w.WriteHeader(416)
+
+	_, err := w.Write([]byte(fmt.Sprint(response.Body)))
+	return err
+}
+
+type GetBlobdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetBlobdefaultJSONResponse) VisitGetBlobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSmallBlobRequestObject struct {
+	Id     ID `json:"id"`
+	Params PutSmallBlobParams
+	Body   io.Reader
+}
+
+type PutSmallBlobResponseObject interface {
+	VisitPutSmallBlobResponse(w http.ResponseWriter) error
+}
+
+type PutSmallBlob201JSONResponse SmallBlob
+
+func (response PutSmallBlob201JSONResponse) VisitPutSmallBlobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSmallBlobdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutSmallBlobdefaultJSONResponse) VisitPutSmallBlobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChangesRequestObject struct {
+	Params ListChangesParams
+}
+
+type ListChangesResponseObject interface {
+	VisitListChangesResponse(w http.ResponseWriter) error
+}
+
+type ListChanges200JSONResponse ChangePage
+
+func (response ListChanges200JSONResponse) VisitListChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChangesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListChangesdefaultJSONResponse) VisitListChangesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetHealthRequestObject struct {
 }
 
@@ -2150,6 +4011,83 @@ type GetMedefaultJSONResponse struct {
 }
 
 func (response GetMedefaultJSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIndexBlobsRequestObject struct {
+	Params ListIndexBlobsParams
+}
+
+type ListIndexBlobsResponseObject interface {
+	VisitListIndexBlobsResponse(w http.ResponseWriter) error
+}
+
+type ListIndexBlobs200JSONResponse SmallBlobPage
+
+func (response ListIndexBlobs200JSONResponse) VisitListIndexBlobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIndexBlobsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListIndexBlobsdefaultJSONResponse) VisitListIndexBlobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyStorageRequestObject struct {
+}
+
+type GetMyStorageResponseObject interface {
+	VisitGetMyStorageResponse(w http.ResponseWriter) error
+}
+
+type GetMyStorage200JSONResponse Storage
+
+func (response GetMyStorage200JSONResponse) VisitGetMyStorageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyStoragedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetMyStoragedefaultJSONResponse) VisitGetMyStorageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2260,6 +4198,573 @@ type RevokeTokendefaultJSONResponse struct {
 }
 
 func (response RevokeTokendefaultJSONResponse) VisitRevokeTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNodeRequestObject struct {
+	Body *CreateNodeJSONRequestBody
+}
+
+type CreateNodeResponseObject interface {
+	VisitCreateNodeResponse(w http.ResponseWriter) error
+}
+
+type CreateNode201JSONResponse Node
+
+func (response CreateNode201JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateNodedefaultJSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRootNodeRequestObject struct {
+}
+
+type GetRootNodeResponseObject interface {
+	VisitGetRootNodeResponse(w http.ResponseWriter) error
+}
+
+type GetRootNode200JSONResponse Node
+
+func (response GetRootNode200JSONResponse) VisitGetRootNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRootNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRootNodedefaultJSONResponse) VisitGetRootNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRootNodeRequestObject struct {
+	Body *CreateRootNodeJSONRequestBody
+}
+
+type CreateRootNodeResponseObject interface {
+	VisitCreateRootNodeResponse(w http.ResponseWriter) error
+}
+
+type CreateRootNode200JSONResponse Node
+
+func (response CreateRootNode200JSONResponse) VisitCreateRootNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRootNode201JSONResponse Node
+
+func (response CreateRootNode201JSONResponse) VisitCreateRootNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRootNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateRootNodedefaultJSONResponse) VisitCreateRootNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNodeRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type GetNodeResponseObject interface {
+	VisitGetNodeResponse(w http.ResponseWriter) error
+}
+
+type GetNode200JSONResponse Node
+
+func (response GetNode200JSONResponse) VisitGetNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetNodedefaultJSONResponse) VisitGetNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNodeRequestObject struct {
+	Id   ID `json:"id"`
+	Body *UpdateNodeJSONRequestBody
+}
+
+type UpdateNodeResponseObject interface {
+	VisitUpdateNodeResponse(w http.ResponseWriter) error
+}
+
+type UpdateNode200JSONResponse Node
+
+func (response UpdateNode200JSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateNodedefaultJSONResponse) VisitUpdateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChildrenRequestObject struct {
+	Id     ID `json:"id"`
+	Params ListChildrenParams
+}
+
+type ListChildrenResponseObject interface {
+	VisitListChildrenResponse(w http.ResponseWriter) error
+}
+
+type ListChildren200JSONResponse NodePage
+
+func (response ListChildren200JSONResponse) VisitListChildrenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChildrendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListChildrendefaultJSONResponse) VisitListChildrenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveNodeRequestObject struct {
+	Id   ID `json:"id"`
+	Body *MoveNodeJSONRequestBody
+}
+
+type MoveNodeResponseObject interface {
+	VisitMoveNodeResponse(w http.ResponseWriter) error
+}
+
+type MoveNode200JSONResponse Node
+
+func (response MoveNode200JSONResponse) VisitMoveNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MoveNodedefaultJSONResponse) VisitMoveNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeNodeRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type PurgeNodeResponseObject interface {
+	VisitPurgeNodeResponse(w http.ResponseWriter) error
+}
+
+type PurgeNode200JSONResponse Node
+
+func (response PurgeNode200JSONResponse) VisitPurgeNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PurgeNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PurgeNodedefaultJSONResponse) VisitPurgeNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreNodeRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type RestoreNodeResponseObject interface {
+	VisitRestoreNodeResponse(w http.ResponseWriter) error
+}
+
+type RestoreNode200JSONResponse Node
+
+func (response RestoreNode200JSONResponse) VisitRestoreNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreNodedefaultJSONResponse) VisitRestoreNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TrashNodeRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type TrashNodeResponseObject interface {
+	VisitTrashNodeResponse(w http.ResponseWriter) error
+}
+
+type TrashNode200JSONResponse Node
+
+func (response TrashNode200JSONResponse) VisitTrashNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TrashNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response TrashNodedefaultJSONResponse) VisitTrashNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVersionsRequestObject struct {
+	Id     ID `json:"id"`
+	Params ListVersionsParams
+}
+
+type ListVersionsResponseObject interface {
+	VisitListVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListVersions200JSONResponse VersionPage
+
+func (response ListVersions200JSONResponse) VisitListVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListVersionsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListVersionsdefaultJSONResponse) VisitListVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteVersionRequestObject struct {
+	Id        ID        `json:"id"`
+	VersionId VersionID `json:"version_id"`
+}
+
+type DeleteVersionResponseObject interface {
+	VisitDeleteVersionResponse(w http.ResponseWriter) error
+}
+
+type DeleteVersion200JSONResponse Version
+
+func (response DeleteVersion200JSONResponse) VisitDeleteVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteVersiondefaultJSONResponse) VisitDeleteVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVersionRequestObject struct {
+	Id        ID        `json:"id"`
+	VersionId VersionID `json:"version_id"`
+}
+
+type GetVersionResponseObject interface {
+	VisitGetVersionResponse(w http.ResponseWriter) error
+}
+
+type GetVersion200JSONResponse Version
+
+func (response GetVersion200JSONResponse) VisitGetVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetVersiondefaultJSONResponse) VisitGetVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreVersionRequestObject struct {
+	Id        ID        `json:"id"`
+	VersionId VersionID `json:"version_id"`
+	Body      *RestoreVersionJSONRequestBody
+}
+
+type RestoreVersionResponseObject interface {
+	VisitRestoreVersionResponse(w http.ResponseWriter) error
+}
+
+type RestoreVersion201JSONResponse Version
+
+func (response RestoreVersion201JSONResponse) VisitRestoreVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestoreVersiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RestoreVersiondefaultJSONResponse) VisitRestoreVersionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2490,6 +4995,270 @@ func (response ValidateSetupURLdefaultJSONResponse) VisitValidateSetupURLRespons
 	return err
 }
 
+type ListTrashRequestObject struct {
+	Params ListTrashParams
+}
+
+type ListTrashResponseObject interface {
+	VisitListTrashResponse(w http.ResponseWriter) error
+}
+
+type ListTrash200JSONResponse NodePage
+
+func (response ListTrash200JSONResponse) VisitListTrashResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTrashdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTrashdefaultJSONResponse) VisitListTrashResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EmptyTrashRequestObject struct {
+}
+
+type EmptyTrashResponseObject interface {
+	VisitEmptyTrashResponse(w http.ResponseWriter) error
+}
+
+type EmptyTrash200JSONResponse EmptiedTrash
+
+func (response EmptyTrash200JSONResponse) VisitEmptyTrashResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EmptyTrashdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EmptyTrashdefaultJSONResponse) VisitEmptyTrashResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUploadRequestObject struct {
+	Body *CreateUploadJSONRequestBody
+}
+
+type CreateUploadResponseObject interface {
+	VisitCreateUploadResponse(w http.ResponseWriter) error
+}
+
+type CreateUpload201JSONResponse Upload
+
+func (response CreateUpload201JSONResponse) VisitCreateUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateUploaddefaultJSONResponse) VisitCreateUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AbortUploadRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type AbortUploadResponseObject interface {
+	VisitAbortUploadResponse(w http.ResponseWriter) error
+}
+
+type AbortUpload204Response struct {
+}
+
+func (response AbortUpload204Response) VisitAbortUploadResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AbortUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AbortUploaddefaultJSONResponse) VisitAbortUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUploadRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type GetUploadResponseObject interface {
+	VisitGetUploadResponse(w http.ResponseWriter) error
+}
+
+type GetUpload200JSONResponse Upload
+
+func (response GetUpload200JSONResponse) VisitGetUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetUploaddefaultJSONResponse) VisitGetUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CommitUploadRequestObject struct {
+	Id   ID `json:"id"`
+	Body *CommitUploadJSONRequestBody
+}
+
+type CommitUploadResponseObject interface {
+	VisitCommitUploadResponse(w http.ResponseWriter) error
+}
+
+type CommitUpload201JSONResponse Version
+
+func (response CommitUpload201JSONResponse) VisitCommitUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CommitUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CommitUploaddefaultJSONResponse) VisitCommitUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutFrameRequestObject struct {
+	Id     ID    `json:"id"`
+	N      int64 `json:"n"`
+	Params PutFrameParams
+	Body   io.Reader
+}
+
+type PutFrameResponseObject interface {
+	VisitPutFrameResponse(w http.ResponseWriter) error
+}
+
+type PutFrame204Response struct {
+}
+
+func (response PutFrame204Response) VisitPutFrameResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutFramedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutFramedefaultJSONResponse) VisitPutFrameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUserKeysRequestObject struct {
 	Id ID `json:"id"`
 }
@@ -2534,6 +5303,9 @@ type StrictServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(ctx context.Context, request GetOpenAPISpecRequestObject) (GetOpenAPISpecResponseObject, error)
+	// GetAdminHealth Report the health of the server's storage
+	// (GET /api/v1/admin/health)
+	GetAdminHealth(ctx context.Context, request GetAdminHealthRequestObject) (GetAdminHealthResponseObject, error)
 	// ListInvites List invites
 	// (GET /api/v1/admin/invites)
 	ListInvites(ctx context.Context, request ListInvitesRequestObject) (ListInvitesResponseObject, error)
@@ -2588,12 +5360,30 @@ type StrictServerInterface interface {
 	// EnrolTOTP Start enrolling in TOTP
 	// (POST /api/v1/auth/totp/enrol)
 	EnrolTOTP(ctx context.Context, request EnrolTOTPRequestObject) (EnrolTOTPResponseObject, error)
+	// DeleteSmallBlob Remove a thumbnail or an index segment
+	// (DELETE /api/v1/blobs/{id})
+	DeleteSmallBlob(ctx context.Context, request DeleteSmallBlobRequestObject) (DeleteSmallBlobResponseObject, error)
+	// GetBlob Read a stored file
+	// (GET /api/v1/blobs/{id})
+	GetBlob(ctx context.Context, request GetBlobRequestObject) (GetBlobResponseObject, error)
+	// PutSmallBlob Store a thumbnail or an index segment
+	// (PUT /api/v1/blobs/{id})
+	PutSmallBlob(ctx context.Context, request PutSmallBlobRequestObject) (PutSmallBlobResponseObject, error)
+	// ListChanges Read the change journal
+	// (GET /api/v1/changes)
+	ListChanges(ctx context.Context, request ListChangesRequestObject) (ListChangesResponseObject, error)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// GetMe Fetch the signed-in account
 	// (GET /api/v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ListIndexBlobs List the signed-in user's index segments
+	// (GET /api/v1/me/index)
+	ListIndexBlobs(ctx context.Context, request ListIndexBlobsRequestObject) (ListIndexBlobsResponseObject, error)
+	// GetMyStorage Report the signed-in user's storage
+	// (GET /api/v1/me/storage)
+	GetMyStorage(ctx context.Context, request GetMyStorageRequestObject) (GetMyStorageResponseObject, error)
 	// ListTokens List the signed-in user's device tokens
 	// (GET /api/v1/me/tokens)
 	ListTokens(ctx context.Context, request ListTokensRequestObject) (ListTokensResponseObject, error)
@@ -2603,6 +5393,48 @@ type StrictServerInterface interface {
 	// RevokeToken Revoke a device token
 	// (DELETE /api/v1/me/tokens/{id})
 	RevokeToken(ctx context.Context, request RevokeTokenRequestObject) (RevokeTokenResponseObject, error)
+	// CreateNode Create a file or folder
+	// (POST /api/v1/nodes)
+	CreateNode(ctx context.Context, request CreateNodeRequestObject) (CreateNodeResponseObject, error)
+	// GetRootNode Fetch the signed-in user's root node
+	// (GET /api/v1/nodes/root)
+	GetRootNode(ctx context.Context, request GetRootNodeRequestObject) (GetRootNodeResponseObject, error)
+	// CreateRootNode Create the signed-in user's root node on demand
+	// (POST /api/v1/nodes/root)
+	CreateRootNode(ctx context.Context, request CreateRootNodeRequestObject) (CreateRootNodeResponseObject, error)
+	// GetNode Fetch a node
+	// (GET /api/v1/nodes/{id})
+	GetNode(ctx context.Context, request GetNodeRequestObject) (GetNodeResponseObject, error)
+	// UpdateNode Replace a node's metadata and, on a rename, its name tag
+	// (PATCH /api/v1/nodes/{id})
+	UpdateNode(ctx context.Context, request UpdateNodeRequestObject) (UpdateNodeResponseObject, error)
+	// ListChildren List a folder's children outside the trash
+	// (GET /api/v1/nodes/{id}/children)
+	ListChildren(ctx context.Context, request ListChildrenRequestObject) (ListChildrenResponseObject, error)
+	// MoveNode Move a node to another folder
+	// (POST /api/v1/nodes/{id}/move)
+	MoveNode(ctx context.Context, request MoveNodeRequestObject) (MoveNodeResponseObject, error)
+	// PurgeNode Mark a trashed node for removal
+	// (POST /api/v1/nodes/{id}/purge)
+	PurgeNode(ctx context.Context, request PurgeNodeRequestObject) (PurgeNodeResponseObject, error)
+	// RestoreNode Take a node out of the trash
+	// (POST /api/v1/nodes/{id}/restore)
+	RestoreNode(ctx context.Context, request RestoreNodeRequestObject) (RestoreNodeResponseObject, error)
+	// TrashNode Put a node and its subtree in the trash
+	// (POST /api/v1/nodes/{id}/trash)
+	TrashNode(ctx context.Context, request TrashNodeRequestObject) (TrashNodeResponseObject, error)
+	// ListVersions List a file's versions, newest first
+	// (GET /api/v1/nodes/{id}/versions)
+	ListVersions(ctx context.Context, request ListVersionsRequestObject) (ListVersionsResponseObject, error)
+	// DeleteVersion Mark a version that is not current for removal
+	// (DELETE /api/v1/nodes/{id}/versions/{version_id})
+	DeleteVersion(ctx context.Context, request DeleteVersionRequestObject) (DeleteVersionResponseObject, error)
+	// GetVersion Fetch a version, with what a client needs to verify it
+	// (GET /api/v1/nodes/{id}/versions/{version_id})
+	GetVersion(ctx context.Context, request GetVersionRequestObject) (GetVersionResponseObject, error)
+	// RestoreVersion Make a new current version from an older one
+	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
+	RestoreVersion(ctx context.Context, request RestoreVersionRequestObject) (RestoreVersionResponseObject, error)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(ctx context.Context, request DeleteSessionKeyRequestObject) (DeleteSessionKeyResponseObject, error)
@@ -2621,6 +5453,27 @@ type StrictServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(ctx context.Context, request ValidateSetupURLRequestObject) (ValidateSetupURLResponseObject, error)
+	// ListTrash List the signed-in user's trash
+	// (GET /api/v1/trash)
+	ListTrash(ctx context.Context, request ListTrashRequestObject) (ListTrashResponseObject, error)
+	// EmptyTrash Mark everything in the trash for removal
+	// (POST /api/v1/trash/empty)
+	EmptyTrash(ctx context.Context, request EmptyTrashRequestObject) (EmptyTrashResponseObject, error)
+	// CreateUpload Start uploading a version of a file
+	// (POST /api/v1/uploads)
+	CreateUpload(ctx context.Context, request CreateUploadRequestObject) (CreateUploadResponseObject, error)
+	// AbortUpload Abandon an upload and release its reservation
+	// (DELETE /api/v1/uploads/{id})
+	AbortUpload(ctx context.Context, request AbortUploadRequestObject) (AbortUploadResponseObject, error)
+	// GetUpload Report which frames of an upload have arrived
+	// (GET /api/v1/uploads/{id})
+	GetUpload(ctx context.Context, request GetUploadRequestObject) (GetUploadResponseObject, error)
+	// CommitUpload Turn a complete upload into the file's current version
+	// (POST /api/v1/uploads/{id}/commit)
+	CommitUpload(ctx context.Context, request CommitUploadRequestObject) (CommitUploadResponseObject, error)
+	// PutFrame Send one stored frame
+	// (PUT /api/v1/uploads/{id}/frames/{n})
+	PutFrame(ctx context.Context, request PutFrameRequestObject) (PutFrameResponseObject, error)
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(ctx context.Context, request GetUserKeysRequestObject) (GetUserKeysResponseObject, error)
@@ -2682,6 +5535,30 @@ func (sh *strictHandler) GetOpenAPISpec(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetOpenAPISpecResponseObject); ok {
 		if err := validResponse.VisitGetOpenAPISpecResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAdminHealth operation middleware
+func (sh *strictHandler) GetAdminHealth(w http.ResponseWriter, r *http.Request) {
+	var request GetAdminHealthRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAdminHealth(ctx, request.(GetAdminHealthRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAdminHealth")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAdminHealthResponseObject); ok {
+		if err := validResponse.VisitGetAdminHealthResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3208,6 +6085,114 @@ func (sh *strictHandler) EnrolTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteSmallBlob operation middleware
+func (sh *strictHandler) DeleteSmallBlob(w http.ResponseWriter, r *http.Request, id ID) {
+	var request DeleteSmallBlobRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSmallBlob(ctx, request.(DeleteSmallBlobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSmallBlob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSmallBlobResponseObject); ok {
+		if err := validResponse.VisitDeleteSmallBlobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBlob operation middleware
+func (sh *strictHandler) GetBlob(w http.ResponseWriter, r *http.Request, id ID, params GetBlobParams) {
+	var request GetBlobRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBlob(ctx, request.(GetBlobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBlob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBlobResponseObject); ok {
+		if err := validResponse.VisitGetBlobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutSmallBlob operation middleware
+func (sh *strictHandler) PutSmallBlob(w http.ResponseWriter, r *http.Request, id ID, params PutSmallBlobParams) {
+	var request PutSmallBlobRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutSmallBlob(ctx, request.(PutSmallBlobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutSmallBlob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutSmallBlobResponseObject); ok {
+		if err := validResponse.VisitPutSmallBlobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChanges operation middleware
+func (sh *strictHandler) ListChanges(w http.ResponseWriter, r *http.Request, params ListChangesParams) {
+	var request ListChangesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChanges(ctx, request.(ListChangesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChanges")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChangesResponseObject); ok {
+		if err := validResponse.VisitListChangesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetHealth operation middleware
 func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	var request GetHealthRequestObject
@@ -3249,6 +6234,56 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeResponseObject); ok {
 		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIndexBlobs operation middleware
+func (sh *strictHandler) ListIndexBlobs(w http.ResponseWriter, r *http.Request, params ListIndexBlobsParams) {
+	var request ListIndexBlobsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIndexBlobs(ctx, request.(ListIndexBlobsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIndexBlobs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIndexBlobsResponseObject); ok {
+		if err := validResponse.VisitListIndexBlobsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMyStorage operation middleware
+func (sh *strictHandler) GetMyStorage(w http.ResponseWriter, r *http.Request) {
+	var request GetMyStorageRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyStorage(ctx, request.(GetMyStorageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyStorage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyStorageResponseObject); ok {
+		if err := validResponse.VisitGetMyStorageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3330,6 +6365,404 @@ func (sh *strictHandler) RevokeToken(w http.ResponseWriter, r *http.Request, id 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RevokeTokenResponseObject); ok {
 		if err := validResponse.VisitRevokeTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNode operation middleware
+func (sh *strictHandler) CreateNode(w http.ResponseWriter, r *http.Request) {
+	var request CreateNodeRequestObject
+
+	var body CreateNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNode(ctx, request.(CreateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNodeResponseObject); ok {
+		if err := validResponse.VisitCreateNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRootNode operation middleware
+func (sh *strictHandler) GetRootNode(w http.ResponseWriter, r *http.Request) {
+	var request GetRootNodeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRootNode(ctx, request.(GetRootNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRootNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRootNodeResponseObject); ok {
+		if err := validResponse.VisitGetRootNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateRootNode operation middleware
+func (sh *strictHandler) CreateRootNode(w http.ResponseWriter, r *http.Request) {
+	var request CreateRootNodeRequestObject
+
+	var body CreateRootNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRootNode(ctx, request.(CreateRootNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRootNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRootNodeResponseObject); ok {
+		if err := validResponse.VisitCreateRootNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetNode operation middleware
+func (sh *strictHandler) GetNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request GetNodeRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetNode(ctx, request.(GetNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetNodeResponseObject); ok {
+		if err := validResponse.VisitGetNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateNode operation middleware
+func (sh *strictHandler) UpdateNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request UpdateNodeRequestObject
+
+	request.Id = id
+
+	var body UpdateNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateNode(ctx, request.(UpdateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateNodeResponseObject); ok {
+		if err := validResponse.VisitUpdateNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChildren operation middleware
+func (sh *strictHandler) ListChildren(w http.ResponseWriter, r *http.Request, id ID, params ListChildrenParams) {
+	var request ListChildrenRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChildren(ctx, request.(ListChildrenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChildren")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChildrenResponseObject); ok {
+		if err := validResponse.VisitListChildrenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveNode operation middleware
+func (sh *strictHandler) MoveNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request MoveNodeRequestObject
+
+	request.Id = id
+
+	var body MoveNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveNode(ctx, request.(MoveNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveNodeResponseObject); ok {
+		if err := validResponse.VisitMoveNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PurgeNode operation middleware
+func (sh *strictHandler) PurgeNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request PurgeNodeRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PurgeNode(ctx, request.(PurgeNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PurgeNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PurgeNodeResponseObject); ok {
+		if err := validResponse.VisitPurgeNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreNode operation middleware
+func (sh *strictHandler) RestoreNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request RestoreNodeRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreNode(ctx, request.(RestoreNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreNodeResponseObject); ok {
+		if err := validResponse.VisitRestoreNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// TrashNode operation middleware
+func (sh *strictHandler) TrashNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request TrashNodeRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TrashNode(ctx, request.(TrashNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TrashNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TrashNodeResponseObject); ok {
+		if err := validResponse.VisitTrashNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListVersions operation middleware
+func (sh *strictHandler) ListVersions(w http.ResponseWriter, r *http.Request, id ID, params ListVersionsParams) {
+	var request ListVersionsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListVersions(ctx, request.(ListVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListVersionsResponseObject); ok {
+		if err := validResponse.VisitListVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteVersion operation middleware
+func (sh *strictHandler) DeleteVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID) {
+	var request DeleteVersionRequestObject
+
+	request.Id = id
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteVersion(ctx, request.(DeleteVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteVersionResponseObject); ok {
+		if err := validResponse.VisitDeleteVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetVersion operation middleware
+func (sh *strictHandler) GetVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID) {
+	var request GetVersionRequestObject
+
+	request.Id = id
+	request.VersionId = versionId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetVersion(ctx, request.(GetVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetVersionResponseObject); ok {
+		if err := validResponse.VisitGetVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestoreVersion operation middleware
+func (sh *strictHandler) RestoreVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID) {
+	var request RestoreVersionRequestObject
+
+	request.Id = id
+	request.VersionId = versionId
+
+	var body RestoreVersionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestoreVersion(ctx, request.(RestoreVersionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestoreVersion")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestoreVersionResponseObject); ok {
+		if err := validResponse.VisitRestoreVersionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3495,6 +6928,202 @@ func (sh *strictHandler) ValidateSetupURL(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ValidateSetupURLResponseObject); ok {
 		if err := validResponse.VisitValidateSetupURLResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTrash operation middleware
+func (sh *strictHandler) ListTrash(w http.ResponseWriter, r *http.Request, params ListTrashParams) {
+	var request ListTrashRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTrash(ctx, request.(ListTrashRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTrash")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTrashResponseObject); ok {
+		if err := validResponse.VisitListTrashResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EmptyTrash operation middleware
+func (sh *strictHandler) EmptyTrash(w http.ResponseWriter, r *http.Request) {
+	var request EmptyTrashRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EmptyTrash(ctx, request.(EmptyTrashRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EmptyTrash")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EmptyTrashResponseObject); ok {
+		if err := validResponse.VisitEmptyTrashResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateUpload operation middleware
+func (sh *strictHandler) CreateUpload(w http.ResponseWriter, r *http.Request) {
+	var request CreateUploadRequestObject
+
+	var body CreateUploadJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateUpload(ctx, request.(CreateUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateUploadResponseObject); ok {
+		if err := validResponse.VisitCreateUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AbortUpload operation middleware
+func (sh *strictHandler) AbortUpload(w http.ResponseWriter, r *http.Request, id ID) {
+	var request AbortUploadRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AbortUpload(ctx, request.(AbortUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AbortUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AbortUploadResponseObject); ok {
+		if err := validResponse.VisitAbortUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUpload operation middleware
+func (sh *strictHandler) GetUpload(w http.ResponseWriter, r *http.Request, id ID) {
+	var request GetUploadRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUpload(ctx, request.(GetUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUploadResponseObject); ok {
+		if err := validResponse.VisitGetUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CommitUpload operation middleware
+func (sh *strictHandler) CommitUpload(w http.ResponseWriter, r *http.Request, id ID) {
+	var request CommitUploadRequestObject
+
+	request.Id = id
+
+	var body CommitUploadJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CommitUpload(ctx, request.(CommitUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CommitUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CommitUploadResponseObject); ok {
+		if err := validResponse.VisitCommitUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutFrame operation middleware
+func (sh *strictHandler) PutFrame(w http.ResponseWriter, r *http.Request, id ID, n int64, params PutFrameParams) {
+	var request PutFrameRequestObject
+
+	request.Id = id
+	request.N = n
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutFrame(ctx, request.(PutFrameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutFrame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutFrameResponseObject); ok {
+		if err := validResponse.VisitPutFrameResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

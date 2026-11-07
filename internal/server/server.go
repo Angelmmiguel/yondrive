@@ -15,6 +15,7 @@ import (
 
 	"github.com/Angelmmiguel/yondrive/internal/api"
 	"github.com/Angelmmiguel/yondrive/internal/auth"
+	"github.com/Angelmmiguel/yondrive/internal/blobs"
 	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
@@ -25,6 +26,11 @@ const (
 	// DefaultMaxBodyBytes is the largest request body a route accepts unless
 	// it raises the limit itself.
 	DefaultMaxBodyBytes = 1 << 20
+	// DefaultFrameTimeout is how long one frame of an upload may take to arrive.
+	DefaultFrameTimeout = 5 * time.Minute
+	// DefaultUploadTTL is how long an upload may sit untouched before it is
+	// dropped and its reservation released.
+	DefaultUploadTTL = 7 * 24 * time.Hour
 )
 
 // usernameAttemptsFactor is how many times the per-address limit one username
@@ -67,6 +73,10 @@ type Config struct {
 	BodyTimeout time.Duration
 	// MaxBodyBytes is the default limit on request bodies.
 	MaxBodyBytes int64
+	// FrameTimeout bounds how long a frame or small blob may take to arrive.
+	FrameTimeout time.Duration
+	// UploadTTL is how long an upload may sit untouched.
+	UploadTTL time.Duration
 	// DataDir is the data directory, shown read-only by the setup wizard.
 	DataDir string
 	// PublicURL is the address from the environment, offered by the wizard.
@@ -95,6 +105,7 @@ type Server struct {
 	cfg     Config
 	log     *slog.Logger
 	store   *store.Store
+	files   *blobs.Dir
 	limiter *auth.RateLimiter
 	// kdfLimiter is apart from limiter: a sign-in takes one lookup too, and an
 	// answer from this route proves nothing.
@@ -105,6 +116,13 @@ type Server struct {
 	// secret keys the fake KDF parameters.
 	secret  []byte
 	handler http.Handler
+
+	// frames keeps two writers off the same frame.
+	frames *frameLocks
+	// sweepMu keeps one sweep at a time, and drainMu one pass over the file
+	// removals, which requests also start.
+	sweepMu sync.Mutex
+	drainMu sync.Mutex
 
 	// mode is nil until setup completes. It never changes after that, and the
 	// advisory lock on the data directory means no other process can set it.
@@ -130,6 +148,12 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultMaxBodyBytes
 	}
+	if cfg.FrameTimeout <= 0 {
+		cfg.FrameTimeout = DefaultFrameTimeout
+	}
+	if cfg.UploadTTL <= 0 {
+		cfg.UploadTTL = DefaultUploadTTL
+	}
 	if cfg.SessionTTL <= 0 {
 		cfg.SessionTTL = auth.DefaultSessionTTL
 	}
@@ -149,10 +173,16 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server: read secret: %w", err)
 	}
+	files, err := blobs.Open(st.Dir())
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
 		cfg:             cfg,
 		log:             cfg.Logger,
 		store:           st,
+		files:           files,
+		frames:          newFrameLocks(),
 		limiter:         auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		kdfLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		usernameLimiter: auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
@@ -171,6 +201,9 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		}
 	default:
 		return nil, fmt.Errorf("server: read settings: %w", err)
+	}
+	if err := s.reconcileFiles(context.Background()); err != nil {
+		return nil, err
 	}
 	s.handler = s.routes()
 	return s, nil

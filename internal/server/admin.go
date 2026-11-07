@@ -14,6 +14,12 @@ import (
 // passwordResetTTL is how long a reset link works.
 const passwordResetTTL = 24 * time.Hour
 
+// The bounds of the settings counted in days.
+const (
+	minPurgeGraceDays = 1
+	maxSettingDays    = 3650
+)
+
 // Audit actions for administration.
 const (
 	auditUserDisabled    = "user_disabled"
@@ -101,19 +107,28 @@ func (s *Server) setDisabled(ctx context.Context, actor, target string, disabled
 
 // DeleteUser removes a user and everything that hangs off the account.
 func (s *Server) DeleteUser(ctx context.Context, req oapi.DeleteUserRequestObject) (oapi.DeleteUserResponseObject, error) {
-	s.accountMu.Lock()
-	defer s.accountMu.Unlock()
-	actor, err := s.checkModifiable(ctx, req.Id)
-	if err != nil {
+	if err := s.deleteUser(ctx, req.Id); err != nil {
 		return nil, err
 	}
-	revoked, err := s.store.DeleteUser(ctx, req.Id)
+	// After accountMu: a large drive takes a while to unlink, and sign-ins go on.
+	s.drainRemovalsLogged(ctx)
+	return oapi.DeleteUser204Response{}, nil
+}
+
+func (s *Server) deleteUser(ctx context.Context, id string) error {
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	actor, err := s.checkModifiable(ctx, id)
 	if err != nil {
-		return nil, notFound(err)
+		return err
+	}
+	revoked, err := s.store.DeleteUser(ctx, id)
+	if err != nil {
+		return notFound(err)
 	}
 	s.keys.Drop(revoked...)
-	s.audit(ctx, auditUserDeleted, actor, req.Id)
-	return oapi.DeleteUser204Response{}, nil
+	s.audit(ctx, auditUserDeleted, actor, id)
+	return nil
 }
 
 // notFound turns a missing record into its API error.
@@ -128,7 +143,7 @@ func notFound(err error) error {
 // where a new password would open nothing: the keys depend on the old one. A
 // session alone is not enough, since the link takes over the account.
 func (s *Server) CreatePasswordReset(ctx context.Context, req oapi.CreatePasswordResetRequestObject) (oapi.CreatePasswordResetResponseObject, error) {
-	if *s.mode.Load() != oapi.None {
+	if *s.mode.Load() != oapi.ModeNone {
 		return nil, fail(http.StatusConflict, codeWrongMode)
 	}
 	s.accountMu.Lock()
@@ -162,7 +177,7 @@ func (s *Server) CompletePasswordReset(ctx context.Context, req oapi.CompletePas
 	if err := s.checkAttempt(ctx); err != nil {
 		return nil, err
 	}
-	if *s.mode.Load() != oapi.None {
+	if *s.mode.Load() != oapi.ModeNone {
 		return nil, fail(http.StatusConflict, codeWrongMode)
 	}
 	if len(req.Body.AuthKey) != auth.AuthKeyLen {
@@ -203,8 +218,13 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 	if (in.Name != nil && !validName(*in.Name)) ||
 		(in.DefaultQuotaBytes != nil && *in.DefaultQuotaBytes < 0) ||
 		(in.Language != nil && !languagePattern.MatchString(*in.Language)) ||
-		(in.TimeZone != nil && !timeZonePattern.MatchString(*in.TimeZone)) {
+		(in.TimeZone != nil && !timeZonePattern.MatchString(*in.TimeZone)) ||
+		(in.PurgeGraceDays != nil && (*in.PurgeGraceDays < minPurgeGraceDays || *in.PurgeGraceDays > maxSettingDays)) ||
+		(in.TrashRetentionDays != nil && (*in.TrashRetentionDays < 0 || *in.TrashRetentionDays > maxSettingDays)) {
 		return nil, badRequest(codeInvalidSettings)
+	}
+	if err := s.checkGraceChange(ctx, in); err != nil {
+		return nil, err
 	}
 	publicURL := in.PublicUrl
 	if publicURL != nil {
@@ -215,12 +235,14 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 		publicURL = &u
 	}
 	settings, err := s.store.UpdateSettings(ctx, store.SettingsPatch{
-		Name:              in.Name,
-		PublicURL:         publicURL,
-		DefaultQuotaBytes: in.DefaultQuotaBytes,
-		Language:          in.Language,
-		TimeZone:          in.TimeZone,
-		OpenSignup:        in.OpenSignup,
+		Name:               in.Name,
+		PublicURL:          publicURL,
+		DefaultQuotaBytes:  in.DefaultQuotaBytes,
+		Language:           in.Language,
+		TimeZone:           in.TimeZone,
+		OpenSignup:         in.OpenSignup,
+		PurgeGraceDays:     in.PurgeGraceDays,
+		TrashRetentionDays: in.TrashRetentionDays,
 	})
 	if err != nil {
 		return nil, err
@@ -229,15 +251,64 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 	return oapi.UpdateSettings200JSONResponse(s.settingsView(ctx, settings)), nil
 }
 
+// checkGraceChange asks for a current auth key to shorten the grace period. That
+// period is what stands between a stolen session and the data, so an admin session
+// alone must not be able to wear it down before purging.
+func (s *Server) checkGraceChange(ctx context.Context, in *oapi.UpdateSettingsJSONRequestBody) error {
+	if in.PurgeGraceDays == nil {
+		return nil
+	}
+	current, err := s.store.Settings(ctx)
+	if err != nil {
+		return err
+	}
+	if *in.PurgeGraceDays >= current.PurgeGraceDays {
+		return nil
+	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	var key []byte
+	if in.CurrentAuthKey != nil {
+		key = *in.CurrentAuthKey
+	}
+	_, err = s.verifyCurrentKey(ctx, key)
+	return err
+}
+
+// GetAdminHealth reports the state of the server's storage and its last backup.
+func (s *Server) GetAdminHealth(ctx context.Context, _ oapi.GetAdminHealthRequestObject) (oapi.GetAdminHealthResponseObject, error) {
+	settings, err := s.store.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stats, err := s.store.Stats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.GetAdminHealth200JSONResponse{
+		Version:         s.cfg.Version,
+		Mode:            oapi.Mode(settings.Mode),
+		Blobs:           stats.Blobs,
+		StoredBytes:     stats.StoredBytes,
+		Uploads:         stats.Uploads,
+		ReservedBytes:   stats.ReservedBytes,
+		PendingRemovals: stats.PendingRemovals,
+		FreeBytes:       freeBytes(s.store.Dir()),
+		LastBackupAt:    optionalTime(settings.LastBackupAt),
+	}, nil
+}
+
 func (s *Server) settingsView(ctx context.Context, in store.Settings) oapi.ServerSettings {
 	return oapi.ServerSettings{
-		Name:              in.Name,
-		PublicUrl:         in.PublicURL,
-		DefaultQuotaBytes: in.DefaultQuotaBytes,
-		Language:          in.Language,
-		TimeZone:          in.TimeZone,
-		Mode:              oapi.Mode(in.Mode),
-		OpenSignup:        in.OpenSignup,
-		ProxyUntrusted:    s.proxyUntrusted(requestFrom(ctx)),
+		Name:               in.Name,
+		PublicUrl:          in.PublicURL,
+		DefaultQuotaBytes:  in.DefaultQuotaBytes,
+		Language:           in.Language,
+		TimeZone:           in.TimeZone,
+		Mode:               oapi.Mode(in.Mode),
+		OpenSignup:         in.OpenSignup,
+		ProxyUntrusted:     s.proxyUntrusted(requestFrom(ctx)),
+		PurgeGraceDays:     in.PurgeGraceDays,
+		TrashRetentionDays: in.TrashRetentionDays,
 	}
 }

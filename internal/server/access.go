@@ -57,6 +57,7 @@ var operationAccess = map[string]access{
 	"CreatePasswordReset":   accessAdmin,
 	"GetSettings":           accessAdmin,
 	"UpdateSettings":        accessAdmin,
+	"GetAdminHealth":        accessAdmin,
 }
 
 type (

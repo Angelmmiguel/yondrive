@@ -543,6 +543,548 @@ export interface paths {
         patch: operations["updateSettings"];
         trace?: never;
     };
+    "/api/v1/admin/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report the health of the server's storage
+         * @description Stored and reserved bytes, files waiting to be removed, free disk space
+         *     and when `yondrive backup` last finished.
+         */
+        get: operations["getAdminHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/storage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report the signed-in user's storage */
+        get: operations["getMyStorage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/root": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the signed-in user's root node
+         * @description Answers `not_found` until a client has created it.
+         */
+        get: operations["getRootNode"];
+        put?: never;
+        /**
+         * Create the signed-in user's root node on demand
+         * @description The key of a root is wrapped under the master key, so only a client can
+         *     make one. If there already is a root, the answer is that root with a 200,
+         *     which decides between two devices racing: a client must use the node it
+         *     gets back and not the one it sent.
+         */
+        post: operations["createRootNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a file or folder
+         * @description The client chooses the id, since it enters the AAD before sealing. A file
+         *     has no content until its first upload commits. Answers `id_taken` if the
+         *     id exists, `name_conflict` if a sibling outside the trash has the tag,
+         *     `not_a_folder`, `parent_trashed` or `tree_too_deep`.
+         */
+        post: operations["createNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /** Fetch a node */
+        get: operations["getNode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Replace a node's metadata and, on a rename, its name tag
+         * @description Answers `name_conflict`, or `node_trashed` under the trash.
+         */
+        patch: operations["updateNode"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a folder's children outside the trash
+         * @description Paged by id. Sorting by name happens on the client.
+         */
+        get: operations["listChildren"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a node to another folder
+         * @description The key wrapped under the old parent and the tag made under it are
+         *     replaced in one transaction with the move. The client's own key and its
+         *     children's are untouched. Answers `move_cycle`, `name_conflict`,
+         *     `not_a_folder`, `node_trashed`, `parent_trashed`, `root_immutable` or
+         *     `tree_too_deep`.
+         */
+        post: operations["moveNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a node and its subtree in the trash
+         * @description Sets the trashed time on this node alone. Everything under it stays
+         *     readable and frozen, and quota keeps counting it. Doing it twice changes
+         *     nothing. A root answers `root_immutable`.
+         */
+        post: operations["trashNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take a node out of the trash
+         * @description Also cancels a purge whose grace period is not over. Answers `not_trashed`,
+         *     `parent_trashed` if the folder it returns to is in the trash, or
+         *     `name_conflict` if its name has been taken there since.
+         */
+        post: operations["restoreNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark a trashed node for removal
+         * @description The bytes stay, and stay counted against quota, until `remove_at`: a
+         *     stolen session cannot destroy anything before the grace period is over,
+         *     and whoever notices in time can restore the node. Repeating the call does
+         *     not move the time. Answers `not_trashed` outside the trash.
+         */
+        post: operations["purgeNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the signed-in user's trash
+         * @description Every node trashed in its own right, marked for removal or not. What is
+         *     under a trashed folder is reached through that folder.
+         */
+        get: operations["listTrash"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trash/empty": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark everything in the trash for removal
+         * @description As purging each node, with the same grace period.
+         */
+        post: operations["emptyTrash"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a file's versions, newest first
+         * @description Without the frame hashes, the signature and the manifest, which come with
+         *     a single version. Includes versions marked for removal, until they go.
+         */
+        get: operations["listVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/versions/{version_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A version id. */
+                version_id: components["parameters"]["VersionID"];
+            };
+            cookie?: never;
+        };
+        /** Fetch a version, with what a client needs to verify it */
+        get: operations["getVersion"];
+        put?: never;
+        post?: never;
+        /**
+         * Mark a version that is not current for removal
+         * @description Its blob stays, and stays counted, until `remove_at`, and it can be
+         *     restored until then. A blob goes with the last version that references it.
+         *     Answers `version_current` for the current version.
+         */
+        delete: operations["deleteVersion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/versions/{version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A version id. */
+                version_id: components["parameters"]["VersionID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a new current version from an older one
+         * @description A new version over the same blob, with no copy and nothing new against
+         *     quota. The frames stay sealed and signed under the id they were written
+         *     with, which the new version gives as `content_version_id`. Answers
+         *     `version_conflict` (412) if `expected_version` no longer holds.
+         */
+        post: operations["restoreVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start uploading a version of a file
+         * @description Reserves `stored_size` bytes against the owner's quota, or answers 413
+         *     `quota_exceeded`. Frames then arrive in any order and any number of times,
+         *     until a commit or an abort. An upload untouched for a week is dropped and
+         *     its reservation released.
+         *
+         *     `frame_size` is the plaintext frame size of CRYPTO.md, at most 16 MiB. A
+         *     stored frame is that long plus the 41 bytes of overhead in end-to-end mode.
+         *     `stored_size` must agree with `frame_size` and `frame_count`, or the answer
+         *     is `invalid_framing`.
+         */
+        post: operations["createUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Report which frames of an upload have arrived
+         * @description What a client resumes from.
+         */
+        get: operations["getUpload"];
+        put?: never;
+        post?: never;
+        /** Abandon an upload and release its reservation */
+        delete: operations["abortUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{id}/frames/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description The frame's index, from 0. */
+                n: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Send one stored frame
+         * @description The body must have exactly the length this frame has by the upload's
+         *     framing (`frame_length`) and the digest in the header (`frame_hash`). Once
+         *     it is on disk the answer is 204, and the same frame again is a retry that
+         *     also answers 204, without being stored twice. A frame that has arrived does
+         *     not change: another digest answers `frame_conflict`.
+         */
+        put: operations["putFrame"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/uploads/{id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn a complete upload into the file's current version
+         * @description Atomically moves the file into place, adds the version and journals it.
+         *     Answers `upload_incomplete` if a frame is missing, `node_trashed`, or
+         *     `version_conflict` (412) if `expected_version` no longer holds, each with
+         *     the upload left as it was. After a lost answer the upload answers
+         *     `not_found`, and the version is in the node's list.
+         */
+        post: operations["commitUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/blobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Read a stored file
+         * @description Bytes as stored, with `Range` support, authorised through the node they
+         *     belong to. Always `application/octet-stream` as an attachment, never cached.
+         */
+        get: operations["getBlob"];
+        /**
+         * Store a thumbnail or an index segment
+         * @description Up to 16 MiB, in one request, under an id the client chose. A `thumb` needs
+         *     a `node_id`, and replaces that node's thumbnail. An `index` is tied to the
+         *     user. Both count against quota (`quota_exceeded`, 413).
+         */
+        put: operations["putSmallBlob"];
+        post?: never;
+        /**
+         * Remove a thumbnail or an index segment
+         * @description Clients can make these again, so they have no grace period. Content goes
+         *     with its versions: a content blob answers `blob_in_use`.
+         */
+        delete: operations["deleteSmallBlob"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/index": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the signed-in user's index segments */
+        get: operations["listIndexBlobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the change journal
+         * @description What happened to the nodes the signed-in user can reach, in order. Start
+         *     with no cursor, and store each page's `next_cursor`. A client that comes
+         *     back with it misses nothing. An operation on a subtree appears once, on its
+         *     root.
+         */
+        get: operations["listChanges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -588,6 +1130,25 @@ export interface components {
              *     - `invalid_token_name`
              *     - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
              *     - `session_required`: the route needs a browser session, not a token
+             *     - `invalid_id`: an id is not 32 lowercase hex characters
+             *     - `id_taken`: a client-chosen id exists
+             *     - `suite_mismatch`: the suite is not the one of the server's mode
+             *     - `invalid_node`: a sealed field is missing, or the wrong size for the mode
+             *     - `name_conflict`: a sibling outside the trash has the name tag
+             *     - `not_a_folder`, `not_a_file`, `move_cycle`, `tree_too_deep`, `root_immutable`
+             *     - `node_trashed`, `parent_trashed`, `not_trashed`
+             *     - `version_conflict`: the current version has moved on (412)
+             *     - `version_current`: the current version cannot be deleted
+             *     - `invalid_framing`: an upload's sizes do not agree
+             *     - `invalid_frame`: no such frame in this upload
+             *     - `frame_length`, `frame_hash`, `frame_conflict`: a frame was refused
+             *     - `invalid_commit`: the signature or manifest is the wrong size
+             *     - `upload_incomplete`: frames are missing
+             *     - `quota_exceeded`: the owner's quota has no room (413)
+             *     - `storage_full`: the server's disk has no room (507)
+             *     - `invalid_blob`: the kind and node of a small blob do not agree
+             *     - `blob_in_use`: content goes with its versions
+             *     - `invalid_cursor`
              * @example not_found
              */
             code: string;
@@ -922,6 +1483,10 @@ export interface components {
             mode: components["schemas"]["Mode"];
             /** @description Whether anyone can register without an invite. */
             open_signup: boolean;
+            /** @description How many days purged data stays before its bytes are removed. */
+            purge_grace_days: number;
+            /** @description How many days the trash keeps a node before purging it; 0 keeps it until someone does. */
+            trash_retention_days: number;
             /**
              * @description This request carried forwarded headers from an address not in
              *     `YONDRIVE_TRUSTED_PROXIES`. They were ignored, so client addresses and
@@ -931,6 +1496,16 @@ export interface components {
         };
         /** @description Fields left out stay as they are. There is no field for the mode. */
         UpdateSettingsRequest: {
+            /**
+             * Format: byte
+             * @description Either current auth key. Required to shorten the grace period, as a
+             *     stolen admin session must not be able to bring removal closer.
+             */
+            current_auth_key?: string;
+            /** @description 1 to 3650. Applies to what is purged from now on. */
+            purge_grace_days?: number;
+            /** @description 0 to 3650. */
+            trash_retention_days?: number;
             name?: string;
             public_url?: string;
             /** Format: int64 */
@@ -938,6 +1513,309 @@ export interface components {
             language?: string;
             time_zone?: string;
             open_signup?: boolean;
+        };
+        /**
+         * @description How an item is protected. It is recorded on every item, and must be the
+         *     one that belongs to the server's mode, or the answer is `suite_mismatch`.
+         * @enum {string}
+         */
+        Suite: "xchacha20poly1305-v1" | "none";
+        /** @enum {string} */
+        NodeKind: "file" | "folder";
+        /** @description A file or folder. The server cannot read the sealed fields. */
+        Node: {
+            id: string;
+            owner_id: string;
+            /** @description Absent on a root. */
+            parent_id?: string;
+            kind: components["schemas"]["NodeKind"];
+            suite: components["schemas"]["Suite"];
+            /** Format: byte */
+            sealed_metadata: string;
+            /**
+             * Format: byte
+             * @description Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description Absent on a root.
+             */
+            name_tag?: string;
+            /** @description Absent until a file's first commit. */
+            current_version?: string;
+            thumb_blob_id?: string;
+            /**
+             * Format: date-time
+             * @description Set on the node that was trashed, not on what is under it.
+             */
+            trashed_at?: string;
+            /** Format: date-time */
+            purged_at?: string;
+            /**
+             * Format: date-time
+             * @description When the bytes go. Restoring before then cancels it.
+             */
+            remove_at?: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        NodePage: {
+            nodes: components["schemas"]["Node"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        CreateRootRequest: {
+            id: string;
+            suite: components["schemas"]["Suite"];
+            /**
+             * Format: byte
+             * @description At most 64 KiB.
+             */
+            sealed_metadata?: string;
+            /**
+             * Format: byte
+             * @description Required in `e2e` mode, empty in `none`.
+             */
+            wrapped_key: string;
+        };
+        CreateNodeRequest: {
+            id: string;
+            parent_id: string;
+            kind: components["schemas"]["NodeKind"];
+            suite: components["schemas"]["Suite"];
+            /**
+             * Format: byte
+             * @description 1 byte to 64 KiB.
+             */
+            sealed_metadata: string;
+            /**
+             * Format: byte
+             * @description Required in `e2e` mode, empty in `none`.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description 32 bytes.
+             */
+            name_tag: string;
+        };
+        /** @description Fields left out stay as they are. */
+        UpdateNodeRequest: {
+            suite: components["schemas"]["Suite"];
+            /** Format: byte */
+            sealed_metadata?: string;
+            /**
+             * Format: byte
+             * @description 32 bytes. A root has none.
+             */
+            name_tag?: string;
+        };
+        MoveNodeRequest: {
+            parent_id: string;
+            /**
+             * Format: byte
+             * @description The node key wrapped under the new parent. Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description 32 bytes, under the new parent.
+             */
+            name_tag: string;
+        };
+        EmptiedTrash: {
+            marked: number;
+        };
+        VersionSummary: {
+            id: string;
+            node_id: string;
+            blob_id: string;
+            suite: components["schemas"]["Suite"];
+            /** @description Who made this version, by upload or by restoring. */
+            author_id: string;
+            /**
+             * @description The version id the frames were sealed and signed under: the one to use
+             *     for the version key, the frame AAD and the manifest. It differs from
+             *     `id` only on a restored version.
+             */
+            content_version_id: string;
+            /** @description Who signed the manifest, whose key verifies it. */
+            content_author_id: string;
+            /** Format: int64 */
+            stored_size: number;
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            deleted_at?: string;
+            /**
+             * Format: date-time
+             * @description When a deleted version goes.
+             */
+            remove_at?: string;
+        };
+        Version: components["schemas"]["VersionSummary"] & {
+            /**
+             * Format: byte
+             * @description 32 bytes of SHA-256 per stored frame, in order.
+             */
+            frame_hashes: string;
+            /**
+             * Format: byte
+             * @description As sent at commit. Empty in `none` mode.
+             */
+            signature: string;
+            /**
+             * Format: byte
+             * @description As sent at commit.
+             */
+            manifest: string;
+        };
+        VersionPage: {
+            versions: components["schemas"]["VersionSummary"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        RestoreVersionRequest: {
+            /** @description The id of the new version, chosen by the client. */
+            version_id: string;
+            /**
+             * @description The version the client believes is current. Left out, nothing is
+             *     checked.
+             */
+            expected_version?: string;
+        };
+        CreateUploadRequest: {
+            node_id: string;
+            /** @description Chosen by the client, as it enters the frames' AAD. */
+            version_id: string;
+            suite: components["schemas"]["Suite"];
+            /** Format: int64 */
+            frame_count: number;
+            /**
+             * Format: int64
+             * @description Plaintext bytes per frame.
+             */
+            frame_size: number;
+            /** Format: int64 */
+            stored_size: number;
+        };
+        Upload: {
+            /** @description Also the id of the blob this upload becomes. */
+            id: string;
+            node_id: string;
+            version_id: string;
+            suite: components["schemas"]["Suite"];
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /** Format: int64 */
+            stored_size: number;
+            /** @description The indexes of the frames that have arrived, in order. */
+            frames: number[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        CommitUploadRequest: {
+            /**
+             * Format: byte
+             * @description 64 bytes in `e2e` mode, empty in `none`.
+             */
+            signature: string;
+            /**
+             * Format: byte
+             * @description 1 byte to 4 KiB, opaque, kept as sent.
+             */
+            manifest: string;
+            /**
+             * @description The version this save started from. An empty string means the file must
+             *     have no version yet. Left out, nothing is checked and the last commit
+             *     wins. On a mismatch the answer is `version_conflict` (412).
+             */
+            expected_version?: string;
+        };
+        /** @enum {string} */
+        SmallBlobKind: "thumb" | "index";
+        SmallBlob: {
+            id: string;
+            kind: components["schemas"]["SmallBlobKind"];
+            suite: components["schemas"]["Suite"];
+            /** Format: int64 */
+            size: number;
+            node_id?: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        SmallBlobPage: {
+            blobs: components["schemas"]["SmallBlob"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        Storage: {
+            /**
+             * Format: int64
+             * @description Storage allowed; 0 means no limit.
+             */
+            quota_bytes: number;
+            /**
+             * Format: int64
+             * @description Stored bytes, including the trash until the bytes are removed.
+             */
+            used_bytes: number;
+            /**
+             * Format: int64
+             * @description Held for uploads in progress.
+             */
+            reserved_bytes: number;
+        };
+        /** @enum {string} */
+        ChangeOp: "created" | "updated" | "moved" | "trashed" | "restored" | "purged" | "removed" | "version" | "version_deleted" | "thumbnail";
+        Change: {
+            /** Format: int64 */
+            seq: number;
+            node_id: string;
+            op: components["schemas"]["ChangeOp"];
+            /** Format: date-time */
+            at: string;
+        };
+        ChangePage: {
+            changes: components["schemas"]["Change"][];
+            /** @description Where to read from next, also when this page is empty. */
+            next_cursor: string;
+        };
+        AdminHealth: {
+            version: string;
+            mode: components["schemas"]["Mode"];
+            /** Format: int64 */
+            blobs: number;
+            /** Format: int64 */
+            stored_bytes: number;
+            /** Format: int64 */
+            uploads: number;
+            /** Format: int64 */
+            reserved_bytes: number;
+            /**
+             * Format: int64
+             * @description Files whose records are gone and which the sweeper has yet to unlink.
+             */
+            pending_removals: number;
+            /**
+             * Format: int64
+             * @description Free space in the data directory, if it can be told.
+             */
+            free_bytes?: number;
+            /**
+             * Format: date-time
+             * @description When `yondrive backup` last finished, if ever.
+             */
+            last_backup_at?: string;
         };
     };
     responses: {
@@ -952,8 +1830,16 @@ export interface components {
         };
     };
     parameters: {
-        /** @description A record id. */
+        /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
         ID: string;
+        /** @description A version id. */
+        VersionID: string;
+        /** @description The `next_cursor` of the previous page. */
+        IDCursor: string;
+        /** @description The most to return. Anything above the maximum is treated as it. */
+        Limit: number;
+        /** @description The SHA-256 of the body, in padded standard base64. */
+        ContentSHA256: string;
     };
     requestBodies: never;
     headers: never;
@@ -1378,7 +2264,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1448,7 +2334,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1516,7 +2402,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1559,7 +2445,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1581,7 +2467,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1609,7 +2495,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description A record id. */
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
                 id: components["parameters"]["ID"];
             };
             cookie?: never;
@@ -1673,6 +2559,757 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerSettings"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getAdminHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminHealth"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getMyStorage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The figures. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Storage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getRootNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The root. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createRootNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRootRequest"];
+            };
+        };
+        responses: {
+            /** @description A root existed, and this is it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            /** @description The new root. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNodeRequest"];
+            };
+        };
+        responses: {
+            /** @description The new node. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNodeRequest"];
+            };
+        };
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listChildren: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodePage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    moveNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MoveNodeRequest"];
+            };
+        };
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    trashNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    restoreNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    purgeNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listTrash: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodePage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    emptyTrash: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many nodes were marked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmptiedTrash"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listVersions: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A version id. */
+                version_id: components["parameters"]["VersionID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A version id. */
+                version_id: components["parameters"]["VersionID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    restoreVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A version id. */
+                version_id: components["parameters"]["VersionID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description The new version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The upload, with no frames yet. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Upload"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Upload"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    abortUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putFrame: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description The SHA-256 of the body, in padded standard base64. */
+                "X-Content-SHA256": components["parameters"]["ContentSHA256"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description The frame's index, from 0. */
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The frame is on disk. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    commitUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommitUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The new version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Version"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getBlob: {
+        parameters: {
+            query?: never;
+            header?: {
+                Range?: string;
+                /** @description The `ETag` of an earlier answer. A blob's bytes never change. */
+                "If-Range"?: string;
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The whole file. */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range. */
+            206: {
+                headers: {
+                    ETag?: string;
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description The range does not fit the file. */
+            416: {
+                headers: {
+                    "Content-Range"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putSmallBlob: {
+        parameters: {
+            query: {
+                kind: components["schemas"]["SmallBlobKind"];
+                suite: components["schemas"]["Suite"];
+                /** @description The node of a thumbnail. */
+                node_id?: string;
+            };
+            header: {
+                /** @description The SHA-256 of the body, in padded standard base64. */
+                "X-Content-SHA256": components["parameters"]["ContentSHA256"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The blob. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmallBlob"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteSmallBlob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listIndexBlobs: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SmallBlobPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listChanges: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. Absent starts at the beginning. */
+                cursor?: string;
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChangePage"];
                 };
             };
             default: components["responses"]["Error"];

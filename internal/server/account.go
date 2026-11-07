@@ -230,11 +230,11 @@ func rekeyUpdate(body *oapi.RekeyJSONRequestBody, mode oapi.Mode) (store.Credent
 	if !passphrase && !recovery {
 		return up, badRequest(codeInvalidRekey)
 	}
-	if mode == oapi.None && (recovery || body.WrappedMasterKey != nil) {
+	if mode == oapi.ModeNone && (recovery || body.WrappedMasterKey != nil) {
 		return up, badRequest(codeKeysNotAllowed)
 	}
 	if passphrase {
-		if body.AuthKey == nil || body.Kdf == nil || (mode == oapi.E2e && body.WrappedMasterKey == nil) {
+		if body.AuthKey == nil || body.Kdf == nil || (mode == oapi.ModeE2e && body.WrappedMasterKey == nil) {
 			return up, badRequest(codeInvalidRekey)
 		}
 		if len(*body.AuthKey) != auth.AuthKeyLen {
@@ -245,7 +245,7 @@ func rekeyUpdate(body *oapi.RekeyJSONRequestBody, mode oapi.Mode) (store.Credent
 			return up, err
 		}
 		up.AuthKeyHash, up.KDF = auth.HashKey(*body.AuthKey), kdf
-		if mode == oapi.E2e {
+		if mode == oapi.ModeE2e {
 			if !validSealed(*body.WrappedMasterKey) {
 				return up, badRequest(codeInvalidKeys)
 			}

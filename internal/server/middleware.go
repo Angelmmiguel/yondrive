@@ -16,20 +16,30 @@ import (
 // transfers are large and slow links are normal; without a bound on the body,
 // a client could open a request and never finish it, holding a goroutine and
 // a connection for as long as it likes. A writer that cannot carry a deadline
-// (a test recorder) is left alone.
+// (a test recorder) is left alone. A frame gets its own time, however many came
+// before it.
 func (s *Server) bodyDeadline(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(s.cfg.BodyTimeout))
+		timeout := s.cfg.BodyTimeout
+		if largeBodyRoute(r) {
+			timeout = s.cfg.FrameTimeout
+		}
+		_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(timeout))
 		next.ServeHTTP(w, r)
 	})
 }
 
-// limitBody caps request bodies at Config.MaxBodyBytes. A read past the cap
-// fails with *http.MaxBytesError, which the route answers with 413.
+// limitBody caps request bodies at Config.MaxBodyBytes, or at the size of a frame
+// on the routes that take one. A read past the cap fails with
+// *http.MaxBytesError, which the route answers with 413.
 func (s *Server) limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, s.cfg.MaxBodyBytes)
+			limit := s.cfg.MaxBodyBytes
+			if largeBodyRoute(r) {
+				limit = maxBodyBytes
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 		}
 		next.ServeHTTP(w, r)
 	})

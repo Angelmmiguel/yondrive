@@ -34,6 +34,8 @@ tags:
     description: Signing in and out, registering and changing credentials.
   - name: account
     description: The signed-in user, the session key and other users' public keys.
+  - name: drive
+    description: The tree of opaque nodes, its versions, uploads, downloads and journal.
   - name: admin
     description: Server administration. Admins only.
 paths:
@@ -640,6 +642,652 @@ paths:
                 $ref: "#/components/schemas/ServerSettings"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/admin/health:
+    get:
+      operationId: getAdminHealth
+      tags: [admin]
+      summary: Report the health of the server's storage
+      description: |
+        Stored and reserved bytes, files waiting to be removed, free disk space
+        and when `yondrive backup` last finished.
+      responses:
+        "200":
+          description: The figures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminHealth"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/storage:
+    get:
+      operationId: getMyStorage
+      tags: [drive]
+      summary: Report the signed-in user's storage
+      responses:
+        "200":
+          description: The figures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Storage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/root:
+    get:
+      operationId: getRootNode
+      tags: [drive]
+      summary: Fetch the signed-in user's root node
+      description: Answers `not_found` until a client has created it.
+      responses:
+        "200":
+          description: The root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createRootNode
+      tags: [drive]
+      summary: Create the signed-in user's root node on demand
+      description: |
+        The key of a root is wrapped under the master key, so only a client can
+        make one. If there already is a root, the answer is that root with a 200,
+        which decides between two devices racing: a client must use the node it
+        gets back and not the one it sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRootRequest"
+      responses:
+        "200":
+          description: A root existed, and this is it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        "201":
+          description: The new root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes:
+    post:
+      operationId: createNode
+      tags: [drive]
+      summary: Create a file or folder
+      description: |
+        The client chooses the id, since it enters the AAD before sealing. A file
+        has no content until its first upload commits. Answers `id_taken` if the
+        id exists, `name_conflict` if a sibling outside the trash has the tag,
+        `not_a_folder`, `parent_trashed` or `tree_too_deep`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNodeRequest"
+      responses:
+        "201":
+          description: The new node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getNode
+      tags: [drive]
+      summary: Fetch a node
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+    patch:
+      operationId: updateNode
+      tags: [drive]
+      summary: Replace a node's metadata and, on a rename, its name tag
+      description: Answers `name_conflict`, or `node_trashed` under the trash.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNodeRequest"
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/children:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: listChildren
+      tags: [drive]
+      summary: List a folder's children outside the trash
+      description: Paged by id. Sorting by name happens on the client.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodePage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/move:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: moveNode
+      tags: [drive]
+      summary: Move a node to another folder
+      description: |
+        The key wrapped under the old parent and the tag made under it are
+        replaced in one transaction with the move. The client's own key and its
+        children's are untouched. Answers `move_cycle`, `name_conflict`,
+        `not_a_folder`, `node_trashed`, `parent_trashed`, `root_immutable` or
+        `tree_too_deep`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MoveNodeRequest"
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/trash:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: trashNode
+      tags: [drive]
+      summary: Put a node and its subtree in the trash
+      description: |
+        Sets the trashed time on this node alone. Everything under it stays
+        readable and frozen, and quota keeps counting it. Doing it twice changes
+        nothing. A root answers `root_immutable`.
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: restoreNode
+      tags: [drive]
+      summary: Take a node out of the trash
+      description: |
+        Also cancels a purge whose grace period is not over. Answers `not_trashed`,
+        `parent_trashed` if the folder it returns to is in the trash, or
+        `name_conflict` if its name has been taken there since.
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/purge:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: purgeNode
+      tags: [drive]
+      summary: Mark a trashed node for removal
+      description: |
+        The bytes stay, and stay counted against quota, until `remove_at`: a
+        stolen session cannot destroy anything before the grace period is over,
+        and whoever notices in time can restore the node. Repeating the call does
+        not move the time. Answers `not_trashed` outside the trash.
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/trash:
+    get:
+      operationId: listTrash
+      tags: [drive]
+      summary: List the signed-in user's trash
+      description: |
+        Every node trashed in its own right, marked for removal or not. What is
+        under a trashed folder is reached through that folder.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodePage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/trash/empty:
+    post:
+      operationId: emptyTrash
+      tags: [drive]
+      summary: Mark everything in the trash for removal
+      description: As purging each node, with the same grace period.
+      responses:
+        "200":
+          description: How many nodes were marked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmptiedTrash"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/versions:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: listVersions
+      tags: [drive]
+      summary: List a file's versions, newest first
+      description: |
+        Without the frame hashes, the signature and the manifest, which come with
+        a single version. Includes versions marked for removal, until they go.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: The `next_cursor` of the previous page.
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionPage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/versions/{version_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/VersionID"
+    get:
+      operationId: getVersion
+      tags: [drive]
+      summary: Fetch a version, with what a client needs to verify it
+      responses:
+        "200":
+          description: The version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteVersion
+      tags: [drive]
+      summary: Mark a version that is not current for removal
+      description: |
+        Its blob stays, and stays counted, until `remove_at`, and it can be
+        restored until then. A blob goes with the last version that references it.
+        Answers `version_current` for the current version.
+      responses:
+        "200":
+          description: The version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/versions/{version_id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/VersionID"
+    post:
+      operationId: restoreVersion
+      tags: [drive]
+      summary: Make a new current version from an older one
+      description: |
+        A new version over the same blob, with no copy and nothing new against
+        quota. The frames stay sealed and signed under the id they were written
+        with, which the new version gives as `content_version_id`. Answers
+        `version_conflict` (412) if `expected_version` no longer holds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreVersionRequest"
+      responses:
+        "201":
+          description: The new version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/uploads:
+    post:
+      operationId: createUpload
+      tags: [drive]
+      summary: Start uploading a version of a file
+      description: |
+        Reserves `stored_size` bytes against the owner's quota, or answers 413
+        `quota_exceeded`. Frames then arrive in any order and any number of times,
+        until a commit or an abort. An upload untouched for a week is dropped and
+        its reservation released.
+
+        `frame_size` is the plaintext frame size of CRYPTO.md, at most 16 MiB. A
+        stored frame is that long plus the 41 bytes of overhead in end-to-end mode.
+        `stored_size` must agree with `frame_size` and `frame_count`, or the answer
+        is `invalid_framing`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUploadRequest"
+      responses:
+        "201":
+          description: The upload, with no frames yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/uploads/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getUpload
+      tags: [drive]
+      summary: Report which frames of an upload have arrived
+      description: What a client resumes from.
+      responses:
+        "200":
+          description: The upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Upload"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: abortUpload
+      tags: [drive]
+      summary: Abandon an upload and release its reservation
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/uploads/{id}/frames/{n}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - name: n
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        description: The frame's index, from 0.
+    put:
+      operationId: putFrame
+      tags: [drive]
+      summary: Send one stored frame
+      description: |
+        The body must have exactly the length this frame has by the upload's
+        framing (`frame_length`) and the digest in the header (`frame_hash`). Once
+        it is on disk the answer is 204, and the same frame again is a retry that
+        also answers 204, without being stored twice. A frame that has arrived does
+        not change: another digest answers `frame_conflict`.
+      parameters:
+        - $ref: "#/components/parameters/ContentSHA256"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: The frame is on disk.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/uploads/{id}/commit:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: commitUpload
+      tags: [drive]
+      summary: Turn a complete upload into the file's current version
+      description: |
+        Atomically moves the file into place, adds the version and journals it.
+        Answers `upload_incomplete` if a frame is missing, `node_trashed`, or
+        `version_conflict` (412) if `expected_version` no longer holds, each with
+        the upload left as it was. After a lost answer the upload answers
+        `not_found`, and the version is in the node's list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitUploadRequest"
+      responses:
+        "201":
+          description: The new version.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/blobs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getBlob
+      tags: [drive]
+      summary: Read a stored file
+      description: |
+        Bytes as stored, with `Range` support, authorised through the node they
+        belong to. Always `application/octet-stream` as an attachment, never cached.
+      parameters:
+        - name: Range
+          in: header
+          schema:
+            type: string
+          examples:
+            frame:
+              value: bytes=0-4194344
+        - name: If-Range
+          in: header
+          schema:
+            type: string
+          description: The `ETag` of an earlier answer. A blob's bytes never change.
+      responses:
+        "200":
+          description: The whole file.
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: The range.
+          headers:
+            ETag:
+              schema:
+                type: string
+            Content-Range:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "416":
+          description: The range does not fit the file.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putSmallBlob
+      tags: [drive]
+      summary: Store a thumbnail or an index segment
+      description: |
+        Up to 16 MiB, in one request, under an id the client chose. A `thumb` needs
+        a `node_id`, and replaces that node's thumbnail. An `index` is tied to the
+        user. Both count against quota (`quota_exceeded`, 413).
+      parameters:
+        - name: kind
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/SmallBlobKind"
+        - name: suite
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Suite"
+        - name: node_id
+          in: query
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{32}$"
+          description: The node of a thumbnail.
+        - $ref: "#/components/parameters/ContentSHA256"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: The blob.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmallBlob"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteSmallBlob
+      tags: [drive]
+      summary: Remove a thumbnail or an index segment
+      description: |
+        Clients can make these again, so they have no grace period. Content goes
+        with its versions: a content blob answers `blob_in_use`.
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/index:
+    get:
+      operationId: listIndexBlobs
+      tags: [drive]
+      summary: List the signed-in user's index segments
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmallBlobPage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/changes:
+    get:
+      operationId: listChanges
+      tags: [drive]
+      summary: Read the change journal
+      description: |
+        What happened to the nodes the signed-in user can reach, in order. Start
+        with no cursor, and store each page's `next_cursor`. A client that comes
+        back with it misses nothing. An operation on a subtree appears once, on its
+        root.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: The `next_cursor` of the previous page. Absent starts at the beginning.
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangePage"
+        default:
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     sessionCookie:
@@ -707,6 +1355,25 @@ components:
             - `invalid_token_name`
             - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
             - `session_required`: the route needs a browser session, not a token
+            - `invalid_id`: an id is not 32 lowercase hex characters
+            - `id_taken`: a client-chosen id exists
+            - `suite_mismatch`: the suite is not the one of the server's mode
+            - `invalid_node`: a sealed field is missing, or the wrong size for the mode
+            - `name_conflict`: a sibling outside the trash has the name tag
+            - `not_a_folder`, `not_a_file`, `move_cycle`, `tree_too_deep`, `root_immutable`
+            - `node_trashed`, `parent_trashed`, `not_trashed`
+            - `version_conflict`: the current version has moved on (412)
+            - `version_current`: the current version cannot be deleted
+            - `invalid_framing`: an upload's sizes do not agree
+            - `invalid_frame`: no such frame in this upload
+            - `frame_length`, `frame_hash`, `frame_conflict`: a frame was refused
+            - `invalid_commit`: the signature or manifest is the wrong size
+            - `upload_incomplete`: frames are missing
+            - `quota_exceeded`: the owner's quota has no room (413)
+            - `storage_full`: the server's disk has no room (507)
+            - `invalid_blob`: the kind and node of a small blob do not agree
+            - `blob_in_use`: content goes with its versions
+            - `invalid_cursor`
           examples: [not_found]
     KDF:
       type: object
@@ -1152,7 +1819,7 @@ components:
           $ref: "#/components/schemas/KDF"
     ServerSettings:
       type: object
-      required: [name, public_url, default_quota_bytes, language, time_zone, mode, open_signup, proxy_untrusted]
+      required: [name, public_url, default_quota_bytes, language, time_zone, mode, open_signup, proxy_untrusted, purge_grace_days, trash_retention_days]
       properties:
         name:
           type: string
@@ -1170,6 +1837,12 @@ components:
         open_signup:
           type: boolean
           description: Whether anyone can register without an invite.
+        purge_grace_days:
+          type: integer
+          description: How many days purged data stays before its bytes are removed.
+        trash_retention_days:
+          type: integer
+          description: How many days the trash keeps a node before purging it; 0 keeps it until someone does.
         proxy_untrusted:
           type: boolean
           description: |
@@ -1180,6 +1853,22 @@ components:
       type: object
       description: Fields left out stay as they are. There is no field for the mode.
       properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: |
+            Either current auth key. Required to shorten the grace period, as a
+            stolen admin session must not be able to bring removal closer.
+        purge_grace_days:
+          type: integer
+          description: 1 to 3650. Applies to what is purged from now on.
+          minimum: 1
+          maximum: 3650
+        trash_retention_days:
+          type: integer
+          description: 0 to 3650.
+          minimum: 0
+          maximum: 3650
         name:
           type: string
         public_url:
@@ -1194,6 +1883,423 @@ components:
           type: string
         open_signup:
           type: boolean
+    Suite:
+      type: string
+      description: |
+        How an item is protected. It is recorded on every item, and must be the
+        one that belongs to the server's mode, or the answer is `suite_mismatch`.
+      enum: [xchacha20poly1305-v1, none]
+    NodeKind:
+      type: string
+      enum: [file, folder]
+    Node:
+      type: object
+      description: A file or folder. The server cannot read the sealed fields.
+      required: [id, owner_id, kind, suite, sealed_metadata, wrapped_key, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        owner_id:
+          type: string
+        parent_id:
+          type: string
+          description: Absent on a root.
+        kind:
+          $ref: "#/components/schemas/NodeKind"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_metadata:
+          type: string
+          format: byte
+        wrapped_key:
+          type: string
+          format: byte
+          description: Empty in `none` mode.
+        name_tag:
+          type: string
+          format: byte
+          description: Absent on a root.
+        current_version:
+          type: string
+          description: Absent until a file's first commit.
+        thumb_blob_id:
+          type: string
+        trashed_at:
+          type: string
+          format: date-time
+          description: Set on the node that was trashed, not on what is under it.
+        purged_at:
+          type: string
+          format: date-time
+        remove_at:
+          type: string
+          format: date-time
+          description: When the bytes go. Restoring before then cancels it.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NodePage:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Node"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    CreateRootRequest:
+      type: object
+      required: [id, suite, wrapped_key]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_metadata:
+          type: string
+          format: byte
+          description: At most 64 KiB.
+        wrapped_key:
+          type: string
+          format: byte
+          description: Required in `e2e` mode, empty in `none`.
+    CreateNodeRequest:
+      type: object
+      required: [id, parent_id, kind, suite, sealed_metadata, wrapped_key, name_tag]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        parent_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        kind:
+          $ref: "#/components/schemas/NodeKind"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_metadata:
+          type: string
+          format: byte
+          description: 1 byte to 64 KiB.
+        wrapped_key:
+          type: string
+          format: byte
+          description: Required in `e2e` mode, empty in `none`.
+        name_tag:
+          type: string
+          format: byte
+          description: 32 bytes.
+    UpdateNodeRequest:
+      type: object
+      description: Fields left out stay as they are.
+      required: [suite]
+      properties:
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_metadata:
+          type: string
+          format: byte
+        name_tag:
+          type: string
+          format: byte
+          description: 32 bytes. A root has none.
+    MoveNodeRequest:
+      type: object
+      required: [parent_id, wrapped_key, name_tag]
+      properties:
+        parent_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        wrapped_key:
+          type: string
+          format: byte
+          description: The node key wrapped under the new parent. Empty in `none` mode.
+        name_tag:
+          type: string
+          format: byte
+          description: 32 bytes, under the new parent.
+    EmptiedTrash:
+      type: object
+      required: [marked]
+      properties:
+        marked:
+          type: integer
+    VersionSummary:
+      type: object
+      required: [id, node_id, blob_id, suite, author_id, content_version_id, content_author_id, stored_size, frame_count, frame_size, created_at]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        blob_id:
+          type: string
+        suite:
+          $ref: "#/components/schemas/Suite"
+        author_id:
+          type: string
+          description: Who made this version, by upload or by restoring.
+        content_version_id:
+          type: string
+          description: |
+            The version id the frames were sealed and signed under: the one to use
+            for the version key, the frame AAD and the manifest. It differs from
+            `id` only on a restored version.
+        content_author_id:
+          type: string
+          description: Who signed the manifest, whose key verifies it.
+        stored_size:
+          type: integer
+          format: int64
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+        remove_at:
+          type: string
+          format: date-time
+          description: When a deleted version goes.
+    Version:
+      allOf:
+        - $ref: "#/components/schemas/VersionSummary"
+        - type: object
+          required: [frame_hashes, signature, manifest]
+          properties:
+            frame_hashes:
+              type: string
+              format: byte
+              description: 32 bytes of SHA-256 per stored frame, in order.
+            signature:
+              type: string
+              format: byte
+              description: As sent at commit. Empty in `none` mode.
+            manifest:
+              type: string
+              format: byte
+              description: As sent at commit.
+    VersionPage:
+      type: object
+      required: [versions]
+      properties:
+        versions:
+          type: array
+          items:
+            $ref: "#/components/schemas/VersionSummary"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    RestoreVersionRequest:
+      type: object
+      required: [version_id]
+      properties:
+        version_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: The id of the new version, chosen by the client.
+        expected_version:
+          type: string
+          description: |
+            The version the client believes is current. Left out, nothing is
+            checked.
+    CreateUploadRequest:
+      type: object
+      required: [node_id, version_id, suite, frame_count, frame_size, stored_size]
+      properties:
+        node_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        version_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Chosen by the client, as it enters the frames' AAD.
+        suite:
+          $ref: "#/components/schemas/Suite"
+        frame_count:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1048576
+        frame_size:
+          type: integer
+          format: int64
+          description: Plaintext bytes per frame.
+          minimum: 1024
+          maximum: 16777216
+        stored_size:
+          type: integer
+          format: int64
+          minimum: 0
+    Upload:
+      type: object
+      required: [id, node_id, version_id, suite, frame_count, frame_size, stored_size, frames, created_at]
+      properties:
+        id:
+          type: string
+          description: Also the id of the blob this upload becomes.
+        node_id:
+          type: string
+        version_id:
+          type: string
+        suite:
+          $ref: "#/components/schemas/Suite"
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        stored_size:
+          type: integer
+          format: int64
+        frames:
+          type: array
+          description: The indexes of the frames that have arrived, in order.
+          items:
+            type: integer
+            format: int64
+        created_at:
+          type: string
+          format: date-time
+    CommitUploadRequest:
+      type: object
+      required: [signature, manifest]
+      properties:
+        signature:
+          type: string
+          format: byte
+          description: 64 bytes in `e2e` mode, empty in `none`.
+        manifest:
+          type: string
+          format: byte
+          description: 1 byte to 4 KiB, opaque, kept as sent.
+        expected_version:
+          type: string
+          description: |
+            The version this save started from. An empty string means the file must
+            have no version yet. Left out, nothing is checked and the last commit
+            wins. On a mismatch the answer is `version_conflict` (412).
+    SmallBlobKind:
+      type: string
+      enum: [thumb, index]
+    SmallBlob:
+      type: object
+      required: [id, kind, suite, size, created_at]
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/SmallBlobKind"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        size:
+          type: integer
+          format: int64
+        node_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    SmallBlobPage:
+      type: object
+      required: [blobs]
+      properties:
+        blobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/SmallBlob"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    Storage:
+      type: object
+      required: [quota_bytes, used_bytes, reserved_bytes]
+      properties:
+        quota_bytes:
+          type: integer
+          format: int64
+          description: Storage allowed; 0 means no limit.
+        used_bytes:
+          type: integer
+          format: int64
+          description: Stored bytes, including the trash until the bytes are removed.
+        reserved_bytes:
+          type: integer
+          format: int64
+          description: Held for uploads in progress.
+    ChangeOp:
+      type: string
+      enum: [created, updated, moved, trashed, restored, purged, removed, version, version_deleted, thumbnail]
+    Change:
+      type: object
+      required: [seq, node_id, op, at]
+      properties:
+        seq:
+          type: integer
+          format: int64
+        node_id:
+          type: string
+        op:
+          $ref: "#/components/schemas/ChangeOp"
+        at:
+          type: string
+          format: date-time
+    ChangePage:
+      type: object
+      required: [changes, next_cursor]
+      properties:
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Change"
+        next_cursor:
+          type: string
+          description: Where to read from next, also when this page is empty.
+    AdminHealth:
+      type: object
+      required: [version, mode, blobs, stored_bytes, uploads, reserved_bytes, pending_removals]
+      properties:
+        version:
+          type: string
+        mode:
+          $ref: "#/components/schemas/Mode"
+        blobs:
+          type: integer
+          format: int64
+        stored_bytes:
+          type: integer
+          format: int64
+        uploads:
+          type: integer
+          format: int64
+        reserved_bytes:
+          type: integer
+          format: int64
+        pending_removals:
+          type: integer
+          format: int64
+          description: Files whose records are gone and which the sweeper has yet to unlink.
+        free_bytes:
+          type: integer
+          format: int64
+          description: Free space in the data directory, if it can be told.
+        last_backup_at:
+          type: string
+          format: date-time
+          description: When `yondrive backup` last finished, if ever.
   parameters:
     ID:
       name: id
@@ -1201,7 +2307,38 @@ components:
       required: true
       schema:
         type: string
-      description: A record id.
+      description: A record id, 32 lowercase hex characters. Anything else answers `invalid_id`.
+    VersionID:
+      name: version_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+      description: A version id.
+    IDCursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+      description: The `next_cursor` of the previous page.
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 200
+      description: The most to return. Anything above the maximum is treated as it.
+    ContentSHA256:
+      name: X-Content-SHA256
+      in: header
+      required: true
+      schema:
+        type: string
+      description: The SHA-256 of the body, in padded standard base64.
   responses:
     Error:
       description: The request failed.
