@@ -41,7 +41,15 @@ export function indexedDbSegmentCache(userId: string): SegmentCache {
 		opening ??= new Promise((resolve, reject) => {
 			const request = indexedDB.open(name, 1);
 			request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-			request.onsuccess = () => resolve(request.result);
+			request.onsuccess = () => {
+				const db = request.result;
+				// A sign-out from another screen deletes the database: an open connection must not block it.
+				db.onversionchange = () => {
+					db.close();
+					opening = null;
+				};
+				resolve(db);
+			};
 			request.onerror = () => reject(request.error);
 		});
 		return opening;
