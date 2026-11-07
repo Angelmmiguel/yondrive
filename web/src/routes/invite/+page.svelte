@@ -22,6 +22,8 @@
 	import { session } from '$lib/state/session.svelte';
 
 	const token = page.url.hash.slice(1) || null;
+	// The link is a secret: keep it out of the history and the address bar.
+	history.replaceState(null, '', location.pathname);
 
 	let username = $state('');
 	let email = $state('');

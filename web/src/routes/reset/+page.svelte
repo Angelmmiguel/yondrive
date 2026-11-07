@@ -9,6 +9,8 @@
 	import { AuthCard, Banner, Button, PassphraseFields } from '$lib/components';
 
 	const token = page.url.hash.slice(1);
+	// The link is a secret: keep it out of the history and the address bar.
+	history.replaceState(null, '', location.pathname);
 
 	let passphrase = $state('');
 	let confirmation = $state('');

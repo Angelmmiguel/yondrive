@@ -76,6 +76,10 @@ test('a reload of the recovery step makes a new key and asks again', async ({ pa
 	await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
 
 	await page.reload();
+	// The link left the address bar when it was read, so a reload needs it again.
+	await expect(page.getByRole('heading', { name: /waiting to be set up/ })).toBeVisible();
+	await expect(page.getByText('reloading this page needs the link again')).toBeVisible();
+	await page.goto(`${server.url}/setup#${await server.setupToken()}`);
 	await expect(page.getByRole('heading', { name: 'Set up your server' })).toBeVisible();
 	await page.getByRole('button', { name: 'Continue' }).click();
 	await chooseMode(page, 'e2e');

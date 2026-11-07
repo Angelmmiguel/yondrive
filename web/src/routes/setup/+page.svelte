@@ -39,6 +39,8 @@
 	import { session } from '$lib/state/session.svelte';
 
 	const token = page.url.hash.slice(1);
+	// The link is a secret: keep it out of the history and the address bar.
+	history.replaceState(null, '', location.pathname);
 
 	let info = $state<SetupInfo | null>(null);
 	let blocked = $state<string | null>(null);
@@ -211,6 +213,9 @@
 
 <svelte:head><title>Setup · YonDrive</title></svelte:head>
 
+<!-- A link pasted over the waiting screen only changes the fragment. -->
+<svelte:window onhashchange={() => location.reload()} />
+
 {#if token === ''}
 	<AuthCard
 		title="This server is waiting to be set up"
@@ -221,6 +226,10 @@
 			Open the server's logs and look for a line with <code>first-run setup required</code>. The
 			link there ends in <code>/setup#</code> and a one-time token. Restarting the server prints a new
 			one.
+		</p>
+		<p class="plain">
+			The link is removed from the address bar once the page has read it, so reloading this page
+			needs the link again. Open it, or paste it into the address bar, to start over.
 		</p>
 	</AuthCard>
 {:else if blocked}
