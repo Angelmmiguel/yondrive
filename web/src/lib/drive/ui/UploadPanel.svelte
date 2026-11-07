@@ -4,6 +4,7 @@
 	import { Button, Icon, ProgressBar } from '$lib/components';
 	import { drive } from '$lib/state/drive.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
+	import { uploadPanel } from '$lib/state/uploadPanel.svelte';
 	import { describeDriveError } from '../errors';
 	import type { UploadItem, UploadStatus } from '../upload/queue';
 
@@ -11,6 +12,11 @@
 	const moving = $derived(items.filter((i) => i.status === 'uploading' || i.status === 'queued'));
 	const finished = $derived(items.some((i) => i.status === 'done' || i.status === 'cancelled'));
 	let folded = $state(false);
+
+	$effect(() => {
+		uploadPanel.sync(items);
+	});
+	$effect(() => () => uploadPanel.dispose());
 	let picker = $state<HTMLInputElement>();
 	let resuming: number | null = null;
 
@@ -37,6 +43,9 @@
 		}
 	}
 
+	const percent = (item: UploadItem) =>
+		Math.min(100, Math.floor((item.done / Math.max(item.size, 1)) * 100));
+
 	const heading = $derived(
 		moving.length > 0
 			? `Uploading ${moving.length} ${moving.length === 1 ? 'file' : 'files'}`
@@ -44,7 +53,18 @@
 	);
 </script>
 
-{#if items.length > 0}
+{#if items.length > 0 && uploadPanel.phase === 'pill'}
+	<button
+		type="button"
+		class="pill"
+		data-testid="upload-pill"
+		aria-label="{uploadPanel.count} uploaded. Show uploads"
+		onclick={() => uploadPanel.expand()}
+	>
+		<Icon name="check" size={16} strokeWidth={2} />
+		{uploadPanel.count} uploaded
+	</button>
+{:else if items.length > 0}
 	<section class="panel" aria-label="Uploads" data-testid="upload-panel">
 		<header class="head">
 			<h2>{heading}</h2>
@@ -101,7 +121,7 @@
 							{#if item.status === 'failed'}
 								{describeDriveError(item.error)}
 							{:else if item.status === 'uploading'}
-								{formatBytes(item.done)} of {formatBytes(item.size)}
+								{formatBytes(item.done)} of {formatBytes(item.size)} · {percent(item)}%
 							{:else}
 								{STATUS[item.status]}
 							{/if}
@@ -134,6 +154,25 @@
 		border: 1px solid var(--border-strong);
 		border-radius: 16px;
 		box-shadow: 0 16px 40px -16px var(--shadow-ink);
+	}
+
+	.pill {
+		position: fixed;
+		right: 16px;
+		bottom: 16px;
+		z-index: 25;
+		height: 36px;
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 14px;
+		border: 1px solid var(--border-strong);
+		border-radius: 999px;
+		background: var(--surface);
+		box-shadow: 0 8px 24px -12px var(--shadow-ink);
+		color: var(--text-strong);
+		font-weight: 500;
+		cursor: pointer;
 	}
 
 	.head {

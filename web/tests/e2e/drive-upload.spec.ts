@@ -51,6 +51,18 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByRole('heading', { name: 'Jump back in' })).toBeVisible();
 		});
 
+		test('folds finished uploads into a pill, which then goes away', async () => {
+			const file = await box.add(`fold-${mode}.txt`, Buffer.from('folds away'));
+			await pickFiles(page, [file]);
+			await expect(uploadRow(page, file.name)).toHaveAttribute('data-status', 'done', {
+				timeout: 60_000
+			});
+			const pill = page.getByTestId('upload-pill');
+			await expect(pill).toHaveText('1 uploaded', { timeout: 10_000 });
+			await expect(page.getByTestId('upload-panel')).toHaveCount(0);
+			await expect(pill).toHaveCount(0, { timeout: 15_000 });
+		});
+
 		test('downloads the identical bytes, also after a reload', async () => {
 			const large = await box.add(`again-${mode}.bin`, multiFrame(1.5));
 			const empty = await box.add(`none-${mode}.txt`, Buffer.alloc(0));

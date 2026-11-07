@@ -81,6 +81,9 @@ export async function upload(page: Page, ...files: LocalFile[]): Promise<void> {
 
 /** Takes finished uploads off the panel, which floats over the end of the list. */
 export async function clearUploads(page: Page): Promise<void> {
+	// A finished queue folds into a pill after a few seconds: open it again.
+	const pill = page.getByTestId('upload-pill');
+	if (await pill.isVisible()) await pill.click();
 	await page
 		.getByTestId('upload-panel')
 		.getByRole('button', { name: 'Clear', exact: true })

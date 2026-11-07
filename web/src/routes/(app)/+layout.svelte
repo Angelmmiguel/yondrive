@@ -19,6 +19,7 @@
 	import DriveDialogs from '$lib/drive/ui/DriveDialogs.svelte';
 	import DriveSidebar from '$lib/drive/ui/DriveSidebar.svelte';
 	import StorageCard from '$lib/drive/ui/StorageCard.svelte';
+	import { uploadPanel } from '$lib/state/uploadPanel.svelte';
 	import UploadPanel from '$lib/drive/ui/UploadPanel.svelte';
 	import VersionsPanel from '$lib/drive/ui/VersionsPanel.svelte';
 	import Viewer from '$lib/drive/ui/Viewer.svelte';
@@ -168,9 +169,9 @@
 		</TopBar>
 	{/snippet}
 	{@render children()}
-	{#if drive.uploads.length > 0}
-		<!-- Room to scroll the end of a list out from under the upload panel. -->
-		<div class="under-panel"></div>
+	{#if uploadPanel.room !== 'none'}
+		<!-- Room to scroll the end of a list out from under the upload panel or its pill. -->
+		<div class="under-panel" class:pill={uploadPanel.room === 'pill'}></div>
 	{/if}
 </AppShell>
 
@@ -245,6 +246,10 @@
 
 	.under-panel {
 		height: min(420px, 60vh);
+	}
+
+	.under-panel.pill {
+		height: 64px;
 	}
 
 	.drop {
