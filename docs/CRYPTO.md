@@ -505,6 +505,12 @@ index key     = HKDF(master key, "yondrive/index/v1")
 stored        = Seal(index key, segment bytes, fields("yondrive/blob/index/v1", utf8(blob id)))
 ```
 
+The index key is what the worker that holds the index gets, so it never holds the master key.
+A segment is UTF-8 JSON, `{"v":1,"seq":…,"docs":[…],"gone":[…],"terms":{…}}`: the documents it
+holds, the ids it removes, and for each word a list of `document index << 2 | field`, where field
+0 is the name, 1 a tag and 2 the text. A higher `seq` wins for any id. Clients make and merge
+segments as they like, so nothing else about them is fixed.
+
 A thumbnail is an image in a format every browser decodes, JPEG or WebP, whatever the file was.
 A client MUST draw it as an image and nothing else, since the server chooses which bytes it gets.
 

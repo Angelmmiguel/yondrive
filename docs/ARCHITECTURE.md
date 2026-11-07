@@ -665,6 +665,43 @@ usual, so a `404` drops it and all under it, and a rotated folder reads its chil
 shell, and reads through the frame workers into memory, since streams from the service worker use the session's route.
 Nothing is read until someone asks, as a read counts against a download limit.
 
+### Search
+
+`src/lib/search` is pure and tested like the drive; `src/lib/state/search.svelte.ts` wires one index to
+the drive of the session.
+
+| Where | Holds |
+| --- | --- |
+| `tokenize.ts` | Words: letters and digits of any script, lower case, accents folded, CJK a character each. |
+| `index.ts`, `segment.ts` | The inverted index over a sorted vocabulary, prefix matching, filters, and segments. |
+| `engine.ts`, `search.worker.ts`, `client.ts` | The index with its key, in a worker that a lock ends. |
+| `cache.ts` | Sealed segments in IndexedDB, per user, forgotten on signing out. |
+| `extract.ts` | Text from a file. `registerExtractor` is where other formats plug in. |
+| `snapshot.ts`, `service.ts`, `of-drive.ts` | What the index should hold, and keeping it so. |
+
+**Following the tree.** The tree decides. After each change, and after the walk at unlock, the index is
+reconciled with every node that can be reached, shares that verify included: what is trashed, purged, revoked or
+unreadable drops out, and an index that is lost or stale is rebuilt by the same step. A file's text comes from the
+bytes in hand when it is uploaded, or is read back, a couple at a time and up to 4 MiB, when the index lacks text
+of its current version: another device's upload, someone else's share, a rebuild.
+
+**Storing.** What changed goes into a new segment a few seconds later, and once there are more than eight the
+newest small ones merge, a run from the newest down so that nothing overtakes a newer copy. New segments are
+stored before the old ones are deleted. A segment that does not open is deleted and made again. Quota refusing one
+leaves the index whole on this device. Ranking puts a name over a tag over text, a whole word over a prefix.
+
+Nothing typed leaves the palette: no request carries it, and it never enters the address.
+
+### Single sign-on
+
+The sign-in page asks `GET /auth/methods`. With local accounts off it keeps a small way to the form, for the
+first admin. A failed sign-in's `?sso_error=` becomes a sentence and leaves the address. A session with
+`enrolment_required` belongs on `/enrol` and nowhere else until the keys are stored. Recovery for an account that
+signs in through a provider happens in the session the provider gave. A flow asks the session whether a current
+credential is a passphrase, which the Sealer decides; without one the key sent is empty, and `reauth_required`
+leaves for `GET /auth/oidc/start?fresh=true`, coming back to the same page, where the person tries again.
+
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when
-the working tree does not build.
+the working tree does not build. Single sign-on specs run a provider in the spec's process
+(`web/tests/oidc-provider.ts`).

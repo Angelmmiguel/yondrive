@@ -31,6 +31,12 @@ in the manifest. It sees the frame digests, the content hash, signatures and pub
 The name tag shows when two names in one folder are the same, and when a name comes back
 after a rename. Without the folder's key it says nothing else.
 
+Search runs on the device and never sends a query. The server stores each user's index as
+sealed segments, so it sees how big they are and when they change, which grows roughly with
+the words a user has, and it can withhold or replay old ones. That makes results stale or
+missing until the device has read the tree again, which it does at each unlock: the tree
+decides what is shown, and a segment only saves rereading text.
+
 It cannot see names, types, tags, dates inside metadata, or contents.
 
 ## Limits
@@ -133,6 +139,9 @@ cloud metadata service, and returns codes rather than what it found. Private add
 allowed, since a provider on the LAN is normal, so an admin can tell which hosts answer.
 
 ## What tampering is detected
+
+A search index segment is sealed and bound to its blob id. One that does not open is
+deleted and made again from the tree.
 
 | Attack on stored data | Result |
 | --- | --- |
