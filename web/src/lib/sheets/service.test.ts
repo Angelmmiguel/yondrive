@@ -28,6 +28,21 @@ describe('parseInput', () => {
 		expect(parseInput('007 agents')).toEqual({ input: { value: '007 agents' } });
 	});
 
+	it('reads formulas, durations, percentages and currency as Excel does', () => {
+		expect(parseInput('+A1')).toEqual({ input: { formula: '+A1' } });
+		expect(parseInput('-A1*2')).toEqual({ input: { formula: '-A1*2' } });
+		expect(parseInput('@SUM(A1:A3)')).toEqual({ input: { formula: 'SUM(A1:A3)' } });
+		expect(parseInput('+5')).toEqual({ input: { value: 5 } });
+		expect(parseInput('-abc')).toEqual({ input: { value: '-abc' } });
+		expect(parseInput('+44-20-1234')).toEqual({ input: { value: '+44-20-1234' } });
+		expect(parseInput('- 5 apples')).toEqual({ input: { value: '- 5 apples' } });
+		expect(parseInput('25:00')).toEqual({ input: { value: 25 / 24 }, numFmt: '[h]:mm' });
+		expect(parseInput('1,234%')).toEqual({ input: { value: 12.34 }, numFmt: '0%' });
+		expect(parseInput('.5%')).toEqual({ input: { value: 0.005 }, numFmt: '0.0%' });
+		expect(parseInput('$-5')).toEqual({ input: { value: -5 }, numFmt: '"$"#,##0' });
+		expect(parseInput('-$-5')).toEqual({ input: { value: '-$-5' } });
+	});
+
 	it('gives dates in the 1904 date system when the workbook uses it', () => {
 		expect(parseInput('1/31/2024', true)).toEqual({ input: { value: 43860 }, numFmt: 'm/d/yyyy' });
 	});
