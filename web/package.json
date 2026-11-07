@@ -50,6 +50,15 @@
 		"@noble/hashes": "2.4.0",
 		"@scure/base": "2.4.0",
 		"@scure/bip39": "2.4.0",
-		"pdfjs-dist": "6.5.438"
+		"pdfjs-dist": "6.5.438",
+		"prosemirror-commands": "1.7.2",
+		"prosemirror-gapcursor": "1.4.1",
+		"prosemirror-history": "1.5.1",
+		"prosemirror-keymap": "1.2.3",
+		"prosemirror-model": "1.25.12",
+		"prosemirror-state": "1.4.4",
+		"prosemirror-tables": "1.8.5",
+		"prosemirror-transform": "1.12.5",
+		"prosemirror-view": "1.42.9"
 	}
 }

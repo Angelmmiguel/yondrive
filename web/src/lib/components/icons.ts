@@ -51,7 +51,37 @@ export const ICONS = {
 	history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
 	pencil: 'M4 20l1-4L16 5l3 3L8 19zM14 7l3 3',
 	music: 'M9 18V6l10-2v12M9 18a3 3 0 1 1-6 0a3 3 0 1 1 6 0M19 16a3 3 0 1 1-6 0a3 3 0 1 1 6 0',
-	menu: 'M4 6h16M4 12h16M4 18h16'
+	menu: 'M4 6h16M4 12h16M4 18h16',
+	// The document editor's toolbar, from the editor board.
+	bold: 'M7 5h6a3.5 3.5 0 0 1 0 7H7zM7 12h7a3.5 3.5 0 0 1 0 7H7z',
+	italic: 'M19 4h-9M14 20H5M15 4L9 20',
+	underline: 'M7 4v6a5 5 0 0 0 10 0V4M5 20h14',
+	strike:
+		'M5 12h14M16 7.5C15.4 6 13.9 5 12 5c-2.5 0-4 1.3-4 3 0 1.4.8 2.3 2.2 3M15.6 14c.3.5.4 1 .4 1.5 0 1.9-1.7 3.5-4.2 3.5-2.1 0-3.7-1-4.3-2.6',
+	'text-color': 'M6.5 16L11 4h2l4.5 12M8.3 11.5h7.4',
+	highlight: 'M9 15l-3 3h4l1-1M9 15l7-7 3 3-7 7zM14 6l4 4',
+	'list-bullet': 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+	'list-number': 'M10 6h10M10 12h10M10 18h10M4 4h1v4M4 8h2M4 14.5a1 1 0 0 1 2 0c0 .8-2 1.5-2 3.5h2',
+	'list-check': 'M3.5 7l2 2 3.5-4M3.5 17l2 2 3.5-4M12 7h8M12 17h8',
+	'align-left': 'M4 6h16M4 10h10M4 14h16M4 18h10',
+	'align-center': 'M4 6h16M7 10h10M4 14h16M7 18h10',
+	'align-right': 'M4 6h16M10 10h10M4 14h16M10 18h10',
+	'align-justify': 'M4 6h16M4 10h16M4 14h16M4 18h16',
+	link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+	image:
+		'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM7 10a2 2 0 1 0 4 0a2 2 0 1 0-4 0M21 16l-5-5-9 9',
+	table:
+		'M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM4 10h16M4 15h16M10 4v16',
+	undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
+	redo: 'M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13',
+	outline: 'M4 6h16M8 12h12M8 18h12M4 12h.01M4 18h.01',
+	panel: 'M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM15 4v16',
+	print:
+		'M7 9V4h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v6H7z',
+	'zoom-in': 'M11 18a7 7 0 1 0 0-14a7 7 0 1 0 0 14M20 20l-3.5-3.5M8 11h6M11 8v6',
+	'zoom-out': 'M11 18a7 7 0 1 0 0-14a7 7 0 1 0 0 14M20 20l-3.5-3.5M8 11h6',
+	'arrow-left': 'M19 12H5M11 18l-6-6 6-6',
+	code: 'M9 8l-4 4 4 4M15 8l4 4-4 4'
 } as const;
 
 export type IconName = keyof typeof ICONS;

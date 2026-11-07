@@ -19,14 +19,18 @@
 		type IconName,
 		type MenuItem
 	} from '$lib/components';
-	import { canChangePlace, isOwner } from '$lib/sharing/roles';
+	import { canChangePlace, canWrite, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { fileKindOf } from '../kinds';
 	import type { KindFilter, SortKey } from '../sort';
 	import type { DriveNode } from '../tree';
+	import { formatOf } from '$lib/formats/document';
 	import { viewerFor } from '../viewers/kinds';
+
+	/** Whether a file opens in the app: in a viewer, or in the editor. */
+	const opensHere = (node: DriveNode) => viewerFor(node) !== null || formatOf(node.name) !== null;
 
 	interface Props {
 		nodes: readonly DriveNode[];
@@ -101,7 +105,7 @@
 	/** A click on the name: a folder is a link, and a file opens or downloads. */
 	function activate(node: DriveNode) {
 		if (node.kind === 'folder' || trash || !node.readable) return;
-		if (viewerFor(node) !== null) drive.open(node);
+		if (opensHere(node)) drive.open(node);
 		else void drive.download(node);
 	}
 
@@ -153,8 +157,10 @@
 		}
 		const file = node.kind === 'file';
 		return [
-			...(file && viewerFor(node) !== null
-				? [{ id: 'open', label: 'Open', icon: 'eye' as const }]
+			...(file && opensHere(node) ? [{ id: 'open', label: 'Open', icon: 'eye' as const }] : []),
+			// Text that opens in the viewer can also be edited as a document.
+			...(file && canWrite(node) && viewerFor(node) !== null && formatOf(node.name) !== null
+				? [{ id: 'edit', label: 'Edit', icon: 'pencil' as const }]
 				: []),
 			...(file ? [{ id: 'download', label: 'Download', icon: 'download' as const }] : []),
 			...(isOwner(node) ? [{ id: 'share', label: 'Share', icon: 'shared' as const }] : []),
@@ -175,6 +181,9 @@
 		switch (id) {
 			case 'open':
 				drive.open(node);
+				break;
+			case 'edit':
+				drive.edit(node);
 				break;
 			case 'download':
 				await drive.download(node);

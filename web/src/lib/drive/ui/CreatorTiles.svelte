@@ -1,15 +1,33 @@
-<!-- The row of things to make on Home. New doc and New sheet join it with their editors. -->
+<!-- The row of things to make on Home. New sheet joins it with its editor. -->
 <script lang="ts">
 	import { Icon, type IconName } from '$lib/components';
 
 	interface Props {
 		onnewfolder: () => void;
 		onupload: () => void;
+		onnewdoc?: () => void;
 	}
 
-	let { onnewfolder, onupload }: Props = $props();
+	let { onnewfolder, onupload, onnewdoc }: Props = $props();
 
-	const creators: { label: string; hint: string; icon: IconName; run: () => void }[] = $derived([
+	const creators: {
+		label: string;
+		hint: string;
+		icon: IconName;
+		run: () => void;
+		doc?: boolean;
+	}[] = $derived([
+		...(onnewdoc
+			? [
+					{
+						label: 'New doc',
+						hint: 'Write and format',
+						icon: 'doc' as const,
+						run: onnewdoc,
+						doc: true
+					}
+				]
+			: []),
 		{ label: 'New folder', hint: 'Organize files', icon: 'folder', run: onnewfolder },
 		{ label: 'Upload', hint: 'Files or folders', icon: 'upload', run: onupload }
 	]);
@@ -18,7 +36,7 @@
 <section class="row" aria-label="Create">
 	{#each creators as creator (creator.label)}
 		<button type="button" class="tile" onclick={creator.run}>
-			<span class="badge"><Icon name={creator.icon} size={20} /></span>
+			<span class="badge" class:doc={creator.doc}><Icon name={creator.icon} size={20} /></span>
 			<span class="text">
 				<span class="label">{creator.label}</span>
 				<span class="hint">{creator.hint}</span>
@@ -68,6 +86,11 @@
 		border-radius: 10px;
 		background: var(--file-folder-soft);
 		color: var(--file-folder);
+	}
+
+	.badge.doc {
+		background: var(--drive-soft);
+		color: var(--drive);
 	}
 
 	.text {

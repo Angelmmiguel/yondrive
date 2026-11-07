@@ -3,7 +3,12 @@
  * turns its changes into reactive state. A lock or sign-out ends the session of the
  * app shell, whose effect calls `stop`, and that zeroes everything the drive holds.
  */
+import { goto } from '$app/navigation';
+import { resolve } from '$app/paths';
 import { LockedError } from '$lib/account/errors';
+import { registerDocumentText } from '$lib/docs/search-text';
+import { formatOf } from '$lib/formats/document';
+import { viewerFor } from '$lib/drive/viewers/kinds';
 import { api } from '$lib/api/client';
 import { isApiError, type Storage } from '$lib/api/types';
 import { categoryOf, fileKindOf, type Category } from '$lib/drive/kinds';
@@ -28,6 +33,9 @@ import { sharing } from './sharing.svelte';
 import { toasts } from './toasts.svelte';
 
 const VIEW_KEY = 'yondrive-drive-view';
+
+// Documents are searched by their text, read on the device like any other file's.
+registerDocumentText();
 const POLL_MS = 60_000;
 
 export type ViewMode = 'list' | 'grid';
@@ -445,8 +453,18 @@ export class DriveState {
 		if (notice !== null) toasts.dismiss(notice);
 	}
 
+	/**
+	 * Shows a file: in the viewer if there is one for it, otherwise a document in
+	 * the editor. Plain text and Markdown have both, and `edit` takes them there.
+	 */
 	open(node: DriveNode): void {
-		this.viewing = node;
+		if (viewerFor(node) === null && formatOf(node.name) !== null) this.edit(node);
+		else this.viewing = node;
+	}
+
+	edit(node: DriveNode): void {
+		this.viewing = null;
+		void goto(resolve(`/doc/${node.id}`));
 	}
 
 	/** Takes a tag off the list. */

@@ -1,5 +1,6 @@
 <!-- Home, as on the board: a greeting, what to make, what to go back to, and My files. -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { readDisplayName } from '$lib/account/display-name';
 	import { greeting } from '$lib/app/format';
@@ -22,6 +23,23 @@
 	$effect(() => {
 		drive.folder = root;
 	});
+
+	let making = false;
+	/** A new, empty document in My files, opened in the editor. */
+	async function newDoc() {
+		const core = drive.core;
+		if (core === null || root === null || making) return;
+		making = true;
+		try {
+			const { createDocument } = await import('$lib/docs/create');
+			const made = await drive.run(() =>
+				createDocument({ tree: core.tree, engine: core.engine }, root)
+			);
+			if (made) await goto(resolve(`/doc/${made.id}`));
+		} finally {
+			making = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Home · YonDrive</title></svelte:head>
@@ -29,7 +47,11 @@
 <div class="home">
 	<h1>{hello}{name ? `, ${name}` : ''}</h1>
 
-	<CreatorTiles onnewfolder={() => shell.newFolder()} onupload={() => shell.uploadFiles()} />
+	<CreatorTiles
+		onnewfolder={() => shell.newFolder()}
+		onupload={() => shell.uploadFiles()}
+		onnewdoc={newDoc}
+	/>
 
 	{#if drive.status === 'failed'}
 		<Banner tone="danger" title="Your files could not be opened">{drive.error}</Banner>

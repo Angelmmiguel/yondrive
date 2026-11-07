@@ -38,6 +38,7 @@
 	let { children } = $props();
 
 	const path = $derived(page.url.pathname);
+	const fullScreen = $derived(path.startsWith('/doc/'));
 	const encrypted = $derived(session.sealer?.encrypted ?? true);
 	const username = $derived(session.account?.user.username ?? '');
 	const isAdmin = $derived(session.account?.user.role === 'admin');
@@ -112,7 +113,7 @@
 	const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false;
 
 	function dragover(event: DragEvent) {
-		if (!hasFiles(event)) return;
+		if (!hasFiles(event) || fullScreen) return;
 		event.preventDefault();
 		dragging = true;
 	}
@@ -131,88 +132,93 @@
 
 <svelte:window ondragover={dragover} ondragleave={dragleave} ondrop={drop} onkeydown={keydown} />
 
-<AppShell>
-	{#snippet rail()}
-		<AppRail
-			current={path.startsWith('/notes') ? 'notes' : 'drive'}
-			hrefs={{ drive: resolve('/'), notes: resolve('/notes') }}
-		/>
-	{/snippet}
-	{#snippet sidebar()}
-		<Sidebar title="Drive" label="Drive">
-			<DriveSidebar
-				onnewfolder={() => actions.newFolder()}
-				onuploadfiles={actions.uploadFiles}
-				onuploadfolder={actions.uploadFolder}
-			/>
-			{#snippet footer()}
-				<StorageCard />
-				<div class="foot">
-					<NavItem
-						label="Settings"
-						icon="filter"
-						href={resolve('/settings')}
-						current={path === '/settings'}
-					/>
-					{#if isAdmin}
-						<NavItem
-							label="Administration"
-							icon="shield"
-							href={resolve('/admin')}
-							current={path === '/admin'}
-						/>
-					{/if}
-				</div>
-			{/snippet}
-		</Sidebar>
-	{/snippet}
-	{#snippet top()}
-		<TopBar>
-			{#snippet leading()}
-				<SearchField
-					label="Search files, tags and contents"
-					placeholder="Search files, tags and contents…"
-					{shortcut}
-					onopen={(typed) => search.show(typed)}
-				/>
-			{/snippet}
-			{#if !encrypted}
-				<span
-					class="plain"
-					data-testid="not-encrypted"
-					title="Files on this server can be read by anyone with access to it or its disks"
-				>
-					<Icon name="lock-open" size={15} /> Not encrypted
-				</span>
-			{/if}
-			{#if drive.canAddHere}
-				<Menu
-					label="Upload"
-					triggerLabel="Upload"
-					triggerIcon="upload"
-					width={200}
-					items={uploads}
-					onselect={(id) => (id === 'files' ? actions.uploadFiles() : actions.uploadFolder())}
-				/>
-			{/if}
-			<NotificationBell />
-			<Menu label="Account" {items} onselect={choose} width={200}>
-				{#snippet trigger(attrs)}
-					<button type="button" class="me" data-testid="account-menu" {...attrs}>
-						<Avatar name={displayName} size={30} />
-						<span class="who">{displayName}</span>
-					</button>
-				{/snippet}
-			</Menu>
-		</TopBar>
-	{/snippet}
-	<RotationBar />
+{#if fullScreen}
+	<!-- The editor is a screen of its own, with the drive still running behind it. -->
 	{@render children()}
-	{#if uploadPanel.room !== 'none'}
-		<!-- Room to scroll the end of a list out from under the upload panel or its pill. -->
-		<div class="under-panel" class:pill={uploadPanel.room === 'pill'}></div>
-	{/if}
-</AppShell>
+{:else}
+	<AppShell>
+		{#snippet rail()}
+			<AppRail
+				current={path.startsWith('/notes') ? 'notes' : 'drive'}
+				hrefs={{ drive: resolve('/'), notes: resolve('/notes') }}
+			/>
+		{/snippet}
+		{#snippet sidebar()}
+			<Sidebar title="Drive" label="Drive">
+				<DriveSidebar
+					onnewfolder={() => actions.newFolder()}
+					onuploadfiles={actions.uploadFiles}
+					onuploadfolder={actions.uploadFolder}
+				/>
+				{#snippet footer()}
+					<StorageCard />
+					<div class="foot">
+						<NavItem
+							label="Settings"
+							icon="filter"
+							href={resolve('/settings')}
+							current={path === '/settings'}
+						/>
+						{#if isAdmin}
+							<NavItem
+								label="Administration"
+								icon="shield"
+								href={resolve('/admin')}
+								current={path === '/admin'}
+							/>
+						{/if}
+					</div>
+				{/snippet}
+			</Sidebar>
+		{/snippet}
+		{#snippet top()}
+			<TopBar>
+				{#snippet leading()}
+					<SearchField
+						label="Search files, tags and contents"
+						placeholder="Search files, tags and contents…"
+						{shortcut}
+						onopen={(typed) => search.show(typed)}
+					/>
+				{/snippet}
+				{#if !encrypted}
+					<span
+						class="plain"
+						data-testid="not-encrypted"
+						title="Files on this server can be read by anyone with access to it or its disks"
+					>
+						<Icon name="lock-open" size={15} /> Not encrypted
+					</span>
+				{/if}
+				{#if drive.canAddHere}
+					<Menu
+						label="Upload"
+						triggerLabel="Upload"
+						triggerIcon="upload"
+						width={200}
+						items={uploads}
+						onselect={(id) => (id === 'files' ? actions.uploadFiles() : actions.uploadFolder())}
+					/>
+				{/if}
+				<NotificationBell />
+				<Menu label="Account" {items} onselect={choose} width={200}>
+					{#snippet trigger(attrs)}
+						<button type="button" class="me" data-testid="account-menu" {...attrs}>
+							<Avatar name={displayName} size={30} />
+							<span class="who">{displayName}</span>
+						</button>
+					{/snippet}
+				</Menu>
+			</TopBar>
+		{/snippet}
+		<RotationBar />
+		{@render children()}
+		{#if uploadPanel.room !== 'none'}
+			<!-- Room to scroll the end of a list out from under the upload panel or its pill. -->
+			<div class="under-panel" class:pill={uploadPanel.room === 'pill'}></div>
+		{/if}
+	</AppShell>
+{/if}
 
 <input
 	bind:this={filesInput}
