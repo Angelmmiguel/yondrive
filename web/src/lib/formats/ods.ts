@@ -1016,7 +1016,27 @@ interface WriteCtx {
 	merges: Area[];
 }
 
-function cellXml(ctx: WriteCtx, row: number, col: number, repeat = 1): string {
+/**
+ * What a regenerated cell keeps from its element in the file, since the model
+ * does not hold it: its comment and its validation.
+ */
+function keptOf(el: string): { attrs: string; body: string } {
+	const tag = /^<[^>]*>/.exec(el)?.[0] ?? '';
+	const v = /\stable:content-validation-name\s*=\s*("[^"]*"|'[^']*')/.exec(tag);
+	const notes =
+		el.match(
+			/<office:annotation(?=[\s/>])(?:[^>]*\/>|[\s\S]*?<\/office:annotation>)|<office:annotation-end(?=[\s/>])[^>]*>/g
+		) ?? [];
+	return { attrs: v ? v[0] : '', body: notes.join('') };
+}
+
+function cellXml(
+	ctx: WriteCtx,
+	row: number,
+	col: number,
+	repeat = 1,
+	kept = { attrs: '', body: '' }
+): string {
 	const { book, info } = ctx;
 	const rep = repeat > 1 ? ` table:number-columns-repeated="${repeat}"` : '';
 	const m = ctx.merges.find(
@@ -1027,9 +1047,12 @@ function cellXml(ctx: WriteCtx, row: number, col: number, repeat = 1): string {
 		? ` table:number-columns-spanned="${m.right - m.left + 1}" table:number-rows-spanned="${m.bottom - m.top + 1}"`
 		: '';
 	const c = book.engine.cell(info.id, row, col);
-	if (!c) return `<table:table-cell${rep}${span}/>`;
+	if (!c)
+		return kept.body
+			? `<table:table-cell${rep}${span}${kept.attrs}>${kept.body}</table:table-cell>`
+			: `<table:table-cell${rep}${span}${kept.attrs}/>`;
 	const styleName = ctx.styles.cell(c.style);
-	let attrs = styleName ? ` table:style-name="${escapeAttr(styleName)}"` : '';
+	let attrs = (styleName ? ` table:style-name="${escapeAttr(styleName)}"` : '') + kept.attrs;
 	if (c.formula) {
 		const text = c.formula.ast ? `of:=${print(c.formula.ast, { mode: 'odf' })}` : c.formula.text;
 		attrs += ` table:formula="${escapeAttr(text)}"`;
@@ -1053,6 +1076,7 @@ function cellXml(ctx: WriteCtx, row: number, col: number, repeat = 1): string {
 		attrs += ' office:value-type="string"';
 		body = textXml(v);
 	}
+	body = kept.body + body;
 	return body
 		? `<table:table-cell${rep}${attrs}${span}>${body}</table:table-cell>`
 		: `<table:table-cell${rep}${attrs}${span}/>`;
@@ -1230,7 +1254,7 @@ function patchTable(
 				const end = p.cur + p.length;
 				while (k < end) {
 					if (dirtyCols?.has(k)) {
-						out += cellXml(ctx, row, k);
+						out += cellXml(ctx, row, k, 1, keptOf(xml.slice(c.start, c.end)));
 						k++;
 						continue;
 					}

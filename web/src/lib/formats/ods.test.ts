@@ -284,3 +284,21 @@ describe('.ods attributes written back', () => {
 		expect(again.sheet(id).rows.get(2)?.height).toBe(info.rows.get(0)!.height);
 	});
 });
+
+describe('.ods cells regenerated', () => {
+	it('keep their comment and validation', async () => {
+		const bytes = await odsOf(
+			'<table:table table:name="T"><table:table-column table:number-columns-repeated="2"/><table:table-row>' +
+				'<table:table-cell office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell>' +
+				'<table:table-cell table:formula="of:=[.A1]*2" table:content-validation-name="val1" office:value-type="float" office:value="2"><office:annotation><text:p>note</text:p></office:annotation><text:p>2</text:p></table:table-cell>' +
+				'</table:table-row></table:table>'
+		);
+		const { book } = await readOds(bytes);
+		const s = book.engine.sheets[0].id;
+		book.engine.set(s, 0, 0, { value: 5 });
+		const xml = await content(await writeOds(book, bytes));
+		expect(xml).toContain(
+			'<table:table-cell table:content-validation-name="val1" table:formula="of:=[.A1]*2" office:value-type="float" office:value="10"><office:annotation><text:p>note</text:p></office:annotation><text:p>10</text:p></table:table-cell>'
+		);
+	});
+});
