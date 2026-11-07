@@ -5,7 +5,7 @@
  * still keep a password out of everything, and a key does not exist.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { clickName, fileBox, newFolder, openDrive, openFolder, row, upload } from '../drive';
+import { act, clickName, fileBox, newFolder, openDrive, openFolder, row, upload } from '../drive';
 import { captureRequests, findIn, scanDir } from '../scan';
 import { startServer, type Mode, type Server } from '../server';
 import {
@@ -85,6 +85,34 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(anyone.getByRole('heading', { name: folderName })).toBeVisible({
 				timeout: 30_000
 			});
+
+			// Once read, the key is out of everything the page keeps its address in.
+			const page = await anyone.evaluate(() => ({
+				href: location.href,
+				title: document.title,
+				state: JSON.stringify(history.state),
+				referrer: document.referrer
+			}));
+			expect(new URL(page.href).hash).toBe('');
+			expect(page.referrer).toBe('');
+			const kept = Buffer.from([page.href, page.title, page.state].join('\n'));
+			if (fragment !== '') expect(findIn(kept, { 'link key': fragment })).toEqual([]);
+
+			// Whatever comes next gets no referrer, and going back finds no key in the history.
+			const { pathname } = new URL(open);
+			await anyone.evaluate(() => {
+				const away = document.createElement('a');
+				away.href = '/signin';
+				away.setAttribute('data-sveltekit-reload', '');
+				document.body.append(away);
+				away.click();
+			});
+			await anyone.waitForURL('**/signin');
+			expect(await anyone.evaluate(() => document.referrer)).toBe('');
+			await anyone.goBack();
+			expect(anyone.url()).toBe(`${server.url}${pathname}`);
+			expect(sent.at(-1)?.join('\n')).not.toMatch(/"referer":"[^"]/);
+
 			await anyone.goto(locked);
 			await anyone.getByLabel(/^Password/).fill(password);
 			await anyone.getByRole('button', { name: 'Open', exact: true }).click();
@@ -97,6 +125,22 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			// The rotation names everything again: nothing of that may go out either.
 			await alice.goto(server.url);
 			await expect(row(alice, folderName)).toBeVisible({ timeout: 30_000 });
+			await act(alice, folderName, 'Share');
+			const dialog = shareDialog(alice, folderName);
+			await dialog.getByRole('button', { name: 'Revoke bob' }).click();
+			await dialog.getByRole('button', { name: 'Revoke and replace keys' }).click();
+			await expect(alice.getByText('no longer has access')).toBeVisible({ timeout: 30_000 });
+			await dialog.getByRole('button', { name: 'Done' }).click();
+
+			// The folder and the file in it, with the folder's two links sealed anew.
+			const rotations = sent.flat().filter((one) => /^POST \S+\/rotate\n/.test(one));
+			expect(rotations).toHaveLength(2);
+			for (const body of rotations) expect(body).toContain('"wrapped_key"');
+			expect(rotations[0]).toMatch(/"links":\[\{[^\]]*\},\{/);
+			expect(findIn(Buffer.from(rotations.join('\n')), { password })).toEqual([]);
+			if (fragment !== '') {
+				expect(findIn(Buffer.from(rotations.join('\n')), { 'link key': fragment })).toEqual([]);
+			}
 
 			const requests = Buffer.from(sent.flat().join('\n'));
 			const logs = Buffer.from(server.logs());
