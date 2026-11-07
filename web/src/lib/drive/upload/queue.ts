@@ -61,6 +61,7 @@ export interface QueueDeps {
 		| 'refresh'
 		| 'patch'
 		| 'resolve'
+		| 'generationOf'
 	>;
 	engine: EngineDeps;
 	/** Runs after a version lands, such as making its thumbnail. Failure is its own business. */
@@ -69,6 +70,8 @@ export interface QueueDeps {
 }
 
 const FILES_AT_ONCE = 3;
+/** How many times a rotation may overtake one upload before it counts as a failure. */
+const OVERTAKEN = 3;
 
 export class UploadQueue {
 	items: UploadItem[] = [];
@@ -259,17 +262,27 @@ export class UploadQueue {
 		const file = job.file as QueuedFile;
 		const { nodeId, expected } = await this.#target(job, file);
 		signal.throwIfAborted();
-		const nodeKey = await tree.nodeKey(nodeId);
+		let nodeKey = await tree.nodeKey(nodeId);
 
 		job.record ??= await this.#findResumable(nodeId, file);
-		for (;;) {
-			job.record ??= await beginUpload(
-				file,
-				{ nodeId, nodeKey, expected, versionId: newId() },
-				engine
-			);
-			signal.throwIfAborted();
+		for (let overtaken = 0; ;) {
+			const generation = tree.generationOf(nodeId);
 			try {
+				// Frames sealed under a key that has gone on cannot be mixed with new ones.
+				if (
+					job.record !== undefined &&
+					job.record.keyGeneration !== undefined &&
+					generation !== undefined &&
+					job.record.keyGeneration !== generation
+				) {
+					throw new UploadRestartError();
+				}
+				job.record ??= await beginUpload(
+					file,
+					{ nodeId, nodeKey, expected, versionId: newId(), keyGeneration: generation },
+					engine
+				);
+				signal.throwIfAborted();
 				await sendUpload(
 					file,
 					job.record,
@@ -280,8 +293,15 @@ export class UploadQueue {
 				);
 				break;
 			} catch (e) {
-				if (!(e instanceof UploadRestartError)) throw e;
-				await abandonUpload(job.record.uploadId, engine);
+				if (isApiError(e, 'key_generation_conflict')) {
+					// Rotated meanwhile: read the node's key again, and start over under it.
+					if (++overtaken >= OVERTAKEN) throw e;
+					await tree.refresh(nodeId);
+					nodeKey = await tree.nodeKey(nodeId);
+				} else if (!(e instanceof UploadRestartError)) {
+					throw e;
+				}
+				if (job.record !== undefined) await abandonUpload(job.record.uploadId, engine);
 				job.record = undefined;
 			}
 		}

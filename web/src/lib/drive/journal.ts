@@ -4,7 +4,7 @@
  * is read fresh anyway.
  */
 import type { Api } from '$lib/api/client';
-import type { Change } from '$lib/api/types';
+import type { Change, ChangeOp } from '$lib/api/types';
 
 const PAGE = 1000;
 
@@ -35,6 +35,11 @@ export class ChangeFeed {
 
 /** Beyond this many nodes it is cheaper to read the folders again. */
 export const REFRESH_ONE_BY_ONE = 100;
+
+/** The nodes one of these operations touched, in order, each once. */
+export function nodesChangedBy(changes: readonly Change[], ...ops: ChangeOp[]): string[] {
+	return changedNodes(changes.filter((change) => ops.includes(change.op)));
+}
 
 /** The nodes that changed, in order, each once. */
 export function changedNodes(changes: readonly Change[]): string[] {

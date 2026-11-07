@@ -46,6 +46,8 @@ export interface UploadTarget {
 	/** The version this is based on, or '' for a file that has none. */
 	expected: string;
 	versionId: string;
+	/** The generation of `nodeKey`, which a rotation that overtakes this upload shows up against. */
+	keyGeneration?: number;
 }
 
 export interface UploadProgress {
@@ -79,7 +81,8 @@ export async function beginUpload(
 				suite: deps.sealer.suite,
 				frame_count: plan.frameCount,
 				frame_size: plan.frameSize,
-				stored_size: plan.storedSize
+				stored_size: plan.storedSize,
+				key_generation: target.keyGeneration
 			}),
 		{ sleep: deps.sleep }
 	);
@@ -91,7 +94,8 @@ export async function beginUpload(
 		size: source.size,
 		lastModified: source.lastModified,
 		frameSize: plan.frameSize,
-		expected: target.expected
+		expected: target.expected,
+		keyGeneration: target.keyGeneration
 	};
 	await deps.resume.put(record);
 	return record;

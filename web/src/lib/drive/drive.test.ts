@@ -88,10 +88,14 @@ describe.each(SUITES)('the drive in mode %s', (_, suite) => {
 		expect(fixture.streams.open).not.toHaveBeenCalled();
 	});
 
-	it('accepts only its own user as a signer, until sharing', async () => {
+	it('names a signer without edit rights as such', async () => {
 		const { drive } = wired(suite);
-		await expect(drive.authorKeys('someone-else')).rejects.toThrow(SealError);
-		await expect(drive.authorKeys(USER_ID)).resolves.toBeTruthy();
+		await drive.start();
+		const root = drive.tree.rootId as string;
+		await expect(drive.sharing.authorKeys(USER_ID, root)).resolves.toBeTruthy();
+		await expect(drive.sharing.authorKeys('someone-else', root)).resolves.toMatchObject({
+			former: true
+		});
 	});
 
 	it('refuses to read past the limit, before reading anything', async () => {

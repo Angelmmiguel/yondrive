@@ -5,10 +5,11 @@
  * Keys live in memory only and `stop` zeroes them.
  */
 import type { Api } from '$lib/api/client';
-import { isApiError, type Node } from '$lib/api/types';
+import { isApiError, type KeyLink, type Node, type NodeRole } from '$lib/api/types';
+import { SealError } from '$lib/crypto/aead';
 import { encodeBase64, decodeBase64, type Bytes } from '$lib/crypto/encoding';
 import { normalizeName } from '$lib/crypto/metadata';
-import { zero } from '$lib/crypto/random';
+import { constantTimeEqual, zero } from '$lib/crypto/random';
 import type { Sealer, Suite, UserKeys } from '$lib/crypto/sealer';
 import { newId } from './ids';
 import {
@@ -28,7 +29,13 @@ const PAGE = 500;
 
 export interface DriveNode extends NodeMetadata {
 	id: string;
+	ownerId: string;
+	/** Null on a root, and on the top of a share, whose folder is not this user's to see. */
 	parentId: string | null;
+	/** What this user may do with it; only the server can really say. */
+	role: NodeRole;
+	/** The generation of its key on the server, when it was last read. */
+	keyGeneration: number;
 	kind: 'file' | 'folder';
 	currentVersion: string | null;
 	thumbBlobId: string | null;
@@ -62,6 +69,11 @@ export interface TreeDeps {
 	/** The keys, or `LockedError`. */
 	keys: () => UserKeys;
 	open: NodeOpener;
+	/**
+	 * The key of a share's top node, from a grant that has been verified, or a refusal.
+	 * Its parent is not visible, so this is the only way in. Taken over by the tree.
+	 */
+	grantKey?: (node: Node) => Promise<Bytes>;
 	now?: () => number;
 }
 
@@ -77,6 +89,13 @@ export class DriveTree {
 
 	readonly #deps: TreeDeps;
 	readonly #keys = new Map<string, Bytes>();
+	/** Which generation each key in `#keys` is, which is what a write seals under. */
+	readonly #generations = new Map<string, number>();
+	/** Keys replaced by a rotation or gone with a node, which someone may still be holding. */
+	readonly #retired: Bytes[] = [];
+	/** Older keys reached through a version's chain, by node and generation. */
+	readonly #older = new Map<string, Bytes>();
+	readonly #rereading = new Set<string>();
 	readonly #children = new Map<string, Set<string>>();
 	readonly #loaded = new Set<string>();
 	readonly #loading = new Map<string, Promise<void>>();
@@ -99,7 +118,12 @@ export class DriveTree {
 	stop(): void {
 		this.#stopped = true;
 		for (const key of this.#keys.values()) zero(key);
+		for (const key of this.#older.values()) zero(key);
+		zero(...this.#retired);
 		this.#keys.clear();
+		this.#older.clear();
+		this.#generations.clear();
+		this.#retired.length = 0;
 		this.nodes.clear();
 		this.#children.clear();
 		this.#loaded.clear();
@@ -108,19 +132,34 @@ export class DriveTree {
 		this.tags = [];
 	}
 
-	/** Takes over `key`, unless this node already has one that callers may be holding. */
-	#remember(id: string, key: Bytes): Bytes {
+	/**
+	 * Takes over `key`, unless this node already has the same one, which callers may be
+	 * holding. A different key at this generation or a later one is what a rotation
+	 * looks like from here; an older answer that arrives late changes nothing.
+	 */
+	#remember(id: string, key: Bytes, generation = 1): Bytes {
 		const known = this.#keys.get(id);
 		if (known !== undefined) {
-			if (key !== known) zero(key);
-			return known;
+			const same = constantTimeEqual(known, key);
+			if (same || generation < (this.#generations.get(id) ?? 1)) {
+				if (key !== known) zero(key);
+				if (same) this.#generations.set(id, generation);
+				return known;
+			}
+			this.#retired.push(known);
 		}
 		if (this.#stopped) {
 			zero(key);
 			throw new Error('stopped');
 		}
 		this.#keys.set(id, key);
+		this.#generations.set(id, generation);
 		return key;
+	}
+
+	/** Which generation of a node's key this device holds. */
+	generationOf(id: string): number | undefined {
+		return this.#generations.get(id);
 	}
 
 	/** The root, made here if this is the first device to ask. */
@@ -156,7 +195,8 @@ export class DriveTree {
 		const { sealer, keys } = this.#deps;
 		const key = this.#remember(
 			node.id,
-			sealer.unwrapRootNodeKey(decodeBase64(node.wrapped_key), keys().masterKey, node.id)
+			sealer.unwrapRootNodeKey(decodeBase64(node.wrapped_key), keys().masterKey, node.id),
+			node.key_generation
 		);
 		this.rootId = node.id;
 		let opened: unknown = null;
@@ -167,6 +207,58 @@ export class DriveTree {
 		this.#rootRaw = rawMetadata(opened);
 		this.tags = parseRootMetadata(opened).tags;
 		this.#store(node, opened, true);
+	}
+
+	/** The top of a share: its key comes from a grant, as its parent is not visible. */
+	async #adoptShare(node: Node): Promise<void> {
+		const { grantKey, sealer } = this.#deps;
+		if (grantKey === undefined) throw new Error('cannot open this node');
+		const key = this.#remember(node.id, await grantKey(node), node.key_generation);
+		let opened: unknown = null;
+		let readable = true;
+		try {
+			opened = sealer.openMetadata(key, node.id, decodeBase64(node.sealed_metadata));
+		} catch {
+			readable = false;
+		}
+		this.#store(node, opened, readable);
+	}
+
+	/** Opens a node just read from the server, whichever way its key is reached. */
+	async #adopt(node: Node, seen: Set<string> = new Set()): Promise<void> {
+		if (node.parent_id !== undefined) {
+			await this.resolve(node.parent_id, seen);
+			await this.#openPage(node.parent_id, [node]);
+		} else if ((node.role ?? 'owner') === 'owner') {
+			this.#adoptRoot(node);
+		} else {
+			await this.#adoptShare(node);
+		}
+	}
+
+	/** Reads a node and its key again, as when something says the key has moved on. */
+	async #reread(id: string): Promise<void> {
+		if (this.#rereading.has(id)) return;
+		this.#rereading.add(id);
+		try {
+			const node = await this.#deps.api.getNode(id);
+			if (node.parent_id !== undefined) await this.#openPage(node.parent_id, [node]);
+			else await this.#adopt(node);
+		} finally {
+			this.#rereading.delete(id);
+		}
+	}
+
+	/** Runs something sealed under keys that a rotation may overtake, reading them again if so. */
+	async #fresh<T>(ids: readonly string[], attempt: () => Promise<T>): Promise<T> {
+		for (let tried = 1; ; tried++) {
+			try {
+				return await attempt();
+			} catch (e) {
+				if (tried >= 3 || !isApiError(e, 'key_generation_conflict')) throw e;
+				for (const id of ids) await this.#reread(id);
+			}
+		}
 	}
 
 	#store(node: Node, metadata: unknown, readable: boolean): DriveNode {
@@ -181,7 +273,10 @@ export class DriveTree {
 			...opened,
 			name: readable ? opened.name : 'Unreadable item',
 			id: node.id,
+			ownerId: node.owner_id,
 			parentId,
+			role: node.role ?? 'owner',
+			keyGeneration: node.key_generation ?? 1,
 			kind: node.kind,
 			currentVersion: node.current_version ?? null,
 			thumbBlobId: node.thumb_blob_id ?? null,
@@ -208,11 +303,20 @@ export class DriveTree {
 	async #openPage(parentId: string, records: Node[]): Promise<void> {
 		if (records.length === 0) return;
 		const parentKey = await this.nodeKey(parentId);
-		const opened: OpenedNode[] = await this.#deps.open(parentKey, parentId, records);
+		let opened: OpenedNode[] = await this.#deps.open(parentKey, parentId, records);
+		if (opened.some((one) => one.key === null)) {
+			// A folder rotated since its key was read here wraps its children under the new one.
+			await this.#reread(parentId).catch(() => {});
+			const current = this.#keys.get(parentId);
+			if (current !== undefined && current !== parentKey) {
+				for (const one of opened) if (one.key) zero(one.key);
+				opened = await this.#deps.open(current, parentId, records);
+			}
+		}
 		const byId = new Map(opened.map((o) => [o.id, o]));
 		for (const record of records) {
 			const one = byId.get(record.id);
-			if (one?.key) this.#remember(record.id, one.key);
+			if (one?.key) this.#remember(record.id, one.key, record.key_generation);
 			this.#store(record, one?.metadata ?? null, one?.metadata != null);
 		}
 	}
@@ -234,12 +338,7 @@ export class DriveTree {
 		const known = this.nodes.get(id);
 		if (known !== undefined && this.#keys.has(id)) return known;
 		const node = await this.#deps.api.getNode(id);
-		if (node.parent_id === undefined) {
-			this.#adoptRoot(node);
-			return this.nodes.get(id) as DriveNode;
-		}
-		await this.resolve(node.parent_id, seen);
-		await this.#openPage(node.parent_id, [node]);
+		await this.#adopt(node, seen);
 		this.onchange();
 		return this.nodes.get(id) as DriveNode;
 	}
@@ -302,6 +401,16 @@ export class DriveTree {
 		const parent = this.nodes.get(id)?.parentId;
 		if (parent) this.#children.get(parent)?.delete(id);
 		this.nodes.delete(id);
+		const key = this.#keys.get(id);
+		if (key !== undefined) this.#retired.push(key);
+		this.#keys.delete(id);
+		this.#generations.delete(id);
+	}
+
+	/** Takes a node and all under it out of what is known here. */
+	drop(id: string): void {
+		this.#forget(id);
+		this.onchange();
 	}
 
 	/** Whether anything shows for this node: a file with no version has not arrived yet. */
@@ -316,10 +425,18 @@ export class DriveTree {
 			.filter((node) => this.#visible(node));
 	}
 
-	/** Everything known that is not in the trash, the root aside. */
+	/**
+	 * This user's own, known and not in the trash, the root aside. What others share
+	 * stays out: favorites, tags and the storage bar are about one's own files.
+	 */
 	live(): DriveNode[] {
+		const owner = this.rootId === null ? undefined : this.nodes.get(this.rootId)?.ownerId;
 		return [...this.nodes.values()].filter(
-			(node) => node.parentId !== null && node.trashedAt === null && this.#visible(node)
+			(node) =>
+				node.parentId !== null &&
+				node.ownerId === owner &&
+				node.trashedAt === null &&
+				this.#visible(node)
 		);
 	}
 
@@ -359,24 +476,25 @@ export class DriveTree {
 		metadata: NodeMetadata
 	): Promise<DriveNode> {
 		const { api, sealer } = this.#deps;
-		const parentKey = await this.nodeKey(parentId);
 		const id = newId();
 		const key = sealer.newNodeKey();
-		const node = await api
-			.createNode({
+		const node = await this.#fresh([parentId], async () => {
+			const parentKey = await this.nodeKey(parentId);
+			return api.createNode({
 				id,
 				parent_id: parentId,
 				kind,
 				suite: this.#suite,
 				sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata)),
 				wrapped_key: encodeBase64(sealer.wrapNodeKey(key, parentKey, parentId, id)),
-				name_tag: encodeBase64(sealer.nameTag(parentKey, metadata.name))
-			})
-			.catch((e) => {
-				zero(key);
-				throw e;
+				name_tag: encodeBase64(sealer.nameTag(parentKey, metadata.name)),
+				parent_key_generation: this.generationOf(parentId)
 			});
-		this.#remember(id, key);
+		}).catch((e) => {
+			zero(key);
+			throw e;
+		});
+		this.#remember(id, key, node.key_generation);
 		const stored = this.#store(node, metadata, true);
 		this.onchange();
 		return stored;
@@ -425,7 +543,7 @@ export class DriveTree {
 			throw e;
 		}
 		if (record.parent_id === undefined) {
-			this.#adoptRoot(record);
+			await this.#adopt(record);
 		} else {
 			if (!this.nodes.has(record.parent_id)) await this.resolve(record.parent_id);
 			await this.#openPage(record.parent_id, [record]);
@@ -440,14 +558,27 @@ export class DriveTree {
 		this.#loaded.delete(id);
 	}
 
-	async #writeMetadata(node: DriveNode, patch: Partial<NodeMetadata>, nameTag?: Bytes) {
+	async #writeMetadata(
+		id: string,
+		patch: Partial<NodeMetadata>,
+		tagFor?: (parentKey: Bytes, parentId: string) => { tag: Bytes; generation?: number }
+	) {
 		const { api, sealer } = this.#deps;
-		const key = await this.nodeKey(node.id);
-		const metadata = { ...node.raw, ...patch };
-		const record = await api.updateNode(node.id, {
-			suite: this.#suite,
-			sealed_metadata: encodeBase64(sealer.sealMetadata(key, node.id, metadata)),
-			name_tag: nameTag && encodeBase64(nameTag)
+		const parentId = this.#need(id).parentId;
+		const involved = tagFor && parentId !== null ? [id, parentId] : [id];
+		let metadata: RawMetadata = {};
+		const record = await this.#fresh(involved, async () => {
+			const key = await this.nodeKey(id);
+			metadata = { ...this.#need(id).raw, ...patch };
+			const tagged =
+				tagFor && parentId !== null ? tagFor(await this.nodeKey(parentId), parentId) : undefined;
+			return api.updateNode(id, {
+				suite: this.#suite,
+				sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata)),
+				key_generation: this.generationOf(id),
+				name_tag: tagged && encodeBase64(tagged.tag),
+				parent_key_generation: tagged?.generation
+			});
 		});
 		const stored = this.#store(record, metadata, true);
 		this.onchange();
@@ -462,27 +593,33 @@ export class DriveTree {
 
 	/** Changes fields of a node's metadata, leaving what this client does not know. */
 	patch(id: string, patch: Partial<NodeMetadata>): Promise<DriveNode> {
-		return this.#writeMetadata(this.#need(id), patch);
+		this.#need(id);
+		return this.#writeMetadata(id, patch);
 	}
 
 	async rename(id: string, typed: string): Promise<DriveNode> {
 		const node = this.#need(id);
 		const name = cleanName(typed);
 		if (node.parentId === null) throw new Error('a root has no name');
-		const parentKey = await this.nodeKey(node.parentId);
-		return this.#writeMetadata(node, { name }, this.#deps.sealer.nameTag(parentKey, name));
+		return this.#writeMetadata(id, { name }, (parentKey, parentId) => ({
+			tag: this.#deps.sealer.nameTag(parentKey, name),
+			generation: this.generationOf(parentId)
+		}));
 	}
 
 	/** Moves a node, wrapping its key and tagging its name under the new parent. */
 	async move(id: string, parentId: string): Promise<DriveNode> {
 		const { api, sealer } = this.#deps;
 		const node = this.#need(id);
-		const key = await this.nodeKey(id);
-		const parentKey = await this.nodeKey(parentId);
-		const record = await api.moveNode(id, {
-			parent_id: parentId,
-			wrapped_key: encodeBase64(sealer.wrapNodeKey(key, parentKey, parentId, id)),
-			name_tag: encodeBase64(sealer.nameTag(parentKey, node.name))
+		const record = await this.#fresh([id, parentId], async () => {
+			const key = await this.nodeKey(id);
+			const parentKey = await this.nodeKey(parentId);
+			return api.moveNode(id, {
+				parent_id: parentId,
+				wrapped_key: encodeBase64(sealer.wrapNodeKey(key, parentKey, parentId, id)),
+				name_tag: encodeBase64(sealer.nameTag(parentKey, node.name)),
+				parent_key_generation: this.generationOf(parentId)
+			});
 		});
 		const stored = this.#store(record, node.raw, node.readable);
 		this.onchange();
@@ -523,9 +660,55 @@ export class DriveTree {
 	async discard(id: string): Promise<void> {
 		const { api } = this.#deps;
 		await api.trashNode(id);
-		await api.purgeNode(id);
+		// Only an owner purges. An editor's stays in the owner's trash, where nothing shows it.
+		await api.purgeNode(id).catch((e) => {
+			if (!isApiError(e, 'forbidden')) throw e;
+		});
 		this.#forget(id);
 		this.onchange();
+	}
+
+	/** What a rotation of this node has done: its new key, which is copied, and the node. */
+	rotated(record: Node, key: Uint8Array): void {
+		const known = this.nodes.get(record.id);
+		if (known === undefined) return;
+		this.#remember(record.id, key.slice() as Bytes, record.key_generation);
+		this.#store(record, known.raw, known.readable);
+		this.onchange();
+	}
+
+	/**
+	 * The key a version was sealed under: the current one, or from it down the chain
+	 * the version came with, each link bound to its node and generation. It lives as
+	 * long as the tree, as a stream may ask for it again.
+	 */
+	async keyAt(id: string, generation: number | null, chain: readonly KeyLink[]): Promise<Bytes> {
+		const { sealer } = this.#deps;
+		let key = await this.nodeKey(id);
+		// With no keys there is no chain, and nothing to reach.
+		if (generation === null || key.length === 0) return key;
+		let have = this.#generations.get(id);
+		const top = chain.length === 0 ? generation : chain[0].generation + 1;
+		if (have !== top) {
+			await this.#reread(id);
+			key = await this.nodeKey(id);
+			have = this.#generations.get(id);
+			if (have !== top) throw new SealError('format');
+		}
+		let at = have;
+		for (const link of chain) {
+			if (link.generation !== at - 1) throw new SealError('format');
+			const name = `${id}/${link.generation}`;
+			let older = this.#older.get(name);
+			if (older === undefined) {
+				older = sealer.openPreviousKey(decodeBase64(link.sealed_key), key, id, link.generation);
+				this.#older.set(name, older);
+			}
+			key = older;
+			at = link.generation;
+		}
+		if (at !== generation) throw new SealError('format');
+		return key;
 	}
 
 	/** Everything trashed in its own right, with its name opened. */
@@ -579,7 +762,8 @@ export class DriveTree {
 		const metadata = { ...this.#rootRaw, tags };
 		const record = await api.updateNode(id, {
 			suite: this.#suite,
-			sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata))
+			sealed_metadata: encodeBase64(sealer.sealMetadata(key, id, metadata)),
+			key_generation: this.generationOf(id)
 		});
 		this.#rootRaw = metadata;
 		this.tags = tags;

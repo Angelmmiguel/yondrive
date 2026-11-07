@@ -3,6 +3,8 @@ import { describeError, LockedError } from '$lib/account/errors';
 import { SealError } from '$lib/crypto/aead';
 import { ZeroKeyError } from '$lib/crypto/random';
 import { ApiError, type ErrorCode } from '$lib/api/types';
+import { ContactKeysChangedError } from '$lib/sharing/contacts';
+import { UntrustedGrantError } from '$lib/sharing/sharing';
 import { InvalidNameError } from './names';
 
 /** More than this client will hold in memory on a connection with no service worker. */
@@ -36,7 +38,17 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
 	root_immutable: 'Your top folder cannot be changed.',
 	upload_incomplete: 'Part of this file did not arrive. Try uploading it again.',
 	suite_mismatch: 'This client and the server disagree about how files are stored.',
-	too_large: 'That is too large for the server to accept.'
+	too_large: 'That is too large for the server to accept.',
+	forbidden: 'You do not have the role this takes.',
+	move_refused: 'That cannot be moved out of what it is shared in.',
+	key_generation_conflict: 'The keys of this changed in the meantime. Try again.',
+	rotate_conflict: 'Something was added here in the meantime. Try again.',
+	grant_exists: 'That person already has access. Change their role instead.',
+	invalid_grant: 'You cannot share this with that person.',
+	invalid_link: 'Those link settings are not valid. An expiry has to be in the future.',
+	link_limit_reached: 'This link has given all its downloads.',
+	link_expired: 'This link has expired.',
+	link_revoked: 'This link has been revoked.'
 };
 
 const NAME_MESSAGES: Record<InvalidNameError['reason'], string> = {
@@ -54,6 +66,12 @@ export function describeDriveError(e: unknown): string {
 	if (e instanceof NameTakenError) return MESSAGES.name_conflict as string;
 	if (e instanceof ZeroKeyError || e instanceof LockedError) {
 		return 'The app was locked before this could finish.';
+	}
+	if (e instanceof ContactKeysChangedError) {
+		return `The keys of ${e.username} have changed, so nothing was shared or opened. Check with them before going on.`;
+	}
+	if (e instanceof UntrustedGrantError) {
+		return 'This share could not be verified, so it was not opened. Its signature does not check out against the person it says it comes from.';
 	}
 	if (e instanceof SealError) {
 		return 'This content failed its integrity check, so it was not opened. It may be damaged or may have been changed on the server.';

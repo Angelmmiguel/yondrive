@@ -9,7 +9,12 @@ import {
 	type Change,
 	type ChangeOp,
 	type ErrorCode,
+	type Grant,
+	type GrantRole,
+	type KeyLink,
+	type Link,
 	type Node,
+	type NodeRole,
 	type Upload,
 	type Version
 } from '$lib/api/types';
@@ -31,6 +36,13 @@ interface StoredUpload {
 }
 
 export const USER_ID = 'u'.repeat(32);
+
+/** Whoever else is in a test. */
+export interface FakeUser {
+	id: string;
+	username: string;
+	public_keys?: { x25519: string; ed25519: string };
+}
 export const TEST_FRAME = 1024;
 
 /** A server over one user, for one suite. */
@@ -45,7 +57,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 	let seq = 0;
 	let reserved = 0;
 	let used = 0;
-	let root: string | null = null;
+	const roots = new Map<string, string>();
 	const clock = () => new Date(1_760_000_000_000 + ++seq * 1000).toISOString();
 	const state = {
 		quota: options.quota ?? 0,
@@ -56,14 +68,188 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		/** Makes a frame fail before it is stored, as a dropped connection does. */
 		failFrame: null as ((index: number) => ApiError | null) | null,
 		/** Answers a commit with this, once the commit has happened. */
-		loseCommitAnswer: false
+		loseCommitAnswer: false,
+		/** Who is asking. `as` sets it, for the length of a call. */
+		actor: USER_ID,
+		/** The server's clock for links, which a test moves. */
+		now: 1_760_000_000_000,
+		/** Fails the next rotations with this, one each, as a conflict or a stop would. */
+		failRotation: [] as ((id: string) => ApiError | null)[]
 	};
+	const users = new Map<string, FakeUser>();
+	const grants = new Map<string, Grant & { read?: boolean }>();
+	const links = new Map<
+		string,
+		Link & {
+			password_wrapped_key?: string;
+			auth_key?: string;
+			kdf?: unknown;
+			sessions: Map<string, Set<string>>;
+		}
+	>();
+	const history = new Map<string, KeyLink[]>();
+	let grantSeq = 0;
+
+	const lineage = (node: Node): Node[] => {
+		const out: Node[] = [node];
+		let at = node;
+		while (at.parent_id !== undefined) {
+			const parent = nodes.get(at.parent_id);
+			if (parent === undefined) break;
+			out.push(parent);
+			at = parent;
+		}
+		return out;
+	};
+
+	const trashedAbove = (node: Node) => lineage(node).some((n) => n.trashed_at !== undefined);
+
+	/** The one place that says who may do what, as the real server's effective role. */
+	function roleOf(node: Node, actor = state.actor): NodeRole | null {
+		if (node.owner_id === actor) return 'owner';
+		if (trashedAbove(node)) return null;
+		let role: NodeRole | null = null;
+		for (const at of lineage(node)) {
+			for (const grant of grants.values()) {
+				if (grant.node_id === at.id && grant.grantee_id === actor) {
+					if (grant.role === 'editor' || role === null) role = grant.role;
+				}
+			}
+		}
+		return role;
+	}
+
+	/** A node as this user sees it. What belongs to a folder they cannot see does not show. */
+	function view(node: Node): Node {
+		const role = roleOf(node);
+		if (role === null) throw fail(404, 'not_found');
+		const parent = node.parent_id === undefined ? undefined : nodes.get(node.parent_id);
+		const out: Node = { ...node, role };
+		if (parent !== undefined && roleOf(parent) === null) {
+			delete out.parent_id;
+			delete out.name_tag;
+			out.wrapped_key = '';
+		}
+		return out;
+	}
+
+	function needRole(id: string, wanted: 'read' | 'write' | 'own'): Node {
+		const node = need(id);
+		const role = roleOf(node);
+		if (role === null) throw fail(404, 'not_found');
+		if (wanted === 'own' && role !== 'owner') throw fail(403, 'forbidden');
+		if (wanted === 'write' && role === 'viewer') throw fail(403, 'forbidden');
+		return node;
+	}
+
+	function needParentWrite(node: Node) {
+		const parent = node.parent_id === undefined ? undefined : nodes.get(node.parent_id);
+		const role = parent === undefined ? null : roleOf(parent);
+		if (role === null || role === 'viewer') throw fail(403, 'forbidden');
+	}
+
+	function checkGeneration(node: Node, given: number | undefined) {
+		if (given !== undefined && given !== (node.key_generation ?? 1)) {
+			throw fail(412, 'key_generation_conflict');
+		}
+	}
+
+	const keyChainFor = (nodeId: string, generation: number): KeyLink[] | undefined => {
+		const chain = (history.get(nodeId) ?? [])
+			.filter((link) => link.generation >= generation)
+			.sort((a, b) => b.generation - a.generation);
+		return chain.length === 0 ? undefined : chain;
+	};
+
+	const accessOf = (nodeId: string) => {
+		const at = need(nodeId);
+		const asking = state.actor;
+		const owner = at.owner_id === asking;
+		return {
+			access: lineage(at).flatMap((node, depth) =>
+				[...grants.values()]
+					.filter((grant) => grant.node_id === node.id)
+					.map((grant) => ({
+						user_id: grant.grantee_id,
+						username: grant.grantee_username,
+						role: grant.role,
+						inherited: depth > 0,
+						grant_id: owner || grant.grantee_id === asking ? grant.id : undefined,
+						node_id: owner ? grant.node_id : undefined,
+						key_generation: owner ? grant.key_generation : undefined,
+						sealed_key: owner ? grant.sealed_key : undefined,
+						signature: owner ? grant.signature : undefined
+					}))
+			)
+		};
+	};
+
+	const liveLink = (id: string) => {
+		const link = links.get(id);
+		if (link === undefined) throw fail(404, 'not_found');
+		if (link.revoked_at !== undefined) throw fail(410, 'link_revoked');
+		if (link.expires_at !== undefined && Date.parse(link.expires_at) <= state.now) {
+			throw fail(410, 'link_expired');
+		}
+		return link;
+	};
+
+	const openDoc = (link: ReturnType<typeof liveLink>, session: string) => {
+		const node = need(link.node_id);
+		return {
+			id: link.id,
+			state: 'open' as const,
+			node: publicNode(node, link.node_id),
+			sealed_key: link.sealed_key,
+			key_generation: link.key_generation,
+			token: `${link.id}.${session}`,
+			token_expires_at: new Date(state.now + 900_000).toISOString(),
+			password_wrapped_key: link.password_wrapped_key,
+			downloads_remaining:
+				link.download_limit === undefined
+					? undefined
+					: Math.max(link.download_limit - link.download_count, 0)
+		};
+	};
+
+	const publicNode = (node: Node, top: string) => ({
+		id: node.id,
+		parent_id: node.id === top ? undefined : node.parent_id,
+		kind: node.kind,
+		suite: node.suite,
+		sealed_metadata: node.sealed_metadata,
+		wrapped_key: node.id === top ? '' : node.wrapped_key,
+		key_generation: node.key_generation ?? 1,
+		current_version: node.current_version,
+		thumb_blob_id: node.thumb_blob_id,
+		created_at: node.created_at,
+		updated_at: node.updated_at
+	});
+
+	const authorizeLink = (id: string, token: string) => {
+		const link = liveLink(id);
+		const [linkId, session] = token.split('.');
+		if (linkId !== id || session === undefined) throw fail(401, 'link_token_invalid');
+		return { link, session };
+	};
+
+	const underLink = (link: { node_id: string }, id: string) => {
+		const node = need(id);
+		if (trashedAbove(node) || !lineage(node).some((n) => n.id === link.node_id)) {
+			throw fail(404, 'not_found');
+		}
+		return node;
+	};
+
+	const newGrantId = () => (++grantSeq).toString(16).padStart(32, 'a');
 
 	function need(id: string): Node {
 		const node = nodes.get(id);
 		if (node === undefined) throw fail(404, 'not_found');
 		return node;
 	}
+
+	const madeGeneration = { key_generation: 1 };
 
 	function journal(nodeId: string, op: ChangeOp) {
 		changes.push({ seq: changes.length + 1, node_id: nodeId, op, at: clock() });
@@ -104,16 +290,19 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			reserved_bytes: reserved
 		}),
 		getRootNode: async () => {
-			if (root === null) throw fail(404, 'not_found');
-			return need(root);
+			const root = roots.get(state.actor);
+			if (root === undefined) throw fail(404, 'not_found');
+			return view(need(root));
 		},
 		createRootNode: async (body) => {
 			checkSuite(body.suite);
-			if (root !== null) return need(root);
+			const root = roots.get(state.actor);
+			if (root !== undefined) return view(need(root));
 			const now = clock();
 			const node: Node = {
 				id: body.id,
-				owner_id: USER_ID,
+				owner_id: state.actor,
+				...madeGeneration,
 				kind: 'folder',
 				suite: body.suite,
 				sealed_metadata: body.sealed_metadata ?? '',
@@ -122,19 +311,21 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 				updated_at: now
 			};
 			nodes.set(node.id, node);
-			root = node.id;
-			return node;
+			roots.set(state.actor, node.id);
+			return view(node);
 		},
 		createNode: async (body) => {
 			checkSuite(body.suite);
 			if (nodes.has(body.id)) throw fail(409, 'id_taken');
-			const parent = need(body.parent_id);
+			const parent = needRole(body.parent_id, 'write');
 			if (parent.kind !== 'folder') throw fail(400, 'not_a_folder');
+			checkGeneration(parent, body.parent_key_generation);
 			if (takenAmong(body.parent_id, body.name_tag)) throw fail(409, 'name_conflict');
 			const now = clock();
 			const node: Node = {
 				id: body.id,
-				owner_id: USER_ID,
+				owner_id: parent.owner_id,
+				...madeGeneration,
 				parent_id: body.parent_id,
 				kind: body.kind,
 				suite: body.suite,
@@ -148,11 +339,16 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			journal(node.id, 'created');
 			return node;
 		},
-		getNode: async (id) => need(id),
+		getNode: async (id) => view(need(id)),
 		updateNode: async (id, body) => {
 			checkSuite(body.suite);
-			const node = need(id);
+			const node = needRole(id, 'write');
 			if (node.trashed_at !== undefined) throw fail(409, 'node_trashed');
+			if (body.name_tag !== undefined) needParentWrite(node);
+			if (body.sealed_metadata !== undefined) checkGeneration(node, body.key_generation);
+			if (body.name_tag !== undefined && node.parent_id !== undefined) {
+				checkGeneration(need(node.parent_id), body.parent_key_generation);
+			}
 			if (body.name_tag !== undefined && takenAmong(node.parent_id as string, body.name_tag, id)) {
 				throw fail(409, 'name_conflict');
 			}
@@ -164,21 +360,23 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			};
 			nodes.set(id, updated);
 			journal(id, 'updated');
-			return updated;
+			return view(updated);
 		},
 		listChildren: async (id, { cursor, limit } = {}) => {
-			need(id);
+			needRole(id, 'read');
 			const { items, next } = page(
 				[...nodes.values()].filter((n) => n.parent_id === id && n.trashed_at === undefined),
 				(n) => n.id,
 				cursor,
 				limit
 			);
-			return { nodes: items, next_cursor: next };
+			return { nodes: items.map(view), next_cursor: next };
 		},
 		moveNode: async (id, body) => {
-			const node = need(id);
+			const node = needRole(id, 'write');
 			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
+			needParentWrite(node);
+			checkGeneration(needRole(body.parent_id, 'write'), body.parent_key_generation);
 			let at: Node | undefined = need(body.parent_id);
 			while (at !== undefined) {
 				if (at.id === id) throw fail(409, 'move_cycle');
@@ -194,15 +392,18 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			};
 			nodes.set(id, updated);
 			journal(id, 'moved');
-			return updated;
+			return view(updated);
 		},
 		trashNode: async (id) => {
-			const node = need(id);
+			const node = needRole(id, 'write');
 			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
+			needParentWrite(node);
 			const updated = { ...node, trashed_at: node.trashed_at ?? clock(), updated_at: clock() };
 			nodes.set(id, updated);
 			journal(id, 'trashed');
-			return updated;
+			return node.owner_id === state.actor
+				? updated
+				: { ...updated, role: roleOf(node) ?? 'editor' };
 		},
 		restoreNode: async (id) => {
 			const node = need(id);
@@ -219,7 +420,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			return updated;
 		},
 		purgeNode: async (id) => {
-			const node = need(id);
+			const node = needRole(id, 'own');
 			if (node.trashed_at === undefined) throw fail(409, 'not_trashed');
 			const updated = {
 				...node,
@@ -232,7 +433,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		},
 		listTrash: async ({ cursor, limit } = {}) => {
 			const { items, next } = page(
-				[...nodes.values()].filter((n) => n.trashed_at !== undefined),
+				[...nodes.values()].filter((n) => n.trashed_at !== undefined && n.owner_id === state.actor),
 				(n) => n.id,
 				cursor,
 				limit
@@ -254,9 +455,14 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			next_cursor: undefined
 		}),
 		getVersion: async (id, versionId) => {
+			needRole(id, 'read');
 			const found = (versions.get(id) ?? []).find((v) => v.id === versionId);
 			if (found === undefined) throw fail(404, 'not_found');
-			return state.tamperVersion ? state.tamperVersion(found) : found;
+			const answer: Version = {
+				...found,
+				key_chain: keyChainFor(id, found.key_generation ?? 1)
+			};
+			return state.tamperVersion ? state.tamperVersion(answer) : answer;
 		},
 		deleteVersion: async (id, versionId) => {
 			if (need(id).current_version === versionId) throw fail(409, 'version_current');
@@ -284,7 +490,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		},
 		createUpload: async (body) => {
 			checkSuite(body.suite);
-			need(body.node_id);
+			checkGeneration(needRole(body.node_id, 'write'), body.key_generation);
 			if (state.quota > 0 && used + reserved + body.stored_size > state.quota) {
 				throw fail(413, 'quota_exceeded');
 			}
@@ -292,6 +498,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			const upload: Upload = {
 				id: 'b' + String(uploads.size + blobs.size).padStart(31, '0'),
 				...body,
+				key_generation: body.key_generation ?? need(body.node_id).key_generation,
 				frames: [],
 				created_at: clock()
 			};
@@ -333,6 +540,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			const { upload, frames } = stored;
 			if (frames.size !== upload.frame_count) throw fail(409, 'upload_incomplete');
 			const node = need(upload.node_id);
+			checkGeneration(node, upload.key_generation);
 			if (
 				body.expected_version !== undefined &&
 				body.expected_version !== (node.current_version ?? '')
@@ -361,9 +569,10 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 				node_id: upload.node_id,
 				blob_id: id,
 				suite: upload.suite,
-				author_id: USER_ID,
+				author_id: state.actor,
 				content_version_id: upload.version_id,
-				content_author_id: USER_ID,
+				content_author_id: state.actor,
+				key_generation: upload.key_generation,
 				stored_size: upload.stored_size,
 				frame_count: upload.frame_count,
 				frame_size: upload.frame_size,
@@ -409,10 +618,329 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			const from = cursor === undefined ? 0 : Number(cursor);
 			const chunk = changes.slice(from, from + limit);
 			return { changes: chunk, next_cursor: String(from + chunk.length) };
+		},
+
+		lookupUser: async (username) => {
+			const user = [...users.values()].find((u) => u.username === username);
+			if (user === undefined) throw fail(404, 'not_found');
+			return { id: user.id, username: user.username, public_keys: user.public_keys };
+		},
+		getUserKeys: async (id) => {
+			const user = users.get(id);
+			if (user === undefined) throw fail(404, 'not_found');
+			if (user.public_keys === undefined) throw fail(404, 'no_keys');
+			return { user_id: id, username: user.username, public_keys: user.public_keys };
+		},
+		createGrant: async (body) => {
+			const node = needRole(body.node_id, 'own');
+			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
+			checkGeneration(node, body.key_generation);
+			if (body.grantee_id === node.owner_id) throw fail(400, 'invalid_grant');
+			const grantee = users.get(body.grantee_id);
+			if (grantee === undefined) throw fail(404, 'not_found');
+			for (const grant of grants.values()) {
+				if (grant.node_id === body.node_id && grant.grantee_id === body.grantee_id) {
+					throw fail(409, 'grant_exists');
+				}
+			}
+			const granter = users.get(state.actor);
+			const grant: Grant = {
+				id: newGrantId(),
+				...body,
+				grantee_username: grantee.username,
+				granter_id: state.actor,
+				granter_username: granter?.username ?? 'owner',
+				created_at: clock()
+			};
+			grants.set(grant.id, grant);
+			journal(body.node_id, 'granted');
+			return grant;
+		},
+		updateGrant: async (id, body) => {
+			const grant = grants.get(id);
+			if (grant === undefined) throw fail(404, 'not_found');
+			needRole(grant.node_id, 'own');
+			const updated: Grant = { ...grant, role: body.role as GrantRole, signature: body.signature };
+			grants.set(id, updated);
+			journal(grant.node_id, 'role_changed');
+			return updated;
+		},
+		deleteGrant: async (id) => {
+			const grant = grants.get(id);
+			if (grant === undefined) throw fail(404, 'not_found');
+			if (grant.grantee_id !== state.actor) needRole(grant.node_id, 'own');
+			grants.delete(id);
+			journal(grant.node_id, 'revoked');
+		},
+		listNodeAccess: async (id) => {
+			needRole(id, 'read');
+			return accessOf(id);
+		},
+		listGrantsMade: async ({ cursor } = {}) => {
+			const { items, next } = page(
+				[...grants.values()].filter((g) => g.granter_id === state.actor),
+				(g) => g.id,
+				cursor
+			);
+			return {
+				items: items.map((grant) => ({ grant, node: need(grant.node_id) })),
+				next_cursor: next
+			};
+		},
+		listSharedWithMe: async ({ cursor } = {}) => {
+			const { items, next } = page(
+				[...grants.values()].filter(
+					(g) => g.grantee_id === state.actor && roleOf(need(g.node_id)) !== null
+				),
+				(g) => g.id,
+				cursor
+			);
+			return {
+				items: items.map((grant) => ({ grant, node: view(need(grant.node_id)) })),
+				next_cursor: next
+			};
+		},
+		listNotifications: async () => ({
+			notifications: [...grants.values()]
+				.filter((g) => g.grantee_id === state.actor && !g.read)
+				.map((g) => ({
+					grant_id: g.id,
+					node_id: g.node_id,
+					granter_id: g.granter_id,
+					created_at: g.created_at
+				})),
+			has_more: false
+		}),
+		markNotificationsRead: async (body) => {
+			for (const grant of grants.values()) {
+				if (
+					grant.grantee_id === state.actor &&
+					(body.grant_ids === undefined || body.grant_ids.includes(grant.id))
+				) {
+					grant.read = true;
+				}
+			}
+		},
+		rotateNode: async (id, body) => {
+			const fault = state.failRotation.shift()?.(id);
+			if (fault) throw fault;
+			const node = needRole(id, 'own');
+			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
+			checkGeneration(node, body.key_generation);
+			checkGeneration(need(node.parent_id), body.parent_key_generation);
+			const generation = node.key_generation ?? 1;
+			const children = [...nodes.values()].filter((n) => n.parent_id === id);
+			const named = new Set(body.children.map((c) => c.id));
+			if (named.size !== children.length || children.some((c) => !named.has(c.id))) {
+				throw fail(409, 'rotate_conflict');
+			}
+			const onNode = [...grants.values()].filter((g) => g.node_id === id);
+			if (onNode.length !== body.grants.length) throw fail(409, 'rotate_conflict');
+			for (const given of body.grants) {
+				if (!onNode.some((g) => g.grantee_id === given.grantee_id)) {
+					throw fail(409, 'rotate_conflict');
+				}
+			}
+			const live = [...links.values()].filter(
+				(l) =>
+					l.node_id === id &&
+					l.revoked_at === undefined &&
+					(l.expires_at === undefined || Date.parse(l.expires_at) > state.now)
+			);
+			const givenLinks = body.links ?? [];
+			if (live.some((l) => !givenLinks.some((g) => g.id === l.id))) {
+				throw fail(409, 'rotate_conflict');
+			}
+			for (const child of body.children) {
+				const stored = need(child.id);
+				nodes.set(child.id, {
+					...stored,
+					wrapped_key: child.wrapped_key,
+					name_tag: child.name_tag
+				});
+			}
+			for (const given of body.grants) {
+				const grant = onNode.find((g) => g.grantee_id === given.grantee_id) as Grant;
+				grants.set(grant.id, {
+					...grant,
+					sealed_key: given.sealed_key,
+					signature: given.signature,
+					key_generation: generation + 1
+				});
+			}
+			for (const given of givenLinks) {
+				const link = links.get(given.id);
+				if (link !== undefined) {
+					link.sealed_key = given.sealed_key;
+					link.key_generation = generation + 1;
+				}
+			}
+			if (body.previous_key !== '') {
+				history.set(id, [
+					...(history.get(id) ?? []),
+					{ generation, sealed_key: body.previous_key }
+				]);
+			}
+			const updated: Node = {
+				...node,
+				key_generation: generation + 1,
+				wrapped_key: body.wrapped_key,
+				sealed_metadata: body.sealed_metadata,
+				updated_at: clock()
+			};
+			delete updated.thumb_blob_id;
+			nodes.set(id, updated);
+			journal(id, 'rotated');
+			return { ...updated, role: 'owner' };
+		},
+
+		createLink: async (body) => {
+			const node = needRole(body.node_id, 'own');
+			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
+			checkGeneration(node, body.key_generation);
+			if (links.has(body.id)) throw fail(409, 'id_taken');
+			const stored = {
+				id: body.id,
+				node_id: body.node_id,
+				role: body.role,
+				key_generation: body.key_generation,
+				sealed_key: body.sealed_key,
+				owner_sealed_key: body.owner_sealed_key,
+				has_password: body.password !== undefined,
+				download_count: 0,
+				download_limit: body.download_limit,
+				expires_at: body.expires_at,
+				created_at: clock(),
+				password_wrapped_key: body.password?.wrapped_key,
+				auth_key: body.password?.auth_key,
+				kdf: body.password?.kdf,
+				sessions: new Map<string, Set<string>>()
+			};
+			links.set(body.id, stored);
+			return stored;
+		},
+		listLinks: async ({ cursor } = {}) => {
+			const { items, next } = page(
+				[...links.values()].filter((l) => need(l.node_id).owner_id === state.actor),
+				(l) => l.id,
+				cursor
+			);
+			return {
+				items: items.map((link) => ({ link, node: need(link.node_id) })),
+				next_cursor: next
+			};
+		},
+		revokeLink: async (id) => {
+			const link = links.get(id);
+			if (link === undefined) throw fail(404, 'not_found');
+			link.revoked_at = clock();
+			return link;
+		},
+		deleteLink: async (id) => {
+			links.delete(id);
+		},
+		getPublicLink: async (id, token) => {
+			const link = liveLink(id);
+			let session: string | undefined;
+			if (token !== undefined && token.startsWith(`${id}.`)) session = token.split('.')[1];
+			if (session === undefined) {
+				if (link.download_limit !== undefined && link.download_count >= link.download_limit) {
+					throw fail(410, 'link_limit_reached');
+				}
+				if (link.has_password) {
+					return { id, state: 'password_required' as const, kdf: link.kdf as never };
+				}
+				session = String(link.sessions.size + 1);
+			}
+			return openDoc(link, session);
+		},
+		unlockPublicLink: async (id, body) => {
+			const link = liveLink(id);
+			if (link.auth_key !== body.auth_key) throw fail(401, 'link_password_invalid');
+			return openDoc(link, String(link.sessions.size + 1));
+		},
+		getPublicNode: async (id, nodeId, token) => {
+			const { link } = authorizeLink(id, token);
+			return publicNode(underLink(link, nodeId), link.node_id);
+		},
+		listPublicChildren: async (id, nodeId, token, { cursor } = {}) => {
+			const { link } = authorizeLink(id, token);
+			underLink(link, nodeId);
+			const { items, next } = page(
+				[...nodes.values()].filter((n) => n.parent_id === nodeId && n.trashed_at === undefined),
+				(n) => n.id,
+				cursor
+			);
+			return { nodes: items.map((n) => publicNode(n, link.node_id)), next_cursor: next };
+		},
+		getPublicVersion: async (id, nodeId, token) => {
+			const { link } = authorizeLink(id, token);
+			const node = underLink(link, nodeId);
+			const found = (versions.get(nodeId) ?? []).find((v) => v.id === node.current_version);
+			if (found === undefined) throw fail(404, 'not_found');
+			const author = users.get(found.content_author_id);
+			return {
+				id: found.id,
+				node_id: found.node_id,
+				blob_id: found.blob_id,
+				suite: found.suite,
+				content_version_id: found.content_version_id,
+				key_generation: found.key_generation ?? 1,
+				key_chain: keyChainFor(nodeId, found.key_generation ?? 1),
+				stored_size: found.stored_size,
+				frame_count: found.frame_count,
+				frame_size: found.frame_size,
+				frame_hashes: found.frame_hashes,
+				signature: found.signature,
+				manifest: found.manifest,
+				author_public_key: author?.public_keys?.ed25519
+			};
+		},
+		getPublicBlob: async (id, blobId, token, range) => {
+			const { link, session } = authorizeLink(id, token);
+			const content = [...versions.values()].flat().some((v) => v.blob_id === blobId);
+			if (content) {
+				const seen = link.sessions.get(session) ?? new Set<string>();
+				if (!seen.has(blobId)) {
+					if (link.download_limit !== undefined && link.download_count >= link.download_limit) {
+						throw fail(410, 'link_limit_reached');
+					}
+					seen.add(blobId);
+					link.sessions.set(session, seen);
+					link.download_count += 1;
+				}
+			}
+			const blob = blobs.get(blobId);
+			if (blob === undefined) throw fail(404, 'not_found');
+			return (range ? blob.slice(range.start, range.end + 1) : blob.slice()) as Bytes;
 		}
 	};
 
-	return { api: api as Api, state, nodes, versions, uploads, blobs, calls, journal };
+	return {
+		api: api as Api,
+		state,
+		nodes,
+		versions,
+		uploads,
+		blobs,
+		calls,
+		journal,
+		users,
+		grants,
+		links,
+		/** The same server, with every call made as this user. */
+		as(userId: string): Api {
+			return new Proxy(api as Api, {
+				get(target, name: keyof Api) {
+					const call = target[name] as (...args: unknown[]) => unknown;
+					return (...args: unknown[]) => {
+						state.actor = userId;
+						return call(...args);
+					};
+				}
+			});
+		}
+	};
 }
 
 /** A user's keys in either mode, made with the real sealer. */
@@ -448,6 +976,15 @@ export function driveFixture(
 	return { server, sealer, keys, tree, engine };
 }
 
+/** Two or more people on one server, each with their keys and a `Drive`-shaped set of parts. */
+export function testPublicKeys(keys: UserKeys): { x25519: string; ed25519: string } | undefined {
+	if (keys.identity.x25519.publicKey.length === 0) return undefined;
+	return {
+		x25519: encodeBase64(keys.identity.x25519.publicKey),
+		ed25519: encodeBase64(keys.identity.ed25519.publicKey)
+	};
+}
+
 export const SUITES: [string, Suite][] = [
 	['end-to-end', SUITE_E2E],
 	['none', SUITE_NONE]
@@ -472,3 +1009,12 @@ export function patterned(length: number): Uint8Array {
 	for (let i = 0; i < length; i++) bytes[i] = (i * 31 + (i >> 8)) & 0xff;
 	return bytes;
 }
+
+/** The cheapest parameters the rules allow, for tests that derive from a link's password. */
+export const CHEAP_KDF = () => ({
+	name: 'argon2id' as const,
+	m: 8192,
+	t: 1,
+	p: 1,
+	salt: encodeBase64(new Uint8Array(16).fill(9))
+});

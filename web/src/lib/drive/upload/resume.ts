@@ -15,6 +15,8 @@ export interface ResumeRecord {
 	frameSize: number;
 	/** The version the upload started from, as sent at commit: '' for none yet. */
 	expected: string;
+	/** The generation of the node's key its frames are sealed under. */
+	keyGeneration?: number;
 }
 
 export interface ResumeStore {

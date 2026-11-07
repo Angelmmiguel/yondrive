@@ -4,12 +4,20 @@
  * what a lock comes down to: keys zeroed, workers gone, nothing left in memory.
  */
 import type { Api } from '$lib/api/client';
-import { SealError } from '$lib/crypto/aead';
-import type { PublicKeys } from '$lib/crypto/keys';
+import type { Bytes } from '$lib/crypto/encoding';
+import { deriveRootInWorker } from '$lib/crypto/kdf-client';
+import type { KdfParams } from '$lib/crypto/kdf';
 import type { Sealer, UserKeys } from '$lib/crypto/sealer';
+import { Contacts, memoryPinStorage, type PinStorage } from '$lib/sharing/contacts';
+import {
+	memoryRotationJobs,
+	type RotationJobs,
+	type RotationProgress
+} from '$lib/sharing/rotation';
+import { Sharing, UntrustedGrantError } from '$lib/sharing/sharing';
 import { openVersion, readAll, type VerifiedVersion } from './download/reader';
 import type { FramePool } from './frame-pool';
-import { ChangeFeed, changedNodes, REFRESH_ONE_BY_ONE } from './journal';
+import { ChangeFeed, changedNodes, nodesChangedBy, REFRESH_ONE_BY_ONE } from './journal';
 import type { NodeOpener } from './node-opener';
 import { Limiter } from './retry';
 import type { StreamClient } from './stream/client';
@@ -39,8 +47,21 @@ export interface DriveDeps {
 	saveUrl: (url: string) => void;
 	saveBlob: (blob: Blob, name: string) => void;
 	thumbnails?: Thumbnails;
+	/** Where this device keeps the pins of contacts, and rotations still to finish. */
+	pins?: PinStorage;
+	rotationJobs?: RotationJobs;
+	deriveLinkRoot?: (password: string, params: KdfParams) => Promise<Bytes>;
+	/** The parameters of a new link's password, instead of the production cost. */
+	linkKdf?: () => KdfParams;
+	/** Where a link's address starts, instead of this page's origin. */
+	origin?: () => string;
+	/** Told when a rotation a previous session left goes on, and as it moves. */
+	onResumeRotation?: (progress: RotationProgress | null) => void;
 	sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }
+
+/** The largest file a thumbnail is made again from, after a rotation took the old one. */
+const REMAKE_LIMIT = 128 * 1024 * 1024;
 
 export interface Download {
 	/** How it went: through the service worker, or held in memory first. */
@@ -53,16 +74,41 @@ export class Drive {
 	readonly thumbs: Thumbnails;
 	readonly engine: EngineDeps;
 	readonly feed: ChangeFeed;
+	readonly sharing: Sharing;
 	readonly #deps: DriveDeps;
 	readonly #walk = new AbortController();
 
 	constructor(deps: DriveDeps) {
 		this.#deps = deps;
+		const contacts = new Contacts({
+			api: deps.api,
+			sealer: deps.sealer,
+			keys: deps.keys,
+			userId: deps.userId,
+			storage: deps.pins ?? memoryPinStorage()
+		});
+		this.sharing = new Sharing({
+			api: deps.api,
+			sealer: deps.sealer,
+			keys: deps.keys,
+			userId: deps.userId,
+			contacts,
+			jobs: deps.rotationJobs ?? memoryRotationJobs(),
+			tree: () => this.tree,
+			deriveRoot:
+				deps.deriveLinkRoot ?? ((password, params) => deriveRootInWorker(password, params, true)),
+			newKdfParams: deps.linkKdf,
+			origin: deps.origin,
+			onRotated: (node, hadThumbnail) => {
+				if (hadThumbnail && node.trashed_at === undefined) void this.#remakeThumbnail(node.id);
+			}
+		});
 		this.tree = new DriveTree({
 			api: deps.api,
 			sealer: deps.sealer,
 			keys: deps.keys,
-			open: deps.open
+			open: deps.open,
+			grantKey: this.sharing.grantKey
 		});
 		this.engine = {
 			api: deps.api,
@@ -94,6 +140,34 @@ export class Drive {
 		await this.tree.loadFolder(root);
 		void this.tree.walk(this.#walk.signal).catch(() => {});
 		void this.#findInterrupted().catch(() => {});
+		await this.sharing.refreshShared().catch(() => {});
+		await this.sharing.refreshMade().catch(() => {});
+		void this.#resumeRotations();
+	}
+
+	/** Goes on with rotations a previous session left, since a revoked user may hold those keys. */
+	async #resumeRotations(): Promise<void> {
+		const { onResumeRotation } = this.#deps;
+		if (this.sharing.pendingRotations.length === 0) return;
+		try {
+			await this.sharing.resumeRotations((progress) => onResumeRotation?.(progress));
+		} catch {
+			// Still written down: it goes on at the next unlock.
+		} finally {
+			onResumeRotation?.(null);
+		}
+	}
+
+	async #remakeThumbnail(id: string): Promise<void> {
+		try {
+			const node = await this.tree.resolve(id);
+			if (node.currentVersion === null || node.size > REMAKE_LIMIT) return;
+			await this.thumbs.remake(node, async () =>
+				this.readBlob(node, await this.openVersion(node), { limit: REMAKE_LIMIT })
+			);
+		} catch {
+			// The icon shows instead.
+		}
 	}
 
 	/** Puts uploads a reload interrupted back on the list. */
@@ -110,15 +184,12 @@ export class Drive {
 		}
 	}
 
-	/** Everything a signed manifest needs to be believed. Until sharing, only the owner writes. */
-	authorKeys = async (authorId: string): Promise<PublicKeys> => {
-		if (authorId !== this.#deps.userId()) throw new SealError('signature');
-		const { identity } = this.#deps.keys();
-		return { x25519: identity.x25519.publicKey, ed25519: identity.ed25519.publicKey };
-	};
-
 	#reader() {
-		return { api: this.#deps.api, sealer: this.#deps.sealer, authorKeys: this.authorKeys };
+		return {
+			api: this.#deps.api,
+			sealer: this.#deps.sealer,
+			authorKeys: this.sharing.authorKeys
+		};
 	}
 
 	/** A version checked and ready to read. */
@@ -139,7 +210,7 @@ export class Drive {
 		} = {}
 	): Promise<Blob> {
 		const { sealer, pool, api } = this.#deps;
-		const key = await this.tree.nodeKey(node.id);
+		const key = await this.tree.keyAt(node.id, version.keyGeneration, version.keyChain);
 		const session = pool.session(sealer.versionKey(key, version.ref), version.ref);
 		try {
 			return await readAll(version, session, { api, sealer }, options);
@@ -156,7 +227,7 @@ export class Drive {
 	): Promise<Download> {
 		const { streams, saveUrl, saveBlob } = this.#deps;
 		const version = await this.openVersion(node, versionId);
-		const nodeKey = await this.tree.nodeKey(node.id);
+		const nodeKey = await this.tree.keyAt(node.id, version.keyGeneration, version.keyChain);
 		const url = await streams.open({ version, nodeKey, filename: node.name, mime: null });
 		if (url !== null) {
 			saveUrl(url);
@@ -173,7 +244,7 @@ export class Drive {
 		version: VerifiedVersion
 	): Promise<{ url: string; release: () => void }> {
 		const { streams } = this.#deps;
-		const nodeKey = await this.tree.nodeKey(node.id);
+		const nodeKey = await this.tree.keyAt(node.id, version.keyGeneration, version.keyChain);
 		const mime = inferType(node.name, node.type);
 		const url = await streams.open({ version, nodeKey, filename: node.name, mime });
 		if (url !== null) return { url, release: () => streams.release(url) };
@@ -184,20 +255,33 @@ export class Drive {
 
 	/** Reads the journal and brings what changed up to date. Returns whether anything did. */
 	async poll(): Promise<boolean> {
-		const ids = changedNodes(await this.feed.next());
+		const changes = await this.feed.next();
+		const ids = changedNodes(changes);
 		if (ids.length === 0) return false;
+		const sharingChanged = nodesChangedBy(changes, 'granted', 'role_changed', 'revoked', 'rotated');
+		if (sharingChanged.length > 0) {
+			this.sharing.contacts.refresh();
+			await this.sharing.refreshShared().catch(() => {});
+			await this.sharing.refreshMade().catch(() => {});
+		}
 		if (ids.length > REFRESH_ONE_BY_ONE) {
 			await this.tree.start();
 			await this.tree.loadFolder(this.tree.rootId as string, true);
 			void this.tree.walk(this.#walk.signal).catch(() => {});
 			return true;
 		}
+		const rotated = new Set(nodesChangedBy(changes, 'rotated'));
 		for (const id of ids) {
-			await this.tree.refresh(id);
+			// Refreshing answers a lost way of reaching a node too: a 404 forgets it and all under it.
+			await this.tree.refresh(id).catch((e) => {
+				if (!(e instanceof UntrustedGrantError)) throw e;
+				this.tree.drop(id);
+			});
 			const node = this.tree.nodes.get(id);
 			// A folder that came back from the trash or moved here: its contents are read again.
-			if (node?.kind === 'folder' && !this.tree.isLoaded(id)) {
-				await this.tree.loadFolder(id).catch(() => {});
+			// A rotated one holds its children's wraps and tags under the new key.
+			if (node?.kind === 'folder' && (rotated.has(id) || !this.tree.isLoaded(id))) {
+				await this.tree.loadFolder(id, rotated.has(id)).catch(() => {});
 			}
 		}
 		return true;

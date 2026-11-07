@@ -6,7 +6,7 @@
  * steps run with nothing to verify the signature against but the hashes still count.
  */
 import type { Api } from '$lib/api/client';
-import type { Version } from '$lib/api/types';
+import type { KeyLink, PublicVersion, Version } from '$lib/api/types';
 import { SealError } from '$lib/crypto/aead';
 import { contentHashOf, type VersionRef } from '$lib/crypto/content';
 import { decodeBase64, type Bytes } from '$lib/crypto/encoding';
@@ -32,25 +32,54 @@ export interface VerifiedVersion {
 	frameCount: number;
 	/** 32 bytes per frame. */
 	hashes: Bytes;
+	/** The generation of the node's key its frames are sealed under. */
+	keyGeneration: number | null;
+	/** How to reach that key from the current one, newest link first. */
+	keyChain: readonly KeyLink[];
+	/** Its signer has no edit rights on this node now, which the screen says. */
+	formerAuthor: boolean;
+}
+
+/** A signer's keys, and whether they have lost the edit rights they wrote this under. */
+export interface AuthorKeys extends PublicKeys {
+	former?: boolean;
 }
 
 export interface ReaderDeps {
 	api: Pick<Api, 'getVersion' | 'getBlob'>;
 	sealer: Sealer;
 	/**
-	 * The public keys of the signer who may have written this, or a refusal. Only
-	 * someone who holds edit rights counts; until sharing exists that is the owner.
+	 * The public keys of the signer of a version of this node, or a refusal. The
+	 * owner and those a grant lets edit count; see `Sharing.authorKeys`.
 	 */
-	authorKeys: (authorId: string) => Promise<PublicKeys>;
+	authorKeys: (authorId: string, nodeId: string) => Promise<AuthorKeys>;
 }
 
+/** What the two kinds of version have in common: all of it is read before the signer. */
+type SignedVersion = Pick<
+	Version,
+	| 'id'
+	| 'node_id'
+	| 'blob_id'
+	| 'suite'
+	| 'content_version_id'
+	| 'stored_size'
+	| 'frame_count'
+	| 'frame_size'
+	| 'frame_hashes'
+	| 'signature'
+	| 'manifest'
+	| 'key_generation'
+	| 'key_chain'
+>;
+
 /** What makes a version readable or not. Nothing here needs the mode. */
-export async function verifyVersion(
-	version: Version,
+async function verifySigned(
+	version: SignedVersion,
 	nodeId: string,
-	deps: Pick<ReaderDeps, 'sealer' | 'authorKeys'>
+	sealer: Sealer,
+	signer: () => Promise<AuthorKeys>
 ): Promise<VerifiedVersion> {
-	const { sealer } = deps;
 	const manifest = decodeManifest(decodeBase64(version.manifest));
 	assertManifest(manifest, sealer);
 	const hashes = decodeBase64(version.frame_hashes);
@@ -68,7 +97,7 @@ export async function verifyVersion(
 	) {
 		throw new SealError('manifest');
 	}
-	const author = await deps.authorKeys(version.content_author_id);
+	const author = await signer();
 	sealer.verifyVersion(manifest, decodeBase64(version.signature), author);
 	return {
 		id: version.id,
@@ -77,8 +106,39 @@ export async function verifyVersion(
 		size: manifest.size,
 		storedSize: version.stored_size,
 		frameCount: manifest.frameCount,
-		hashes
+		hashes,
+		keyGeneration: version.key_generation ?? null,
+		keyChain: version.key_chain ?? [],
+		formerAuthor: author.former === true
 	};
+}
+
+export function verifyVersion(
+	version: Version,
+	nodeId: string,
+	deps: Pick<ReaderDeps, 'sealer' | 'authorKeys'>
+): Promise<VerifiedVersion> {
+	return verifySigned(version, nodeId, deps.sealer, () =>
+		deps.authorKeys(version.content_author_id, nodeId)
+	);
+}
+
+/**
+ * A version under a public link names its signer by a key alone. A reader with no
+ * account has nothing to pin it against, so this says only that the key signed it.
+ */
+export function verifyPublicVersion(
+	version: PublicVersion,
+	nodeId: string,
+	sealer: Sealer
+): Promise<VerifiedVersion> {
+	return verifySigned(version, nodeId, sealer, async () => ({
+		x25519: new Uint8Array(0) as Bytes,
+		ed25519:
+			version.author_public_key === undefined
+				? (new Uint8Array(0) as Bytes)
+				: decodeBase64(version.author_public_key)
+	}));
 }
 
 export async function openVersion(
@@ -89,12 +149,19 @@ export async function openVersion(
 	return verifyVersion(await deps.api.getVersion(nodeId, versionId), nodeId, deps);
 }
 
+/** Where stored bytes come from: the session's route, or a link's. */
+export type BlobReader = (
+	blobId: string,
+	range?: { start: number; end: number },
+	signal?: AbortSignal
+) => Promise<Uint8Array<ArrayBuffer>>;
+
 /** The stored bytes of one frame, with the digest they have to match. */
 export async function fetchFrame(
 	version: VerifiedVersion,
 	index: number,
 	overhead: number,
-	getBlob: Api['getBlob'],
+	getBlob: BlobReader,
 	signal?: AbortSignal
 ): Promise<{ data: Bytes; sha256: Bytes }> {
 	const range = storedRange(version.ref.frameSize, overhead, version.storedSize, index);
@@ -123,7 +190,7 @@ const FRAMES_AT_ONCE = 4;
 export async function readAll(
 	version: VerifiedVersion,
 	session: FrameSession,
-	deps: Pick<ReaderDeps, 'api' | 'sealer'>,
+	deps: { api: { getBlob: BlobReader }; sealer: Sealer },
 	options: ReadAllOptions = {}
 ): Promise<Blob> {
 	const { signal, limit } = options;

@@ -23,6 +23,11 @@ export interface ThumbDeps {
 export interface Thumbnails {
 	/** Makes and stores the thumbnail of a file just uploaded. Never fails out loud. */
 	make(node: DriveNode, file: Blob & { name: string; type: string; size: number }): Promise<void>;
+	/**
+	 * Makes it again, after a rotation took the old one away. Reads the file only if a
+	 * thumbnail of it would be tried at all, and never fails out loud.
+	 */
+	remake(node: DriveNode, read: () => Promise<Blob>): Promise<void>;
 	/** An object URL for a node's thumbnail, or null if it has none that opens. */
 	urlFor(node: Pick<DriveNode, 'id' | 'thumbBlobId'>): Promise<string | null>;
 	clear(): void;
@@ -59,6 +64,16 @@ export function createThumbnails(deps: ThumbDeps): Thumbnails {
 				.catch(() => {
 					// A thumbnail is a nicety: the file itself is safely up.
 				});
+		},
+		async remake(node, read) {
+			const file = { name: node.name, type: node.type, size: node.size };
+			if (thumbKindOf(file) === null) return;
+			try {
+				const bytes = await read();
+				await this.make(node, new File([bytes], file.name, { type: file.type }));
+			} catch {
+				// The icon shows instead, as for anything that will not decode.
+			}
 		},
 		urlFor(node) {
 			const blobId = node.thumbBlobId;
