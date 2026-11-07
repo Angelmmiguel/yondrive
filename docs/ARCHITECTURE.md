@@ -938,6 +938,33 @@ signs in through a provider happens in the session the provider gave. A flow ask
 credential is a passphrase, which the Sealer decides; without one the key sent is empty, and `reauth_required`
 leaves for `GET /auth/oidc/start?fresh=true`, coming back to the same page, where the person tries again.
 
+### Size budgets
+
+Every client build measures itself (`web/scripts/budgets.ts`, a Vite plugin) and fails when it is over a budget,
+so `just web-build` and everything built on it catch a regression. The **shell** is what any screen loads before
+it draws: SvelteKit's entries, the root layout and the signed-in layout, with their static imports. A **route** is
+what its page adds statically on top. What a route loads on demand and what runs in workers are not counted. The
+shell must hold none of the heavy modules: ProseMirror, pdf.js, the formula engine, the sheets grid and service,
+and the office format readers. Drive tells an editor from a file's name through `formats/names.ts`, which loads
+none of them. `YONDRIVE_BUDGETS=print pnpm build` prints the numbers.
+
+Measured when the budgets were set (gzip, KiB), each budget about 5% above:
+
+| What | Size | Budget |
+| --- | --- | --- |
+| Shell JS | 169.0 | 178 |
+| Shell CSS | 12.8 | 14 |
+| `/doc/[id]` (ProseMirror, the document formats) | 125.7 | 133 |
+| `/notes/[id]` (ProseMirror, Markdown) | 129.4 | 136 |
+| `/sheet/[id]` (grid, formula engine, sheet formats) | 89.1 | 94 |
+| `/admin` | 13.4 | 15 |
+| `/setup` | 11.6 | 13 |
+| Every other route | 1.2 to 8.2 | 2 to 9 |
+
+Moving the name lookups out of the format modules, and loading the code behind the no-`Worker` fallbacks of the
+formats and sheets clients on first call, took the shell from 253 to 169 KiB. pdf.js (1.2 MB before gzip) is
+only in its worker and in a chunk the viewer imports when a PDF opens.
+
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when
 the working tree does not build. Single sign-on specs run a provider in the spec's process
