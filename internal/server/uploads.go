@@ -326,24 +326,16 @@ func (s *Server) CommitUpload(ctx context.Context, req oapi.CommitUploadRequestO
 	if _, err := s.authorizeUpload(ctx, req.Id); err != nil {
 		return nil, err
 	}
-	placed := false
+	// A commit that fails after placing the file leaves it placed. Moving it back
+	// here could undo a retry that has succeeded in the meantime, and lose the
+	// blob's file. PlaceUpload is content with a file already in place, so a retry
+	// goes through, and startup moves back what no retry took up.
 	v, err := s.store.CommitUpload(ctx, req.Id, store.CommitRequest{
 		Signature: in.Signature,
 		Manifest:  in.Manifest,
 		Expected:  in.ExpectedVersion,
-	}, s.cfg.Now(), func(u store.Upload) error {
-		if err := s.files.PlaceUpload(u.ID); err != nil {
-			return err
-		}
-		placed = true
-		return nil
-	})
+	}, s.cfg.Now(), func(u store.Upload) error { return s.files.PlaceUpload(u.ID) })
 	if err != nil {
-		if placed {
-			if uerr := s.files.UnplaceUpload(req.Id); uerr != nil {
-				s.log.Error("upload not moved back", "error", uerr)
-			}
-		}
 		return nil, driveError(err)
 	}
 	return oapi.CommitUpload201JSONResponse(versionView(v)), nil

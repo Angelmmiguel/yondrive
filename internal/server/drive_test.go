@@ -3,6 +3,7 @@ package server_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/Angelmmiguel/yondrive/internal/server"
 	"github.com/Angelmmiguel/yondrive/internal/store"
+	_ "modernc.org/sqlite"
 )
 
 const (
@@ -1885,5 +1887,44 @@ func TestOneFileThatWillNotGoDoesNotStallTheRest(t *testing.T) {
 	pending, err := e.st.PendingFileRemovals(ctx, 100)
 	if err != nil || len(pending) != 0 {
 		t.Errorf("pending %v, %v", pending, err)
+	}
+}
+
+func TestAFailedCommitLeavesTheFilePlaced(t *testing.T) {
+	e, alice, _ := driveEnv(t, "none")
+	root := alice.root()
+	file := alice.create(root.ID, "file", "f")
+	frames := alice.frames(10, 1)
+	u := alice.startUpload(file.ID, frames)
+	alice.put(u.ID, 0, frames[0]).wantStatus(t, http.StatusNoContent)
+
+	// Make the insert of the version fail, which comes after the file is placed.
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(e.st.Dir(), "yondrive.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`CREATE TRIGGER refuse_versions BEFORE INSERT ON versions
+		BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	commit := func() response {
+		return alice.call(http.MethodPost, api+"/uploads/"+u.ID+"/commit", alice.commitBody())
+	}
+	if resp := commit(); resp.status == http.StatusCreated {
+		t.Fatalf("committed: %s", resp.body)
+	}
+	// Moving it back could undo a retry that succeeded meanwhile.
+	if !exists(e.blobFile(u.ID)) || exists(e.uploadFile(u.ID)) {
+		t.Error("the failed commit moved the file back")
+	}
+	// The retry finds the file where it is, and commits.
+	if _, err := db.Exec("DROP TRIGGER refuse_versions"); err != nil {
+		t.Fatal(err)
+	}
+	commit().wantStatus(t, http.StatusCreated)
+	got := alice.call(http.MethodGet, api+"/blobs/"+u.ID, nil)
+	if !bytes.Equal(got.body, frames[0]) {
+		t.Error("the retried file differs")
 	}
 }
