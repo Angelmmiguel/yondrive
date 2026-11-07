@@ -25,6 +25,7 @@
 	let username = $state(session.account?.user.username ?? '');
 	let phrase = $state('');
 	let code = $state('');
+	let useRecoveryCode = $state(false);
 	let passphrase = $state('');
 	let confirmation = $state('');
 	let confirmed = $state(false);
@@ -77,7 +78,9 @@
 		event.preventDefault();
 		const open = challenge;
 		if (open === null) return;
-		void run(async () => follow(await open.submit({ code })));
+		void run(async () =>
+			follow(await open.submit(useRecoveryCode ? { recoveryCode: code } : { code }))
+		);
 		code = '';
 	}
 
@@ -106,16 +109,30 @@
 		<a href={resolve('/signin')}>Back to sign in</a>
 	</AuthCard>
 {:else if challenge}
-	<AuthCard title="Two-factor sign-in" lede="Enter the 6-digit code from your authenticator app.">
+	<AuthCard
+		title="Two-factor sign-in"
+		lede={useRecoveryCode
+			? 'Enter one of the recovery codes you saved. Each works once.'
+			: 'Enter the 6-digit code from your authenticator app.'}
+	>
 		{#if error}<Banner tone="danger">{error}</Banner>{/if}
 		<form onsubmit={submitCode}>
-			<Field label="Code" required>
+			<Field label={useRecoveryCode ? 'Recovery code' : 'Code'} required>
 				{#snippet children(field)}
-					<TextInput {...field} bind:value={code} mono inputmode="numeric" />
+					<TextInput
+						{...field}
+						bind:value={code}
+						mono
+						autocomplete="one-time-code"
+						inputmode={useRecoveryCode ? 'text' : 'numeric'}
+					/>
 				{/snippet}
 			</Field>
 			<Button type="submit" variant="primary" {busy} disabled={code.trim() === ''}>Continue</Button>
 		</form>
+		<Button variant="ghost" size="sm" onclick={() => (useRecoveryCode = !useRecoveryCode)}>
+			{useRecoveryCode ? 'Use a code from the app' : 'Use a recovery code'}
+		</Button>
 	</AuthCard>
 {:else if step === 'words'}
 	<AuthCard

@@ -85,3 +85,41 @@ test('enrol, sign in with a code and a recovery code, and turn it off', async ({
 	await submitSignIn(page, 'admin', PASSPHRASE);
 	await expectHome(page);
 });
+
+test('the recovery words ask for the second factor and take a recovery code', async ({ page }) => {
+	test.setTimeout(180_000);
+	const own = await startServer({ mode: 'e2e' });
+	try {
+		const words = await setUpServer(page, own, { totp: true });
+		await submitSignIn(page, 'admin', PASSPHRASE);
+		await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({ timeout: 30_000 });
+		const card = page.getByRole('region', { name: 'Two-factor sign-in' });
+		await card.getByLabel(/^Passphrase/).fill(PASSPHRASE);
+		await card.getByRole('button', { name: 'Set up' }).click();
+		await expect(card.locator('pre')).toContainText('otpauth://', { timeout: 30_000 });
+		const secret = (await card.locator('code').first().innerText()).trim();
+		await card.getByLabel(/^Code from the app/).fill(totpCode(secret));
+		await card.getByRole('button', { name: 'Turn on' }).click();
+		await expect(card.getByText('Save these recovery codes')).toBeVisible();
+		const codes = (await card.locator('pre').innerText()).trim().split('\n');
+		await card.getByRole('button', { name: 'I saved them' }).click();
+		await accountMenu(page, 'Sign out');
+		await expectSignedOut(page);
+
+		await page.getByRole('link', { name: 'Forgot your passphrase?' }).click();
+		await page.getByLabel(/^Username/).fill('admin');
+		await page.getByLabel(/^Recovery key/).fill(words.join(' '));
+		await page.getByRole('button', { name: 'Continue' }).click();
+		await expect(page.getByRole('heading', { name: 'Two-factor sign-in' })).toBeVisible({
+			timeout: 30_000
+		});
+		await page.getByRole('button', { name: 'Use a recovery code' }).click();
+		await page.getByLabel(/^Recovery code/).fill(codes[0]);
+		await page.getByRole('button', { name: 'Continue' }).click();
+		await expect(page.getByRole('heading', { name: 'Set a new passphrase' })).toBeVisible({
+			timeout: 30_000
+		});
+	} finally {
+		await own.stop();
+	}
+});
