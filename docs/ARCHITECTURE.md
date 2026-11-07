@@ -491,7 +491,7 @@ Removing or disabling the last local admin is refused whenever a provider is on,
 on or off.
 
 **Credentials.** An SSO account has no `auth_key_hash`. Login reads only that and the recovery hash,
-so the unlock auth key signs nobody in, and the right recovery key learns `sso_required`. The KDF
+so neither its unlock nor its recovery auth key signs anybody in, and both answer `invalid_credentials` as an unknown name does. The KDF
 route gives such an account's name fake parameters, as `GET /me` has the real ones. In `e2e` mode
 `enrolment_required` says it has no keys yet, and `POST /auth/oidc/enrol` stores them once.
 After that, rekey with its unlock or recovery auth key replaces them. Recovery is that rekey,

@@ -81,7 +81,6 @@ const (
 	codeInvalidBlob        = "invalid_blob"
 	codeBlobInUse          = "blob_in_use"
 	codeSSODisabled        = "sso_disabled"
-	codeSSORequired        = "sso_required"
 	codeSSOOnly            = "sso_only"
 	codeLocalDisabled      = "local_accounts_disabled"
 	codeLocalLockout       = "local_accounts_lockout"

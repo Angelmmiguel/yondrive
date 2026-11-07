@@ -243,11 +243,9 @@ func (s *Server) checkKeepsLocalAdmin(ctx context.Context, target string) error 
 }
 
 // checkLocalSignIn says whether someone with the right key may use it. Only they get
-// to learn this, as the caller has already checked the key.
+// to learn this, as the caller has already checked the key. An account with no
+// passphrase never gets here: its keys do not sign in.
 func (s *Server) checkLocalSignIn(ctx context.Context, user store.User) error {
-	if user.SSOOnly() {
-		return fail(http.StatusForbidden, codeSSORequired)
-	}
 	settings, err := s.store.Settings(ctx)
 	if err != nil {
 		return err

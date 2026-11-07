@@ -809,8 +809,8 @@ func TestSSOAccountsDoNotSignInLocally(t *testing.T) {
 	s.e.loginWith("carol", key("carol-unlock")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
 	s.e.loginWith("carol", key("wrong")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
 	s.e.loginWith("nobody", key("wrong")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
-	// Only the right key learns which way to go.
-	s.e.loginWith("carol", key("carol-recovery")).wantError(t, http.StatusForbidden, "sso_required")
+	// The recovery key does not confirm itself either.
+	s.e.loginWith("carol", key("carol-recovery")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
 
 	// To a stranger this name looks like no account at all.
 	resp := s.e.call(http.MethodGet, "/api/v1/auth/kdf?username=carol", nil)
@@ -1168,7 +1168,7 @@ func TestAnUnlinkedSSOAccountStillDoesNotSignInLocally(t *testing.T) {
 	s := newSSO(t, "e2e", obj{"match_mode": "preferred_username"})
 	_, a := s.enrolled("carol")
 	s.root.call(http.MethodDelete, "/api/v1/admin/users/"+a.User.ID+"/identity", obj{"current_auth_key": b64(key("root"))}).wantStatus(t, http.StatusNoContent)
-	s.e.loginWith("carol", key("carol-recovery")).wantError(t, http.StatusForbidden, "sso_required")
+	s.e.loginWith("carol", key("carol-recovery")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
 }
 
 func TestSignInRoutesAreRateLimited(t *testing.T) {

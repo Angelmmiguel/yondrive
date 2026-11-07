@@ -264,8 +264,8 @@ export interface paths {
          *     and returns the account, whose sealed keys are opaque to the server. A
          *     wrong username and a wrong key answer the same `invalid_credentials`.
          *     With TOTP on and no code, the right key answers `totp_required`. Only a right
-         *     key learns `sso_required`, for an account that signs in through the provider, or
-         *     `local_accounts_disabled`. The unlock auth key of such an account never signs in.
+         *     key learns `local_accounts_disabled`. An account that signs in through the provider
+         *     has no passphrase to sign in with, and answers `invalid_credentials` for any key.
          */
         post: operations["login"];
         delete?: never;
@@ -1753,7 +1753,6 @@ export interface components {
              *     - `invalid_blob`: the kind and node of a small blob do not agree
              *     - `blob_in_use`: content goes with its versions
              *     - `sso_disabled`: single sign-on is not turned on
-             *     - `sso_required`: this account signs in through the provider (the right key learns this)
              *     - `sso_only`: the action needs a local password, which this account does not have
              *     - `local_accounts_disabled`: local sign-in and registration are off
              *     - `local_accounts_lockout`: the change would leave nobody able to sign in

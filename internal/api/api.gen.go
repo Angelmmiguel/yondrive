@@ -744,7 +744,6 @@ type Error struct {
 	// - `invalid_blob`: the kind and node of a small blob do not agree
 	// - `blob_in_use`: content goes with its versions
 	// - `sso_disabled`: single sign-on is not turned on
-	// - `sso_required`: this account signs in through the provider (the right key learns this)
 	// - `sso_only`: the action needs a local password, which this account does not have
 	// - `local_accounts_disabled`: local sign-in and registration are off
 	// - `local_accounts_lockout`: the change would leave nobody able to sign in

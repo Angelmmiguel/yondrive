@@ -83,7 +83,14 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	if !auth.VerifyKey(req.Body.AuthKey, user.AuthKeyHash, user.RecoveryAuthKeyHash) {
+	// An account with no passphrase has nothing to sign in with here. Its recovery
+	// key is not offered, so that this answers as it does for a name that does not
+	// exist, and does not confirm the key.
+	recovery := user.RecoveryAuthKeyHash
+	if user.SSOOnly() {
+		recovery = nil
+	}
+	if !auth.VerifyKey(req.Body.AuthKey, user.AuthKeyHash, recovery) {
 		s.audit(ctx, auditLoginFailed, "", user.ID)
 		s.log.Warn("login failed", "remote", s.clientIP(requestFrom(ctx)))
 		return nil, fail(http.StatusUnauthorized, codeInvalidCredentials)
