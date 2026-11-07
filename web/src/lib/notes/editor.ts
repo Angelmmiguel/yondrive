@@ -148,26 +148,41 @@ const SHORTCUTS: [RegExp, Command][] = [
 	[/^#$/, setStyle('h1')],
 	[/^##$/, setStyle('h2')],
 	[/^###$/, setStyle('h3')],
-	[/^(\[\s?\]|-\s\[\s?\])$/, toggleList('check')],
 	[/^[-*]$/, toggleList('bullet')],
 	[/^1[.)]$/, toggleList('number')],
 	[/^>$/, setStyle('quote')],
 	[/^```$/, setStyle('code')]
 ];
 
+/**
+ * A checklist item as Markdown writes it, ticked with an `x`: `[ ] `, `[x] `, or
+ * `- [ ] ` at the start of a line, or `[ ] ` at the start of a bullet, which is
+ * what typing `- [ ] ` makes of it once the `- ` has become a bullet.
+ */
+const CHECK = /^(?:[-*]\s)?\[([ xX]?)\]$/;
+
 function shortcuts(): Plugin {
 	return new Plugin({
 		props: {
 			handleTextInput(view, from, to, text) {
-				if (text !== ' ') return false;
+				if (text !== ' ' || to !== from) return false;
 				const $from = view.state.doc.resolve(from);
 				const para = $from.parent;
 				if (para.type !== schema.nodes.paragraph) return false;
 				const a = para.attrs as ParagraphAttrs;
-				if (a.style !== 'normal' || a.list !== null) return false;
+				if (a.style !== 'normal') return false;
 				const before = para.textBetween(0, $from.parentOffset, undefined, '￼');
+				const box = CHECK.exec(before);
+				if (box && (a.list === null || a.list.kind === 'bullet')) {
+					const checked = box[1].toLowerCase() === 'x';
+					const list = { kind: 'check' as const, level: a.list?.level ?? 0, checked };
+					const tr = view.state.tr.delete(from - before.length, from);
+					view.dispatch(tr.setNodeMarkup($from.before(), undefined, { ...a, list }));
+					return true;
+				}
+				if (a.list !== null) return false;
 				const found = SHORTCUTS.find(([re]) => re.test(before));
-				if (!found || to !== from) return false;
+				if (!found) return false;
 				view.dispatch(view.state.tr.delete(from - before.length, from));
 				return found[1](view.state, view.dispatch);
 			}

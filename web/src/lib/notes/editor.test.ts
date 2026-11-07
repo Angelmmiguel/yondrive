@@ -43,7 +43,49 @@ const images = (view: EditorView) => {
 	return count;
 };
 
+/** Types at the caret, a key at a time, as the browser hands text to the editor. */
+function type(view: EditorView, text: string) {
+	for (const ch of text) {
+		const { from, to } = view.state.selection;
+		const handled = view.someProp('handleTextInput', (f) => f(view, from, to, ch, () => null));
+		if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to));
+	}
+}
+
+/** The checklist items of the note, as Markdown would read them. */
+function tasks(view: EditorView) {
+	const out: { text: string; checked: boolean }[] = [];
+	view.state.doc.descendants((n) => {
+		const list = n.attrs.list as { kind: string; checked?: boolean } | null | undefined;
+		if (n.type === schema.nodes.paragraph && list?.kind === 'check')
+			out.push({ text: n.textContent, checked: list.checked === true });
+	});
+	return out;
+}
+
 describe('the note editor', () => {
+	it.each([
+		['- [ ] ', false],
+		['- [x] ', true],
+		['* [X] ', true],
+		['[ ] ', false],
+		['[] ', false],
+		['[x] ', true]
+	])('makes “%s” at the start of a line a checklist item', (typed, checked) => {
+		const { view } = editor('\n');
+		type(view, `${typed}Write the schema`);
+		expect(tasks(view)).toEqual([{ text: 'Write the schema', checked }]);
+		view.destroy();
+	});
+
+	it('leaves brackets later in a line as text', () => {
+		const { view } = editor('\n');
+		type(view, 'a [x] b');
+		expect(tasks(view)).toEqual([]);
+		expect(view.state.doc.textContent).toBe('a [x] b');
+		view.destroy();
+	});
+
 	it('refuses a pasted picture where it could not be kept, and keeps the text', () => {
 		const { view, refused } = editor('Start\n', { canAddPictures: false });
 		paste(view, `<p>Look <img src="${PIXEL}" alt="dot"> here</p>`);
