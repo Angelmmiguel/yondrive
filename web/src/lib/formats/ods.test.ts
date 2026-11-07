@@ -228,3 +228,17 @@ describe('long .ods text', () => {
 		expect(book.engine.cell(book.engine.sheets[0].id, 0, 0)!.value).toBe('a b');
 	});
 });
+
+describe('malformed .ods lengths', () => {
+	it('ignores a length that is no number and writes the file back as it was', async () => {
+		const bytes = await odsOf(
+			'<table:table table:name="T"><table:table-column/><table:table-row table:style-name="ro9"><table:table-cell office:value-type="float" office:value="1"><text:p>1</text:p></table:table-cell></table:table-row></table:table>',
+			'<style:style style:name="ro9" style:family="table-row"><style:table-row-properties style:row-height="1.2.3cm"/></style:style>'
+		);
+		const { book } = await readOds(bytes);
+		expect(book.sheet(book.engine.sheets[0].id).rows.get(0)?.height).toBeUndefined();
+		const out = await writeOds(book, bytes);
+		expect(await content(out)).not.toContain('NaN');
+		expect(Buffer.from(out).equals(Buffer.from(bytes))).toBe(true);
+	});
+});

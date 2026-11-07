@@ -119,6 +119,8 @@ function points(v: string | undefined): number | undefined {
 	const m = /^(-?[\d.]+)(cm|mm|in|pt|pc|px)?$/.exec(v ?? '');
 	if (!m) return undefined;
 	const n = Number(m[1]);
+	// `1.2.3cm` matches the pattern but is no number.
+	if (!Number.isFinite(n)) return undefined;
 	const k = { cm: 72 / 2.54, mm: 72 / 25.4, in: 72, pt: 1, pc: 12, px: 0.75 }[m[2] ?? 'pt'] ?? 1;
 	return n * k;
 }
