@@ -748,6 +748,7 @@ type Error struct {
 	// - `sso_only`: the action needs a local password, which this account does not have
 	// - `local_accounts_disabled`: local sign-in and registration are off
 	// - `local_accounts_lockout`: the change would leave nobody able to sign in
+	// - `identity_not_relinkable`: the match mode could not find this account after its identity is forgotten (409)
 	// - `already_enrolled`: the account has its keys; `POST /auth/rekey` replaces them
 	// - `totp_local_only`: the identity provider handles the second factor of this account
 	// - `reauth_required`: sign in through the provider again, within five minutes, and retry

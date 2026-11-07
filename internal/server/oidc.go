@@ -851,6 +851,19 @@ func (s *Server) TestOIDC(ctx context.Context, req oapi.TestOIDCRequestObject) (
 	return out, nil
 }
 
+// relinkable says whether the match mode could find the account again, which is
+// what makes forgetting its identity safe: otherwise the next sign-in makes an
+// empty account and this one is out of reach.
+func relinkable(mode string, u store.User) bool {
+	switch mode {
+	case store.MatchEmail:
+		return u.Email != ""
+	case store.MatchUsername:
+		return usernamePattern.MatchString(normalizeUsername(u.Username))
+	}
+	return false
+}
+
 // UnlinkIdentity forgets the identity of an account, which is the one way an account
 // comes to another identity: sign-in never does this on its own.
 func (s *Server) UnlinkIdentity(ctx context.Context, req oapi.UnlinkIdentityRequestObject) (oapi.UnlinkIdentityResponseObject, error) {
@@ -862,6 +875,17 @@ func (s *Server) UnlinkIdentity(ctx context.Context, req oapi.UnlinkIdentityRequ
 	actor, err := s.checkModifiable(ctx, req.Id)
 	if err != nil {
 		return nil, err
+	}
+	target, err := s.store.UserByID(ctx, req.Id)
+	if err != nil {
+		return nil, notFound(err)
+	}
+	settings, err := s.store.Settings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if target.HasIdentity() && !relinkable(settings.OIDC.MatchMode, target) {
+		return nil, fail(http.StatusConflict, codeNotRelinkable)
 	}
 	revoked, err := s.store.UnlinkIdentity(ctx, req.Id)
 	if err != nil {

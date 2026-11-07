@@ -98,6 +98,7 @@ const (
 	codeSSOProvider        = "sso_provider_error"
 	codeSSOToken           = "sso_token_invalid" //nolint:gosec // an error code, not a secret
 	codeSSOConflict        = "sso_identity_conflict"
+	codeNotRelinkable      = "identity_not_relinkable"
 	codeSSOUnverified      = "sso_email_unverified"
 	codeSSONotInvited      = "sso_not_invited"
 	codeInvalidCursor      = "invalid_cursor"

@@ -161,7 +161,10 @@ Whatever links nothing becomes a new account, if new users are allowed. The user
 An account linked to one identity is never moved to another by signing in, and that sign-in is refused
 with `sso_identity_conflict`. After changing provider, or when a provider has changed its `sub`, an admin
 forgets the old identity with `DELETE /api/v1/admin/users/{id}/identity`, and the next sign-in links again
-under the match mode.
+under the match mode. The server refuses with `identity_not_relinkable` (409) when the match mode could not
+find the account again, which is `sub`, `email` for an account with no address, and `preferred_username`
+for one whose username does not fit: the next sign-in would make an empty account and leave this one out of
+reach. Change the match mode first, or give the account an address.
 
 ## Admins, local accounts and getting back in
 

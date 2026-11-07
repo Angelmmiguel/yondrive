@@ -1161,7 +1161,7 @@ func TestUnlink(t *testing.T) {
 }
 
 func TestAnUnlinkedSSOAccountStillDoesNotSignInLocally(t *testing.T) {
-	s := newSSO(t, "e2e", nil)
+	s := newSSO(t, "e2e", obj{"match_mode": "preferred_username"})
 	_, a := s.enrolled("carol")
 	s.root.call(http.MethodDelete, "/api/v1/admin/users/"+a.User.ID+"/identity", obj{"current_auth_key": b64(key("root"))}).wantStatus(t, http.StatusNoContent)
 	s.e.loginWith("carol", key("carol-recovery")).wantError(t, http.StatusForbidden, "sso_required")
@@ -1189,5 +1189,23 @@ func TestHealthCountsSSO(t *testing.T) {
 	resp.decode(t, &got)
 	if !got.Enabled || got.Users != 1 {
 		t.Errorf("health = %s", resp.body)
+	}
+}
+
+func TestUnlinkRefusesWhatTheMatchModeCannotFind(t *testing.T) {
+	cur := obj{"current_auth_key": b64(key("root"))}
+	for name, extra := range map[string]obj{
+		"sub mode":       {"match_mode": "sub"},
+		"email, no mail": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newSSO(t, "e2e", extra)
+			_, a := s.enrolled("carol")
+			route := "/api/v1/admin/users/" + a.User.ID + "/identity"
+			s.root.call(http.MethodDelete, route, cur).wantError(t, http.StatusConflict, "identity_not_relinkable")
+			if a2 := me(t, s.signIn()); a2.User.ID != a.User.ID {
+				t.Errorf("signed in to another account: %+v", a2)
+			}
+		})
 	}
 }
