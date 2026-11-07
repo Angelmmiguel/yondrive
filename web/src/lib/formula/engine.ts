@@ -83,6 +83,8 @@ export interface DefinedName {
 	text: string;
 	/** Local to a sheet, by id. */
 	sheet?: number;
+	/** Which name of the file this is, for a writer that keeps the rest of it. */
+	key?: number;
 }
 
 export type InputProblem = 'syntax' | 'unsupported' | 'arity' | 'sheet' | 'readonly';
