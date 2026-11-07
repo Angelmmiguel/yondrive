@@ -174,7 +174,7 @@ such as Unraid's array.
 
 | Table | Holds | Server can read in end-to-end mode |
 | --- | --- | --- |
-| `users` | Username, email, role, quota, KDF parameters, auth hashes, public keys | Yes, apart from the sealed blobs: wrapped master key and sealed private keys |
+| `users` | Username, email, role, quota, KDF parameters, auth hashes, public keys, TOTP secret | Yes, apart from the sealed blobs: wrapped master key and sealed private keys |
 | `nodes` | Id, owner, parent, file or folder, trashed time, sealed metadata, wrapped node key, name HMAC | Structure only |
 | `versions` | Node, author, stored size, frame count, author signature | Sizes and timing |
 | `blobs` | Id, size, ref count | Sizes |
@@ -182,7 +182,7 @@ such as Unraid's array.
 | `links` | Id, node, role, expiry, revoked time, password KDF parameters, sealed key | Settings only |
 | `changes` | Sequence, node, operation | Timing and which node changed |
 | `edit_status` | Node, user, device, last heartbeat | Who is editing what |
-| `sessions`, `tokens` | Hashes, expiry | Yes |
+| `sessions`, `tokens`, `password_resets`, `recovery_codes` | Hashes, expiry | Yes |
 | `invites`, `settings`, `audit` | Admin data, including the fixed encryption mode | Yes |
 
 The OIDC client secret must be stored readable by the server. It protects sign-in only and cannot
@@ -323,7 +323,7 @@ service worker streaming.
 /api/v1/health, /setup/*                       First-run wizard, setup token
 /api/v1/auth/*                                 KDF params, login, logout, TOTP, OIDC, rekey, recover
 /api/v1/session/key                            Server half of the split session key
-/api/v1/me, /users/{id}/keys                   Profile, public keys
+/api/v1/me, /me/tokens, /users/{id}/keys       Profile, device tokens, public keys
 /api/v1/nodes, /nodes/{id}, /nodes/{id}/...    Tree, move, trash, versions
 /api/v1/nodes/{id}/editing                     Heartbeat and who else is editing
 /api/v1/uploads, /uploads/{id}/frames/{n}      Resumable upload
