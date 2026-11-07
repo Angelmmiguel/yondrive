@@ -265,21 +265,21 @@ export class NotesState {
 	}
 
 	/** Every folder of notes: two devices racing on first use make two. */
-	#space(): Set<string> {
+	#space(): string[] {
 		const root = this.rootId;
-		return new Set(root === null || this.core === null ? [] : this.core.space(root));
+		return root === null || this.core === null ? [] : this.core.space(root);
 	}
 
 	/** Notes in the trash: notes and notebooks of the folders of notes. */
 	trashed(trash: readonly DriveNode[]): DriveNode[] {
 		const space = this.#space();
 		const tree = this.#drive?.tree;
-		if (space.size === 0 || tree === undefined) return [];
+		if (space.length === 0 || tree === undefined) return [];
 		return trash.filter(
 			(n) =>
 				(isNoteFile(n) || n.kind === 'folder') &&
 				n.parentId !== null &&
-				(space.has(n.parentId) || space.has(tree.nodes.get(n.parentId)?.parentId ?? ''))
+				(space.includes(n.parentId) || space.includes(tree.nodes.get(n.parentId)?.parentId ?? ''))
 		);
 	}
 
