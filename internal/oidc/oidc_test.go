@@ -673,3 +673,20 @@ func TestFillOverridesNothing(t *testing.T) {
 		t.Errorf("a string counted as verified: %+v", empty)
 	}
 }
+
+func TestLoadRootsRefusesWithoutSystemRoots(t *testing.T) {
+	want := errors.New("no system roots")
+	old := systemCertPool
+	systemCertPool = func() (*x509.CertPool, error) { return nil, want }
+	t.Cleanup(func() { systemCertPool = old })
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	ts := httptest.NewTLSServer(http.NotFoundHandler())
+	defer ts.Close()
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ts.Certificate().Raw})
+	if err := os.WriteFile(ca, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if roots, err := LoadRoots(ca); !errors.Is(err, want) || roots != nil {
+		t.Errorf("LoadRoots = %v, %v", roots, err)
+	}
+}

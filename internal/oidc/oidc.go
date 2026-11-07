@@ -113,6 +113,9 @@ func refuseAddress(_, address string, _ syscall.RawConn) error {
 	return nil
 }
 
+// systemCertPool is x509.SystemCertPool, apart so that a test can make it fail.
+var systemCertPool = x509.SystemCertPool
+
 // LoadRoots returns the system's certificate authorities plus those of a PEM file,
 // for an issuer behind an internal authority. An empty path returns nil, which
 // means the system's alone.
@@ -124,9 +127,10 @@ func LoadRoots(path string) (*x509.CertPool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("oidc: read certificate authorities: %w", err)
 	}
-	roots, err := x509.SystemCertPool()
+	roots, err := systemCertPool()
 	if err != nil {
-		roots = x509.NewCertPool()
+		// Carrying on with only this file would drop the system roots without a word.
+		return nil, fmt.Errorf("oidc: load system certificate authorities: %w", err)
 	}
 	if !roots.AppendCertsFromPEM(pem) {
 		return nil, fmt.Errorf("oidc: %s holds no certificates", path)
