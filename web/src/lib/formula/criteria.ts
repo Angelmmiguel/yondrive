@@ -12,17 +12,42 @@ export function wildcard(pattern: string): (s: string) => boolean {
 		const p = pattern.toLowerCase();
 		return (s) => s.toLowerCase() === p;
 	}
-	let re = '';
-	for (let i = 0; i < pattern.length; i++) {
-		const ch = pattern[i];
-		if (ch === '~' && i + 1 < pattern.length && '*?~'.includes(pattern[i + 1])) {
-			re += `\\${pattern[++i]}`;
-		} else if (ch === '*') re += '[\\s\\S]*';
-		else if (ch === '?') re += '[\\s\\S]';
-		else re += ch.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
+	// Two pointers that backtrack only to the last `*`: O(n·m) at worst, where
+	// a regular expression backtracks exponentially on patterns like `*a*a*b`.
+	// A token is a literal character, ANY (`?`) or STAR (`*`).
+	const ANY = 0;
+	const STAR = 1;
+	const tokens: (string | 0 | 1)[] = [];
+	const lower = pattern.toLowerCase();
+	for (let i = 0; i < lower.length; i++) {
+		const ch = lower[i];
+		if (ch === '~' && i + 1 < lower.length && '*?~'.includes(lower[i + 1])) tokens.push(lower[++i]);
+		else if (ch === '*') {
+			if (tokens[tokens.length - 1] !== STAR) tokens.push(STAR);
+		} else tokens.push(ch === '?' ? ANY : ch);
 	}
-	const r = new RegExp(`^${re}$`, 'i');
-	return (s) => r.test(s);
+	return (text) => {
+		const s = text.toLowerCase();
+		let p = 0;
+		let i = 0;
+		let star = -1;
+		let mark = 0;
+		while (i < s.length) {
+			const t = tokens[p];
+			if (t === STAR) {
+				star = p++;
+				mark = i;
+			} else if (p < tokens.length && (t === ANY || t === s[i])) {
+				p++;
+				i++;
+			} else if (star >= 0) {
+				p = star + 1;
+				i = ++mark;
+			} else return false;
+		}
+		while (tokens[p] === STAR) p++;
+		return p === tokens.length;
+	};
 }
 
 const numEq = (n: number) => (v: Scalar) =>
