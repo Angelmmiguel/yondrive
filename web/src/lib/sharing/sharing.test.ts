@@ -725,6 +725,26 @@ describe('with keys', () => {
 		expect(entry.changed).toBeInstanceOf(ContactKeysChangedError);
 	});
 
+	it('warns the owner of a version from an editor whose row has no signature', async () => {
+		const w = await e2e();
+		const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'editor');
+		await w.bob.drive.sharing.refreshShared();
+		await w.bob.drive.tree.resolve(w.folder.id);
+		const file = await upload(w.bob, w.folder.id, 'theirs.bin', patterned(100));
+		await w.alice.drive.tree.loadFolder(w.folder.id, true);
+		const seen = w.alice.drive.tree.childrenOf(w.folder.id).find((n) => n.id === file.id);
+		expect((await w.alice.drive.openVersion(seen as typeof file)).formerAuthor).toBe(false);
+		expect((await w.alice.drive.sharing.people(w.folder.id))[0].unsigned).toBe(false);
+
+		// A server names an editor of its own, and has nothing to sign the row with.
+		w.server.grants.set(grant.id, { ...grant, signature: undefined as never });
+
+		expect((await w.alice.drive.openVersion(seen as typeof file)).formerAuthor).toBe(true);
+		expect((await w.alice.drive.sharing.people(w.folder.id))[0].unsigned).toBe(true);
+		// Nobody else is given signatures, so to them a missing one means nothing.
+		expect((await w.bob.drive.sharing.people(w.folder.id))[0].unsigned).toBe(false);
+	});
+
 	it('will not seal a new key to someone the owner never signed for', async () => {
 		const w = await e2e();
 		const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');

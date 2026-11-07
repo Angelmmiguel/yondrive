@@ -163,7 +163,8 @@ allowed, since a provider on the LAN is normal, so an admin can tell which hosts
 - **Edit rights.** A client verifies a signature against the author's pinned keys and checks
   that the author holds edit rights, and the list of who holds them comes from the server. To the
   owner it comes with the signed grants, which their client checks with their own key, so a server
-  cannot name an editor to the owner. Anyone else has only the list, and a hostile server can name a
+  cannot name an editor to the owner: to them a row with no signature is no grant, what its signer
+  wrote opens with the warning below, and the row is marked as not signed by them. Anyone else has only the list, and a hostile server can name a
   viewer as an editor, or a user it controls. A version whose signer is on no such list opens with a
   warning rather than failing: there is no record of what someone could do when they wrote it, and
   refusing would make every file a former editor uploaded unreadable, to everyone, for good.

@@ -192,7 +192,9 @@ export class Sharing {
 		const entry = access.find((one) => one.user_id === authorId && one.role === 'editor');
 		const keys = await contacts.keysOf(authorId);
 		if (entry === undefined) return { ...keys, former: true };
-		if (entry.signature !== undefined && node.ownerId === me) {
+		if (node.ownerId === me) {
+			// The owner is given every signature, so a row without one is one a server added.
+			if (entry.signature === undefined) return { ...keys, former: true };
 			sealer.verifyGrant(
 				{
 					nodeId: entry.node_id ?? nodeId,
@@ -248,12 +250,16 @@ export class Sharing {
 
 	/** Who can reach a node, nearest first. */
 	async people(nodeId: string): Promise<Person[]> {
-		const { api, sealer, userId, contacts } = this.#deps;
+		const { api, sealer, userId, contacts, tree } = this.#deps;
 		const { access } = await api.listNodeAccess(nodeId);
 		const me = userId();
+		// Only the owner is given signatures, and only they can tell a row is missing one.
+		if ((await tree().resolve(nodeId)).ownerId !== me) {
+			return access.map((entry) => ({ access: entry, unsigned: false }));
+		}
 		const own = await contacts.keysOf(me);
 		return access.map((entry) => {
-			let unsigned = false;
+			let unsigned = entry.signature === undefined;
 			if (entry.signature !== undefined) {
 				try {
 					sealer.verifyGrant(
