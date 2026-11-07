@@ -108,7 +108,18 @@ minting a token, enrolling and disabling TOTP) and six times that on the KDF rou
 Wrong setup tokens count, right ones do not. Guesses at a second factor are also
 limited per user, since they come only with the right auth key and no stranger can
 use that to lock anyone out. The address is the connection's peer, or the last
-`X-Forwarded-For` entry from a peer in `YONDRIVE_TRUSTED_PROXIES`.
+`X-Forwarded-For` entry from a peer in `YONDRIVE_TRUSTED_PROXIES`. IPv6 clients count as
+their /64, since one client usually holds all of it. Logs and the audit trail keep the
+full address.
+
+Sign-in is also limited per username, at five times the address limit, for guessing
+spread over many addresses. It counts existing and unknown names alike, so it does not
+say who has an account. A stranger with several addresses can spend it to refuse someone's
+sign-ins, for one window at a time; open sessions and tokens are not affected. That is
+why the threshold is high and the window short, and why there is no longer lockout.
+
+At 65,536 tracked keys a limiter forgets the window closest to ending, so a spray of
+addresses cannot clear the limits on anyone else.
 
 **Audit.** Security events only: ids, the action and the address. Never content or
 secrets, and never the username typed at a failed sign-in, since people type

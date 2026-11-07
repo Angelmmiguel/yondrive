@@ -26,7 +26,7 @@ const (
 // GetKDF returns the stored parameters of a username, or stable fake ones of
 // the same shape if there is no such account.
 func (s *Server) GetKDF(ctx context.Context, req oapi.GetKDFRequestObject) (oapi.GetKDFResponseObject, error) {
-	if !s.kdfLimiter.Allow(s.clientIP(requestFrom(ctx))) {
+	if !s.kdfLimiter.Allow(s.rateLimitKey(requestFrom(ctx))) {
 		return nil, fail(http.StatusTooManyRequests, codeRateLimited)
 	}
 	username := normalizeUsername(req.Params.Username)
@@ -65,10 +65,14 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 	if err := s.checkAttempt(ctx); err != nil {
 		return nil, err
 	}
+	username := normalizeUsername(req.Body.Username)
+	if usernamePattern.MatchString(username) && !s.usernameLimiter.Allow(username) {
+		return nil, fail(http.StatusTooManyRequests, codeRateLimited)
+	}
 	s.accountMu.Lock()
 	defer s.accountMu.Unlock()
 
-	user, err := s.store.UserByUsername(ctx, normalizeUsername(req.Body.Username))
+	user, err := s.store.UserByUsername(ctx, username)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}

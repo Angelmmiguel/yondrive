@@ -27,6 +27,13 @@ const (
 	DefaultMaxBodyBytes = 1 << 20
 )
 
+// usernameAttemptsFactor is how many times the per-address limit one username
+// allows in a window. It catches guessing spread over many addresses. A stranger
+// can spend it to refuse a user's sign-ins, so it is high enough to need several
+// addresses working at their own limit, and lasts one short window. Sessions
+// already open are not affected.
+const usernameAttemptsFactor = 5
+
 // kdfAttemptsFactor is how many times the sign-in limit the KDF route allows.
 const kdfAttemptsFactor = 6
 
@@ -91,9 +98,10 @@ type Server struct {
 	limiter *auth.RateLimiter
 	// kdfLimiter is apart from limiter: a sign-in takes one lookup too, and an
 	// answer from this route proves nothing.
-	kdfLimiter  *auth.RateLimiter
-	totpLimiter *auth.RateLimiter
-	keys        *auth.SessionKeys
+	kdfLimiter      *auth.RateLimiter
+	usernameLimiter *auth.RateLimiter
+	totpLimiter     *auth.RateLimiter
+	keys            *auth.SessionKeys
 	// secret keys the fake KDF parameters.
 	secret  []byte
 	handler http.Handler
@@ -142,14 +150,15 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		return nil, fmt.Errorf("server: read secret: %w", err)
 	}
 	s := &Server{
-		cfg:         cfg,
-		log:         cfg.Logger,
-		store:       st,
-		limiter:     auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		kdfLimiter:  auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		totpLimiter: auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
-		keys:        auth.NewSessionKeys(),
-		secret:      secret,
+		cfg:             cfg,
+		log:             cfg.Logger,
+		store:           st,
+		limiter:         auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		kdfLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		usernameLimiter: auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		totpLimiter:     auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
+		keys:            auth.NewSessionKeys(),
+		secret:          secret,
 	}
 	settings, err := st.Settings(context.Background())
 	switch {

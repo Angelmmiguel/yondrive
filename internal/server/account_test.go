@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"os"
@@ -238,6 +239,76 @@ func TestRateLimitFollowsTrustedProxiesOnly(t *testing.T) {
 	// Only the entry the proxy appended counts, not what the client sent before it.
 	if got := limited(e, "9.9.9.9, 1.1.1.1"); got != http.StatusTooManyRequests {
 		t.Errorf("a spoofed chain dodged the limit: %d", got)
+	}
+}
+
+func TestIPv6ClientsCountAsTheirSlash64(t *testing.T) {
+	e := configured(t, "none", server.Config{LoginAttempts: 1, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	attempt := func(forwarded string) int {
+		return e.call(http.MethodPost, loginPath, obj{"username": "nobody", "auth_key": b64(key("x"))}, "X-Forwarded-For", forwarded).status
+	}
+	if got := attempt("2001:db8:1:2::1"); got != http.StatusUnauthorized {
+		t.Errorf("first = %d", got)
+	}
+	if got := attempt("2001:db8:1:2:ffff::9"); got != http.StatusTooManyRequests {
+		t.Errorf("another address in the same /64 dodged the limit: %d", got)
+	}
+	if got := attempt("2001:db8:1:3::1"); got != http.StatusUnauthorized {
+		t.Errorf("another /64 was limited: %d", got)
+	}
+	if got := attempt("192.0.2.1"); got != http.StatusUnauthorized {
+		t.Errorf("IPv4 = %d", got)
+	}
+	if got := attempt("::ffff:192.0.2.1"); got != http.StatusTooManyRequests {
+		t.Errorf("a mapped address counted apart from IPv4: %d", got)
+	}
+}
+
+func TestAuditKeepsTheFullIPv6Address(t *testing.T) {
+	e := configured(t, "none", server.Config{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	e.call(http.MethodPost, loginPath, obj{"username": "root", "auth_key": b64(key("x"))}, "X-Forwarded-For", "2001:db8:1:2::1").wantStatus(t, http.StatusUnauthorized)
+	entries, err := e.st.ListAudit(ctx, 1)
+	if err != nil || len(entries) != 1 || entries[0].Remote != "2001:db8:1:2::1" {
+		t.Errorf("audit = %+v, %v", entries, err)
+	}
+}
+
+func TestLoginIsLimitedPerUsernameAcrossAddresses(t *testing.T) {
+	e := configured(t, "none", server.Config{LoginAttempts: 1, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	from := func(i int, username string, authKey []byte) response {
+		return e.call(http.MethodPost, loginPath, obj{"username": username, "auth_key": b64(authKey)}, "X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i))
+	}
+	for i := range 5 {
+		from(i, "ROOT", key("wrong")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
+	}
+	from(5, "root", key("wrong")).wantError(t, http.StatusTooManyRequests, "rate_limited")
+	// Unknown names behave alike, so the limit does not say who exists.
+	for i := range 5 {
+		from(10+i, "nobody", key("wrong")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
+	}
+	from(15, "nobody", key("wrong")).wantError(t, http.StatusTooManyRequests, "rate_limited")
+	// Other users go on, and the lockout lasts one window.
+	from(16, "other", key("wrong")).wantError(t, http.StatusUnauthorized, "invalid_credentials")
+	e.advance(time.Minute)
+	from(0, "root", key("root")).wantStatus(t, http.StatusOK)
+}
+
+func TestSessionsSurviveAUsernameLockout(t *testing.T) {
+	e := configured(t, "none", server.Config{LoginAttempts: 1, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	c := e.loginKey("root", key("root"))
+	for i := range 6 {
+		e.call(http.MethodPost, loginPath, obj{"username": "root", "auth_key": b64(key("x"))}, "X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i))
+	}
+	e.loginWith("root", key("root")).wantStatus(t, http.StatusTooManyRequests)
+	c.call(http.MethodGet, mePath, nil).wantStatus(t, http.StatusOK)
+}
+
+func TestLongUsernamesTakeNoBucket(t *testing.T) {
+	e := configured(t, "none", server.Config{LoginAttempts: 2, TrustedProxies: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}})
+	name := strings.Repeat("x", 65)
+	for i := range 12 {
+		e.call(http.MethodPost, loginPath, obj{"username": name, "auth_key": b64(key("x"))}, "X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i)).
+			wantError(t, http.StatusUnauthorized, "invalid_credentials")
 	}
 }
 

@@ -118,7 +118,7 @@ func (s *Server) checkSetupToken(r *http.Request) error {
 		return nil
 	}
 	s.log.Warn("setup token rejected", "remote", s.clientIP(r))
-	if !s.limiter.Allow(s.clientIP(r)) {
+	if !s.limiter.Allow(s.rateLimitKey(r)) {
 		return fail(http.StatusTooManyRequests, codeRateLimited)
 	}
 	return fail(http.StatusUnauthorized, codeSetupTokenInvalid)
@@ -244,7 +244,7 @@ func principalFrom(ctx context.Context) principal {
 // Every attempt counts, not only failures, so that guessing cannot hide behind
 // valid sign-ins.
 func (s *Server) checkAttempt(ctx context.Context) error {
-	if !s.limiter.Allow(s.clientIP(requestFrom(ctx))) {
+	if !s.limiter.Allow(s.rateLimitKey(requestFrom(ctx))) {
 		return fail(http.StatusTooManyRequests, codeRateLimited)
 	}
 	return nil

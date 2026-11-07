@@ -216,6 +216,26 @@ func (s *Server) clientIP(r *http.Request) string {
 	return client.Unmap().WithZone("").String()
 }
 
+// rateLimitKey is the address a request counts against. An IPv6 client usually
+// controls a whole /64, so counting single addresses would give it as many
+// windows as it cares to use. Logs and the audit trail keep the full address.
+func (s *Server) rateLimitKey(r *http.Request) string {
+	ip := s.clientIP(r)
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	addr = addr.Unmap().WithZone("")
+	if addr.Is4() {
+		return addr.String()
+	}
+	prefix, err := addr.Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return prefix.String()
+}
+
 // requestSecure reports whether the request reached the user over HTTPS,
 // according to Config.Secure. In auto mode that is the connection's own TLS
 // state, or the X-Forwarded-Proto a trusted proxy reports.
