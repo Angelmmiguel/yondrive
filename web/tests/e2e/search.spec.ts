@@ -78,7 +78,14 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await alice.keyboard.press('Escape');
 
 			await openSearch(alice, 'walrus');
-			await hits(alice).first().getByRole('button', { name: 'Go to folder' }).click();
+			await hits(alice).first().getByText('Go to folder').click();
+			await expect(alice.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
+			await myFiles(alice);
+
+			// The keyboard's way there, as an option holds no button of its own.
+			await openSearch(alice, 'walrus');
+			await expect(hits(alice)).toHaveCount(1);
+			await alice.keyboard.press('Shift+Enter');
 			await expect(alice.getByRole('heading', { name: 'Archive', exact: true })).toBeVisible();
 			await myFiles(alice);
 		});

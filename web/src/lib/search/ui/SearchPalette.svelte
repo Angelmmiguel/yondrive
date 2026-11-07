@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { formatBytes, formatWhen } from '$lib/app/format';
-	import { Button, Dialog, Icon, Select, Tag } from '$lib/components';
+	import { Dialog, Icon, Select, Tag } from '$lib/components';
 	import { FILE_KINDS } from '$lib/components/fileKinds';
 	import { describeDriveError } from '$lib/drive/errors';
 	import { fileKindOf } from '$lib/drive/kinds';
@@ -110,7 +110,8 @@
 			active = Math.max(active - 1, 0);
 		} else if (event.key === 'Enter' && search.hits[active] !== undefined) {
 			event.preventDefault();
-			void choose(search.hits[active]);
+			if (event.shiftKey) void jump(search.hits[active]);
+			else void choose(search.hits[active]);
 		}
 	}
 
@@ -139,6 +140,7 @@
 				aria-autocomplete="list"
 				aria-activedescendant={search.hits[active] ? `search-hit-${active}` : undefined}
 				aria-label="Search for"
+				aria-describedby="search-keys"
 				placeholder="Words from a name, a tag or inside a file"
 				autocomplete="off"
 				spellcheck="false"
@@ -185,10 +187,15 @@
 					{#if hit.matched === 'text'}<Tag tone="grey">In the text</Tag>{/if}
 					{#if hit.matched === 'tag'}<Tag tone="grey">Tag</Tag>{/if}
 					{#if hit.shared}<Tag tone="blue">Shared</Tag>{/if}
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<span class="go" onclick={(e) => e.stopPropagation()}>
-						<Button size="sm" variant="ghost" onclick={() => jump(hit)}>Go to folder</Button>
-					</span>
+					<!-- An option holds nothing focusable: the keyboard has Shift+Enter for this. -->
+					<span
+						class="go"
+						aria-hidden="true"
+						onclick={(e) => {
+							e.stopPropagation();
+							void jump(hit);
+						}}>Go to folder</span
+					>
 				</li>
 			{/each}
 		</ul>
@@ -197,6 +204,10 @@
 		{:else if !asked}
 			<p class="empty">Type a word, or choose a filter.</p>
 		{/if}
+		<p class="keys" id="search-keys">
+			<kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> opens · <kbd>Shift</kbd><kbd>Enter</kbd> goes to
+			its folder
+		</p>
 		<p class="status" role="status" data-testid="search-status" data-phase={search.status.phase}>
 			{statusText}{search.total > search.hits.length
 				? ` · showing ${search.hits.length} of ${search.total.toLocaleString()}`
@@ -301,6 +312,32 @@
 		font-size: 12px;
 		color: var(--text-muted);
 		overflow-wrap: anywhere;
+	}
+
+	.go {
+		padding: 4px 10px;
+		border-radius: var(--radius-sm);
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--text-body);
+	}
+
+	.go:hover {
+		background: var(--surface-sunken);
+	}
+
+	.keys {
+		margin: 0;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+
+	kbd {
+		margin-right: 2px;
+		padding: 0 4px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font: inherit;
 	}
 
 	.empty {
