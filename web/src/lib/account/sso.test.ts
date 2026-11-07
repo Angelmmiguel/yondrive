@@ -33,7 +33,7 @@ import {
 	ssoErrorMessage,
 	takeReturn
 } from './sso';
-import { WrongPassphraseError, WrongRecoveryKeyError } from './errors';
+import { WrongCredentialsError, WrongPassphraseError, WrongRecoveryKeyError } from './errors';
 
 const e2e = sealerFor(SUITE_E2E);
 
@@ -159,19 +159,19 @@ describe('an account with keys, from a provider', () => {
 		expect(server.users.get('alice')?.recoveryAuthKey).not.toBe(before);
 	});
 
-	it('is not signed in by its passphrase or its words, which are told so', async () => {
+	it('is not signed in by its passphrase or its words, which learn nothing', async () => {
 		const { server, deps, words } = await enrolled();
 		await deps.api.logout();
 		const fresh = testDeps(server);
-		await expect(signIn({ username: 'alice', passphrase: PASSPHRASE }, fresh)).rejects.toSatisfy(
-			(e) => isApiError(e, 'sso_required')
+		await expect(signIn({ username: 'alice', passphrase: PASSPHRASE }, fresh)).rejects.toThrow(
+			WrongCredentialsError
 		);
 		await expect(
 			openRecovery(
 				{ username: 'alice', phrase: e2e.recoveryWords(words).join(' '), sealer: e2e },
 				fresh
 			)
-		).rejects.toSatisfy((e) => isApiError(e, 'sso_required'));
+		).rejects.toThrow(WrongRecoveryKeyError);
 	});
 
 	it('recovers in the session the provider gave: the words open it and replace themselves', async () => {

@@ -194,7 +194,7 @@ export type ErrorCode =
 	| 'link_token_invalid'
 	| 'link_password_invalid'
 	| 'sso_disabled'
-	| 'sso_required'
+
 	| 'sso_only'
 	| 'local_accounts_disabled'
 	| 'local_accounts_lockout'

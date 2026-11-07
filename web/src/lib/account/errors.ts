@@ -92,8 +92,6 @@ const API_MESSAGES: Partial<Record<ErrorCode, string>> = {
 	wrong_mode: 'This server keeps its keys end to end, so an administrator cannot reset passwords.',
 	reset_invalid: 'This reset link is not valid. It may have been used or expired.',
 	sso_disabled: 'Single sign-on is not turned on here.',
-	sso_required:
-		'This account signs in through your identity provider. Continue with it from the sign-in page; “Forgot your passphrase?” on the unlock screen then takes these words.',
 	sso_only: 'This account signs in through your identity provider, and has no password here.',
 	local_accounts_disabled: 'Signing in with a passphrase is turned off on this server.',
 	local_accounts_lockout:

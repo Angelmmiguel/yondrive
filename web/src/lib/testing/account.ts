@@ -124,11 +124,11 @@ export function fakeServer(mode: Mode) {
 			const user = users.get(body.username);
 			if (
 				user === undefined ||
+				user.sso ||
 				(body.auth_key !== user.authKey && body.auth_key !== user.recoveryAuthKey)
 			) {
 				throw fail(401, 'invalid_credentials');
 			}
-			if (user.sso) throw fail(403, 'sso_required');
 			if (user.disabled) throw fail(403, 'user_disabled');
 			if (user.totp) {
 				if (body.totp_code === undefined && body.totp_recovery_code === undefined) {

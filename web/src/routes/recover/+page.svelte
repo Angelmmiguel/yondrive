@@ -10,6 +10,7 @@
 	import { openRecovery, openRecoveryInSession, type Recovery } from '$lib/account/recover';
 	import { discardRecovery, newRecovery, type PendingRecovery } from '$lib/account/recovery-key';
 	import { passphraseProblem } from '$lib/account/strength';
+	import { api } from '$lib/api/client';
 	import { failure } from '$lib/app/failure';
 	import {
 		AuthCard,
@@ -43,6 +44,16 @@
 	);
 	const sso = $derived(session.account?.user.sign_in_method === 'sso');
 	const newLabel = $derived(sso ? 'New unlock passphrase' : 'New passphrase');
+	let providerOn = $state(false);
+
+	$effect(() => {
+		api
+			.getAuthMethods()
+			.then((methods) => (providerOn = methods.oidc !== undefined))
+			.catch(() => {
+				// Then there is nothing to add.
+			});
+	});
 
 	onDestroy(() => {
 		challenge?.cancel();
@@ -191,6 +202,12 @@
 				{busy ? 'Checking…' : 'Continue'}
 			</Button>
 		</form>
+		{#if providerOn && !inSession}
+			<p class="note">
+				If you sign in through your identity provider, these words do not sign you in. Sign in there
+				first, then choose “Forgot your passphrase?” on the unlock screen.
+			</p>
+		{/if}
 		<a href={resolve(inSession ? '/unlock' : '/signin')}>
 			{inSession ? 'Back to unlock' : 'Back to sign in'}
 		</a>
@@ -221,6 +238,12 @@
 {/if}
 
 <style>
+	.note {
+		margin: 0;
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+
 	textarea {
 		width: 100%;
 		padding: 10px 12px;
