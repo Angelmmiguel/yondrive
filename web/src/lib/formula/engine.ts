@@ -103,6 +103,12 @@ export class FormulaInputError extends Error {
 /** Ranges spanning more columns than this are scanned rather than indexed. */
 const WIDE = 64;
 
+/** Cells of array formulas indexed one by one, at most; areas past it are scanned. */
+const ARRAY_INDEX = 1_000_000;
+
+/** Array formulas that may be scanned rather than indexed before a file is refused. */
+export const ARRAY_SCAN = 1000;
+
 class SheetStore {
 	cells = new Map<number, Cell>();
 	#sorted: number[] | null = null;
@@ -212,6 +218,11 @@ export class Engine {
 	#wideDeps = new Map<number, Set<RangeDep>>();
 	#volatile = new Set<Cell>();
 	#arrays = new Set<Cell>();
+	/** By sheet and cell key, the array formula whose area holds that cell. */
+	#arrayAt = new Map<number, Map<number, Cell>>();
+	/** Array formulas too large for the index, checked area by area. */
+	#arrayScan = new Set<Cell>();
+	#arrayIndexed = 0;
 	#ctx: Ctx;
 
 	constructor(opts: EngineOptions = {}) {
@@ -327,7 +338,8 @@ export class Engine {
 			cell.formula = this.#formula(content.formula, false);
 			if (content.array) {
 				cell.formula.array = content.array;
-				this.#arrays.add(cell);
+				this.#addArray(cell);
+				if (this.#arrayScan.size > ARRAY_SCAN) throw new Error('too many large array formulas');
 			}
 		}
 		this.#store(sheet).set(cell);
@@ -544,9 +556,46 @@ export class Engine {
 		if (cell?.formula && cell.formula.status !== 'ok') {
 			throw new FormulaInputError('readonly', cell.formula.missing.join(', '));
 		}
-		for (const a of this.#arrays) {
+		if (this.#arrayAt.get(sheet)?.has(cellKey(row, col)))
+			throw new FormulaInputError('readonly', 'array formula');
+		for (const a of this.#arrayScan) {
 			if (a.sheet === sheet && a.formula?.array && contains(a.formula.array, row, col)) {
 				throw new FormulaInputError('readonly', 'array formula');
+			}
+		}
+	}
+
+	/** Indexes the cells an array formula fills, so a check is a lookup rather than a scan of every array. */
+	#addArray(cell: Cell) {
+		const a = cell.formula?.array;
+		if (!a || this.#arrays.has(cell)) return;
+		this.#arrays.add(cell);
+		const size = (a.bottom - a.top + 1) * (a.right - a.left + 1);
+		if (this.#arrayIndexed + size > ARRAY_INDEX) {
+			this.#arrayScan.add(cell);
+			return;
+		}
+		this.#arrayIndexed += size;
+		let m = this.#arrayAt.get(cell.sheet);
+		if (!m) this.#arrayAt.set(cell.sheet, (m = new Map()));
+		for (let r = a.top; r <= a.bottom; r++) {
+			for (let c = a.left; c <= a.right; c++) {
+				const key = cellKey(r, c);
+				if (!m.has(key)) m.set(key, cell);
+			}
+		}
+	}
+
+	#removeArray(cell: Cell) {
+		if (!this.#arrays.delete(cell) || this.#arrayScan.delete(cell)) return;
+		const a = cell.formula?.array;
+		const m = this.#arrayAt.get(cell.sheet);
+		if (!a || !m) return;
+		this.#arrayIndexed -= (a.bottom - a.top + 1) * (a.right - a.left + 1);
+		for (let r = a.top; r <= a.bottom; r++) {
+			for (let c = a.left; c <= a.right; c++) {
+				const key = cellKey(r, c);
+				if (m.get(key) === cell) m.delete(key);
 			}
 		}
 	}
@@ -628,7 +677,7 @@ export class Engine {
 		const f = cell.formula;
 		if (!f) return;
 		if (f.volatile) this.#volatile.add(cell);
-		if (f.array) this.#arrays.add(cell);
+		if (f.array) this.#addArray(cell);
 		if (!f.ast) return;
 		const home = this.#byId.get(cell.sheet)?.name ?? '';
 		const deps: Deps = { cells: [], ranges: [] };
@@ -671,7 +720,7 @@ export class Engine {
 
 	#unregister(cell: Cell) {
 		this.#volatile.delete(cell);
-		this.#arrays.delete(cell);
+		this.#removeArray(cell);
 		const d = cell.deps;
 		if (!d) return;
 		for (const [sheet, key] of d.cells) this.#cellDeps.get(sheet)?.get(key)?.delete(cell);
@@ -691,6 +740,9 @@ export class Engine {
 		this.#wideDeps.clear();
 		this.#volatile.clear();
 		this.#arrays.clear();
+		this.#arrayAt.clear();
+		this.#arrayScan.clear();
+		this.#arrayIndexed = 0;
 		for (const s of this.#sheets) {
 			for (const c of s.cells.values()) {
 				delete c.deps;

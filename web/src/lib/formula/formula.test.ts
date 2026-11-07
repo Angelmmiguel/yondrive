@@ -481,6 +481,39 @@ describe('the engine', () => {
 		expect(() => e.insertRows(s, 1, 1)).toThrow(FormulaInputError);
 		e.insertRows(s, 0, 1);
 		expect(e.cell(s, 1, 1)!.formula!.array).toEqual({ top: 1, left: 1, bottom: 3, right: 1 });
+		expect(e.readOnly(s, 0, 1)).toBe(false);
+		expect(e.readOnly(s, 3, 1)).toBe(true);
+		expect(e.readOnly(s, 4, 1)).toBe(false);
+		e.deleteRows(s, 1, 3);
+		expect(e.readOnly(s, 1, 1)).toBe(false);
+	});
+
+	it('tells read-only cells apart quickly among many array formulas', () => {
+		const e = new Engine();
+		const s = e.addSheet('S');
+		for (let r = 0; r < 50_000; r++)
+			e.load(s, r, 0, {
+				formula: `B${r + 1}`,
+				value: 0,
+				array: { top: r, left: 0, bottom: r, right: 0 }
+			});
+		e.loaded();
+		const t = performance.now();
+		let readOnly = 0;
+		for (let r = 0; r < 100; r++)
+			for (let c = 0; c < 20; c++) if (e.readOnly(s, r, c)) readOnly++;
+		expect(readOnly).toBe(100);
+		expect(performance.now() - t).toBeLessThan(500);
+	});
+
+	it('refuses a file of many array formulas too large to index', () => {
+		const e = new Engine();
+		const s = e.addSheet('S');
+		const whole = { top: 0, left: 0, bottom: 1048575, right: 1 };
+		expect(() => {
+			for (let k = 0; k <= 1001; k++)
+				e.load(s, k, 0, { formula: 'B1', value: 0, array: whole });
+		}).toThrow(/array/);
 	});
 
 	it('renames and removes sheets in the formulas that name them', () => {
