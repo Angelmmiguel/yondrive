@@ -483,18 +483,18 @@ Browsers do not send a fragment to a server.
 
 ```
 root         = Argon2id(utf8(NFKC(password)), salt, m, t, p, tag length 32)
+auth key     = HKDF(root, "yondrive/link-auth/v1")
 link KEK     = HKDF(root, "yondrive/link-kek/v1")
 wrapped key  = Seal(link KEK, link key, fields("yondrive/link/password/v1", utf8(link id)))
-auth key     = HKDF(link key, "yondrive/link-auth/v1")
 ```
 
-A reader gets the KDF parameters and the wrapped key from the link, derives the link KEK and
-tries to open it: the password is checked here. The opened key gives the auth key, which is sent
-to `POST /public/links/{id}/unlock` for the sealed key and a token. The server stores its
-SHA-256 and compares in constant time.
+A reader gets the KDF parameters from the link, derives the root and sends the auth key to
+`POST /public/links/{id}/unlock`. The server stores its SHA-256 and compares in constant time, and
+only then answers with the wrapped key, the sealed key and a token. The reader opens the wrapped
+key with the link KEK, which never leaves the device: HKDF is one-way, so the auth key says nothing
+about it.
 
-**Suite `none`.** There is no key, and the URL has none. A password makes
-`auth key = HKDF(root, "yondrive/link-auth/v1")`, sent to the same route. Here the server is what
-checks the password.
+**Suite `none`.** There is no link key and no wrapped key, and the URL has no key. A password makes
+the same auth key, sent to the same route.
 
 An opened link key or node key MUST be 32 bytes and not all zeros.

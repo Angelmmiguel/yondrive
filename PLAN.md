@@ -269,7 +269,7 @@ interface, which is the only place the modes differ.
 | SSO | Unlock passphrase | No unlock step |
 | Recovery key, key pinning, signatures | Yes | Not used |
 | Forgotten password | Recovery key only | Admin issues a reset link |
-| Public link | Key in the URL fragment | No key. Password checked by the server |
+| Public link | Key in the URL fragment, or wrapped under a password the server checks | No key. Password checked by the server |
 | Search, thumbnails, conversions | On the device | On the device |
 
 **Downgrade protection.** A hostile server could claim to be in `none` mode so that clients upload plaintext.
@@ -292,8 +292,9 @@ interface, which is the only place the modes differ.
   down. Versions record the generation of the key they are sealed under, and each new key opens the one before.
 - **Public link.** The client creates a link key and the URL carries it in the fragment:
   `https://host/s/<id>#<key>`. Browsers do not send fragments to servers.
-- **Link password.** In end-to-end mode, Argon2id on the client wraps the link key. The server stores the wrapped
-  key and rate-limits attempts.
+- **Link password.** Argon2id on the client gives an auth key, which the server checks against a stored hash and
+  rate-limits, as at sign-in. In end-to-end mode it also gives a key that wraps the link key, and the server hands
+  the wrapped key only to the right password.
 - **Expiry, download limits and revocation** are enforced by the server, and are therefore as strong as the server
   is honest.
 
@@ -350,7 +351,7 @@ progress bar and dialog. Screens with no board are composed from these (D7), and
 | Route | Source |
 | --- | --- |
 | `/setup` | Setup board, with the changes in section 3 |
-| `/`, `/files/[id]`, `/shared`, `/recent`, `/favorites`, `/trash` | Home board |
+| `/`, `/files/[id]`, `/shared`, `/recent`, `/favorites`, `/trash`, `/tags/[id]` | Home board |
 | `/doc/[id]` | Document editor board |
 | `/sheet/[id]` | Sheets board |
 | `/notes`, `/notes/[id]` | Notes list and Note editor boards |

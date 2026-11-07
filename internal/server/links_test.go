@@ -62,7 +62,7 @@ func (d *driveUser) link(node string, extra ...any) linkBody {
 	return l
 }
 
-// passwordFor is the password field of a new link, whose proof is key(label).
+// passwordFor is the password field of a new link, whose auth key is key(label).
 func (d *driveUser) passwordFor(label string) obj {
 	p := obj{"kdf": kdf(7), "auth_key": b64(key(label))}
 	if d.mode == "e2e" {
@@ -625,13 +625,18 @@ func TestLinkPassword(t *testing.T) {
 		if doc.State != "password_required" || doc.KDF == nil || doc.Node != nil || doc.Token != "" || doc.SealedKey != "" {
 			t.Errorf("before the password %+v", doc)
 		}
-		if (doc.PasswordWrappedKey != "") != (mode == "e2e") {
-			t.Errorf("wrapped key in %s: %+v", mode, doc)
+		// Nothing to attack offline comes before the password has been shown.
+		if doc.PasswordWrappedKey != "" {
+			t.Errorf("wrapped key before the password: %+v", doc)
 		}
 		e.call(http.MethodGet, api+base+"/nodes/"+folder.ID, nil).wantError(t, http.StatusUnauthorized, "link_token_required")
 
 		for _, wrong := range []obj{{"auth_key": b64(key("wrong"))}, {"auth_key": b64(fill(1, 3))}, {"auth_key": ""}} {
-			e.call(http.MethodPost, api+base+"/unlock", wrong).wantError(t, http.StatusUnauthorized, "link_password_invalid")
+			resp := e.call(http.MethodPost, api+base+"/unlock", wrong)
+			resp.wantError(t, http.StatusUnauthorized, "link_password_invalid")
+			if strings.Contains(string(resp.body), "wrapped") {
+				t.Errorf("a wrong password got %s", resp.body)
+			}
 		}
 		if !e.audited("link_unlock_failed") {
 			t.Error("no audit row for the failure")
@@ -644,6 +649,13 @@ func TestLinkPassword(t *testing.T) {
 		if open.State != "open" || open.Node == nil || open.Token == "" || open.SealedKey != alice.sealedKey() {
 			t.Errorf("after the password %+v", open)
 		}
+		wantWrapped := ""
+		if mode == "e2e" {
+			wantWrapped = b64(fill(5, 73))
+		}
+		if open.PasswordWrappedKey != wantWrapped {
+			t.Errorf("wrapped key after the password in %s: %+v", mode, open)
+		}
 		if !e.audited("link_unlocked") {
 			t.Error("no audit row for the success")
 		}
@@ -651,11 +663,11 @@ func TestLinkPassword(t *testing.T) {
 
 		// The token goes on past the password, and renewing needs none.
 		renewed := openLink(e, l.ID, "X-Link-Token", open.Token)
-		if renewed.State != "open" {
+		if renewed.State != "open" || renewed.PasswordWrappedKey != wantWrapped {
 			t.Errorf("renewal %+v", renewed)
 		}
 		if body := string(resp.body); strings.Contains(body, b64(key("right"))) {
-			t.Errorf("the proof came back: %s", body)
+			t.Errorf("the auth key came back: %s", body)
 		}
 	})
 }

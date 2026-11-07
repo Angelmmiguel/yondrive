@@ -622,7 +622,7 @@ type Error struct {
 	// - `link_expired`, `link_revoked`: the link has ended (410)
 	// - `link_limit_reached`: the link has given all its downloads (410)
 	// - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
-	// - `link_password_invalid`: wrong password, or wrong proof of it (401)
+	// - `link_password_invalid`: wrong password (401)
 	//
 	//
 	// Examples: not_found
@@ -767,9 +767,8 @@ type LinkPage struct {
 
 // LinkPassword defines model for LinkPassword.
 type LinkPassword struct {
-	// AuthKey 32 bytes, stored only as a hash (CRYPTO.md, section 19). In `e2e` mode it comes
-	// from the link key, and shows the client has opened `wrapped_key`. In `none`
-	// mode it comes from the password.
+	// AuthKey 32 bytes from the password, in both modes, stored only as a hash (CRYPTO.md,
+	// section 19).
 	AuthKey []byte `json:"auth_key"`
 
 	// Kdf Argon2id parameters, which the client runs.
@@ -987,9 +986,10 @@ type PublicKeys struct {
 	X25519 []byte `json:"x25519"`
 }
 
-// PublicLink `password_required` carries `kdf`, and `password_wrapped_key` in `e2e` mode.
+// PublicLink `password_required` carries `kdf` and nothing else that belongs to the link.
 // `open` carries `node`, `sealed_key`, `key_generation`, `token` and
-// `token_expires_at`, with `sealed_key` empty in `none` mode.
+// `token_expires_at`, with `sealed_key` empty in `none` mode, and on a link with a
+// password in `e2e` mode `password_wrapped_key`, which opens under the link KEK.
 type PublicLink struct {
 	// DownloadsRemaining Absent if the link has no limit.
 	DownloadsRemaining *int64     `json:"downloads_remaining,omitempty"`
@@ -1939,7 +1939,7 @@ type ServerInterface interface {
 	// GetPublicVersion Read a file's current version under a link
 	// (GET /api/v1/public/links/{id}/nodes/{node_id}/version)
 	GetPublicVersion(w http.ResponseWriter, r *http.Request, id ID, nodeId LinkNodeID, params GetPublicVersionParams)
-	// UnlockPublicLink Prove the password of a link
+	// UnlockPublicLink Show the password of a link
 	// (POST /api/v1/public/links/{id}/unlock)
 	UnlockPublicLink(w http.ResponseWriter, r *http.Request, id ID)
 	// DeleteSessionKey Forget the server half of the session key
@@ -7791,7 +7791,7 @@ type StrictServerInterface interface {
 	// GetPublicVersion Read a file's current version under a link
 	// (GET /api/v1/public/links/{id}/nodes/{node_id}/version)
 	GetPublicVersion(ctx context.Context, request GetPublicVersionRequestObject) (GetPublicVersionResponseObject, error)
-	// UnlockPublicLink Prove the password of a link
+	// UnlockPublicLink Show the password of a link
 	// (POST /api/v1/public/links/{id}/unlock)
 	UnlockPublicLink(ctx context.Context, request UnlockPublicLinkRequestObject) (UnlockPublicLinkResponseObject, error)
 	// DeleteSessionKey Forget the server half of the session key

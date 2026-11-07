@@ -17,7 +17,7 @@ encryption, none of the confidentiality claims below apply: see
 | A server that replaces the app | **Yes, from the next unlock.** See below. |
 | Someone with a grant | Yes, for what was shared. That is the point. |
 | Someone with a public link | Yes, for what it covers: the current version of each file and no history. |
-| Someone with a public link's id but not its key | No. They can fetch ciphertext, and anything else the link's limits allow. |
+| Someone with a public link's id but not its key | No. Without a password on the link, they can fetch ciphertext within its limits. With one, they get nothing until they have it. |
 | Malware on an unlocked device | Yes. |
 
 ## What the server still sees
@@ -68,7 +68,7 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 | **Removing someone from a shared folder.** They may have kept the keys. | The node key rotates on revoke, for future content, from the top of the share down. The app says plainly that earlier content may have been copied. | What they already hold stays readable to them. |
 | **A false "shared with you".** A server can make a folder whose key it knows and present it as shared, then read what is uploaded there. | Each grant is signed by its granter, over the node, both users, the role, the key generation and the sealed key. A client verifies it against the granter's pinned key, and that the granter owns the node. | A server can also make an account, and share from it. That shows as a share from someone the user does not know, which is where the safety number matters. |
 | **A stolen session can delete files.** | Trash, version history and a grace period enforced by the server before anything is purged. | An honest server is assumed for the grace period. |
-| **Malicious documents from other users** run in the same origin as the keys. | Parsers run in workers and output a typed model, never HTML. Sanitising, a strict CSP, and SVG and HTML are downloaded rather than rendered inline. | A parser bug that escapes the model. |
+| **Malicious documents from other users** run in the same origin as the keys. | Parsers run in workers and output a typed model, never HTML. Sanitising, a strict CSP, and SVG and HTML are downloaded rather than rendered inline, whether the name or the type says so. A service worker stream is never served as anything but media or an attachment. | A parser bug that escapes the model. |
 
 ## What tampering is detected
 
@@ -112,12 +112,12 @@ The key of a link is in the URL's fragment, which browsers do not send, so the s
 what it can open. Whoever has the URL has the key. Expiry, revocation and download limits are
 enforced by the server, and are as strong as the server is honest.
 
-**A link's password** is checked on the client, which is why a link with one has no key in its
-URL. The server hands the wrapped link key to anyone who asks, within the limits, so **someone with
-the URL can attack the password offline**, at the Argon2id price per guess, and limiting requests
-does not change that once they have it. A strong password is what protects such a link. The same
-is true of someone with the database. In `none` mode the server checks the password itself, the
-wrapped key does not exist, and the limits do hold against guessing.
+**A link's password** is checked by the server, in both modes and as at sign-in, against a stored
+hash of a key derived from it. A link with a password has no key in its URL, and the wrapped link key
+is given only to the right password. So someone with the URL can only guess online, within the limits
+per address and per link. **An offline attack needs the server's stored data**, at the Argon2id price
+per guess, and a strong password is what protects a link against that. In `e2e` mode the server never
+sees anything that opens the wrapped key: the link KEK is a separate derivation and stays on the device.
 
 **Link tokens.** Reading under a link takes a token from `X-Link-Token`, signed by the server and
 bound to the link and its node. It lasts 15 minutes and can be renewed for a day. The link's state

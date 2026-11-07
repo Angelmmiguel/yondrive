@@ -148,7 +148,7 @@ GET    /links?cursor=                   made by me, with their nodes
 POST   /links/{id}/revoke
 DELETE /links/{id}
 GET    /public/links/{id}               state, or open with a token
-POST   /public/links/{id}/unlock        proof of the password -> open with a token
+POST   /public/links/{id}/unlock        auth key of the password -> open with a token
 GET    /public/links/{id}/nodes/{nid}   X-Link-Token, as all below
 GET    /public/links/{id}/nodes/{nid}/children?cursor=
 GET    /public/links/{id}/nodes/{nid}/version    the current one
@@ -476,6 +476,75 @@ never saw. A pending key lives in memory, so a reload makes a new one.
 
 **The display name** typed in the wizard and in settings stays in `localStorage`. The API has
 no field for it, and the canary test checks that it never leaves the device.
+
+### Drive
+
+`src/lib/drive` is the client of the Drive above. Its modules are pure and take what they
+reach outside for, so they run against a fake server in vitest (`src/lib/testing/drive.ts`), and
+`src/lib/state/drive.svelte.ts` wires one `Drive` to the session of the app shell. They never read
+the mode: everything goes through the `Sealer`, with keys that are empty strings in `none`.
+
+| Where | Holds |
+| --- | --- |
+| `tree.ts` | Nodes, their opened metadata and their keys, in memory. Everything creates, renames, moves and trashes through here. |
+| `upload/` | The frame plan, what survives a reload, one file's upload (`engine.ts`) and the queue. |
+| `download/` | Verifying a version, reading it whole, `Range` arithmetic. |
+| `stream/` | The service worker's work (`host.ts`) and the page's side of it (`client.ts`). |
+| `thumbs/`, `viewers/` | Making and reading thumbnails, and what may be shown in the app. |
+| `workers/` | The workers for pages of nodes, frames and thumbnails. |
+| `journal.ts`, `versions.ts`, `sort.ts`, `metadata.ts`, `kinds.ts` | What they say. |
+
+**Tree.** Lists come paged by id and are sorted here, which is also the only place they can be. A page
+of 64 nodes or more opens in a worker that holds nothing between pages (Spike C). After the root, a walk
+reads every folder behind the scenes, breadth first, and that is what fills favorites, recent, tags and
+the storage bar. A file with no version has not arrived yet and does not show. Metadata that does not
+open shows as an unreadable item and does not spoil the list.
+
+**Tags** live in the metadata of the root, each with an id, a name and a tone, and files hold the ids.
+So a tag's page is `/tags/<id>`, as a name must not reach the server in an address.
+
+**Uploads.** A file's node comes first, then the reservation, then the frames, a few at a time, sealed in
+a pool of workers that hold the key of this version and never a node key. A digest is written to IndexedDB
+before its frame leaves, as the server lists which frames arrived but not their digests, and the content
+hash needs them all. After a reload the upload shows as interrupted, and picking the same file (name, size
+and date) or dropping it again goes on from what arrived, with the key opened from the tree. The name of
+the file comes from its node, so no name is kept on the device. If the server holds a frame this device has no digest
+for, or a frame sent before the reload arrives late, the upload starts over, since a frame sealed again has
+another nonce. A cancelled or refused first upload trashes and purges its node, which keeps it out of the
+trash list and frees the name.
+
+**Reads.** Before any frame, the signature has to verify against the signer and the frame hashes have to add
+up to the signed content hash. That ties each hash to the signature, so a frame can be checked and opened on
+its own, as seeking needs. Until sharing arrives the only signer accepted is the signed-in owner, whose public
+keys come from the session and not from the server. A restored version reads with `content_version_id` and
+`content_author_id`.
+
+**Streaming.** In a secure context `src/service-worker.ts` answers `/stream/<id>` and passes everything else by.
+A page verifies the version and hands over its one key by transfer. A `Range` maps to frames, each fetched,
+checked and opened as the response pulls it, with one frame of read-ahead; an open-ended range gets 16 MiB. The
+address holds a random id and the name goes in a header the worker makes, so a name never reaches the server even if
+the worker is gone. The worker keeps keys in memory, and loses them on a lock (a page tells it, and it also
+listens on the tabs' channel), on sign-out, after ten idle minutes and whenever the browser stops it; it then asks
+the open pages again, which answer only while they hold the tree. A stream is served as media, inline, only for an `audio/` or
+`video/` type, and as an attachment otherwise, with `nosniff` and a sandboxing CSP.
+
+**Without a service worker**, as over plain HTTP, a download is read into a Blob, up to 1 GiB, with a notice that
+says so and an error past the limit that says to use HTTPS. Media loads the same way.
+
+**Thumbnails** are made by the uploader after the commit: images in a worker, video frames in a `<video>`. What
+will not decode gets the generic icon. They are sealed under CRYPTO.md section 18 and stored as small blobs. Tampered
+with, one just shows the icon.
+
+**Viewers** read the whole file in the frame workers, up to a limit per kind, except media. SVG and HTML, by name or
+by type, are only ever downloaded. pdf.js and its worker are built with the app and loaded when a PDF opens, with no
+standard fonts, CMaps or wasm decoders embedded, so a PDF relying on those draws with fallbacks or without those images.
+
+**Workers and the CSP.** A worker takes its policy from the response that delivered its script, not from the page, so
+`web/embed.go` gives each script under `_app/immutable/workers/` and `service-worker.js` its own: its origin's scripts and
+`connect-src 'self'`, nothing else.
+
+**Journal.** Read on focus and once a minute. It starts at the end, since the first read of the tree has it all. Each
+changed node is read again, and beyond 100 of them the tree is.
 
 Browser specs start a throwaway server per file (`web/tests/server.ts`) and drive the wizard
 through the app. `YONDRIVE_E2E_BIN` names a binary already built, with the app embedded, when

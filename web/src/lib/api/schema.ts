@@ -1396,7 +1396,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Prove the password of a link
+         * Show the password of a link
          * @description Compares the hash in constant time, and answers `link_password_invalid` if it is
          *     wrong. Every attempt counts against the address and the link, right or wrong
          *     (`rate_limited`). The answer is the same as an open link's.
@@ -1580,7 +1580,7 @@ export interface components {
              *     - `link_expired`, `link_revoked`: the link has ended (410)
              *     - `link_limit_reached`: the link has given all its downloads (410)
              *     - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
-             *     - `link_password_invalid`: wrong password, or wrong proof of it (401)
+             *     - `link_password_invalid`: wrong password (401)
              * @example not_found
              */
             code: string;
@@ -2498,9 +2498,8 @@ export interface components {
             kdf: components["schemas"]["KDF"];
             /**
              * Format: byte
-             * @description 32 bytes, stored only as a hash (CRYPTO.md, section 19). In `e2e` mode it comes
-             *     from the link key, and shows the client has opened `wrapped_key`. In `none`
-             *     mode it comes from the password.
+             * @description 32 bytes from the password, in both modes, stored only as a hash (CRYPTO.md,
+             *     section 19).
              */
             auth_key: string;
             /**
@@ -2600,9 +2599,10 @@ export interface components {
             next_cursor?: string;
         };
         /**
-         * @description `password_required` carries `kdf`, and `password_wrapped_key` in `e2e` mode.
+         * @description `password_required` carries `kdf` and nothing else that belongs to the link.
          *     `open` carries `node`, `sealed_key`, `key_generation`, `token` and
-         *     `token_expires_at`, with `sealed_key` empty in `none` mode.
+         *     `token_expires_at`, with `sealed_key` empty in `none` mode, and on a link with a
+         *     password in `e2e` mode `password_wrapped_key`, which opens under the link KEK.
          */
         PublicLink: {
             id: string;

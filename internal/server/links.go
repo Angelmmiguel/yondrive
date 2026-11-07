@@ -370,6 +370,9 @@ func (s *Server) openLink(ctx context.Context, l store.Link, sess linkSession) (
 		TokenExpiresAt: &sess.expires,
 		ExpiresAt:      optionalTime(l.ExpiresAt),
 	}
+	if l.PasswordWrappedKey != nil {
+		out.PasswordWrappedKey = &l.PasswordWrappedKey
+	}
 	if l.DownloadLimit > 0 {
 		remaining := max(l.DownloadLimit-l.DownloadCount, 0)
 		out.DownloadsRemaining = &remaining
@@ -404,11 +407,7 @@ func (s *Server) GetPublicLink(ctx context.Context, req oapi.GetPublicLinkReques
 			if err := json.Unmarshal(l.KDF, &kdf); err != nil {
 				return nil, err
 			}
-			out := oapi.PublicLink{Id: l.ID, State: oapi.PasswordRequired, Kdf: &kdf, ExpiresAt: optionalTime(l.ExpiresAt)}
-			if l.PasswordWrappedKey != nil {
-				out.PasswordWrappedKey = &l.PasswordWrappedKey
-			}
-			return oapi.GetPublicLink200JSONResponse(out), nil
+			return oapi.GetPublicLink200JSONResponse(oapi.PublicLink{Id: l.ID, State: oapi.PasswordRequired, Kdf: &kdf, ExpiresAt: optionalTime(l.ExpiresAt)}), nil
 		}
 	}
 	out, err := s.openLink(ctx, l, sess)
@@ -418,10 +417,9 @@ func (s *Server) GetPublicLink(ctx context.Context, req oapi.GetPublicLinkReques
 	return oapi.GetPublicLink200JSONResponse(out), nil
 }
 
-// UnlockPublicLink trades proof of a link's password for a token. In end-to-end
-// mode the password has already been tried on the client, against the wrapped link
-// key, and the proof comes from what that opened. Without keys, the server is what
-// checks it.
+// UnlockPublicLink trades the auth key of a link's password for a token and, in
+// end-to-end mode, the wrapped link key. Nothing that could be attacked offline
+// leaves the server before this, so guessing goes through the limits, as at sign-in.
 func (s *Server) UnlockPublicLink(ctx context.Context, req oapi.UnlockPublicLinkRequestObject) (oapi.UnlockPublicLinkResponseObject, error) {
 	if !blobs.ValidID(req.Id) {
 		return nil, badRequest(codeInvalidID)
