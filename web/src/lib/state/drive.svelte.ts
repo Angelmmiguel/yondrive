@@ -5,6 +5,7 @@
  */
 import { LockedError } from '$lib/account/errors';
 import { registerDocumentText } from '$lib/docs/search-text';
+import { registerSheetText } from '$lib/sheets/search-text';
 import { formatOf } from '$lib/formats/document';
 import { viewerFor } from '$lib/drive/viewers/kinds';
 import { api } from '$lib/api/client';
@@ -32,8 +33,9 @@ import { toasts } from './toasts.svelte';
 
 const VIEW_KEY = 'yondrive-drive-view';
 
-// Documents are searched by their text, read on the device like any other file's.
+// Documents and spreadsheets are searched by their text, read on the device like any other file's.
 registerDocumentText();
+registerSheetText();
 const POLL_MS = 60_000;
 
 export type ViewMode = 'list' | 'grid';
