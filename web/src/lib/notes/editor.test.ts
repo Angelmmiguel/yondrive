@@ -47,8 +47,9 @@ const images = (view: EditorView) => {
 function type(view: EditorView, text: string) {
 	for (const ch of text) {
 		const { from, to } = view.state.selection;
-		const handled = view.someProp('handleTextInput', (f) => f(view, from, to, ch, () => null));
-		if (!handled) view.dispatch(view.state.tr.insertText(ch, from, to));
+		const insert = () => view.state.tr.insertText(ch, from, to);
+		const handled = view.someProp('handleTextInput', (f) => f(view, from, to, ch, insert));
+		if (!handled) view.dispatch(insert());
 	}
 }
 
