@@ -4,6 +4,8 @@
  * call the layers below. Colours come from the semantic tokens only.
  */
 export { default as AppRail } from './AppRail.svelte';
+export { default as AppShell } from './AppShell.svelte';
+export { default as AuthCard } from './AuthCard.svelte';
 export { default as Avatar } from './Avatar.svelte';
 export { default as Banner } from './Banner.svelte';
 export { default as Button } from './Button.svelte';
@@ -20,12 +22,15 @@ export { default as HealthStatus } from './HealthStatus.svelte';
 export { default as Icon } from './Icon.svelte';
 export { default as Logo } from './Logo.svelte';
 export { default as Menu } from './Menu.svelte';
+export { default as ModeAlert } from './ModeAlert.svelte';
 export { default as NavItem } from './NavItem.svelte';
 export { default as NavSection } from './NavSection.svelte';
+export { default as PassphraseFields } from './PassphraseFields.svelte';
 export { default as PasswordField } from './PasswordField.svelte';
 export { default as ProgressBar } from './ProgressBar.svelte';
 export { default as RadioCard } from './RadioCard.svelte';
 export { default as RadioGroup } from './RadioGroup.svelte';
+export { default as RecoveryKeyPanel } from './RecoveryKeyPanel.svelte';
 export { default as SearchField } from './SearchField.svelte';
 export { default as SegmentedControl } from './SegmentedControl.svelte';
 export { default as Select } from './Select.svelte';

@@ -45,7 +45,8 @@ export const ICONS = {
 	eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6',
 	'eye-off':
 		'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6M4 4l16 16',
-	more: 'M5 12h.01M12 12h.01M19 12h.01'
+	more: 'M5 12h.01M12 12h.01M19 12h.01',
+	menu: 'M4 6h16M4 12h16M4 18h16'
 } as const;
 
 export type IconName = keyof typeof ICONS;
