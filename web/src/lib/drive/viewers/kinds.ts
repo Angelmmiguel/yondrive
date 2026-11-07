@@ -85,7 +85,7 @@ export function isDownloadOnly(file: { name: string; type: string }): boolean {
 export function viewerFor(file: { name: string; type: string }): ViewerKind | null {
 	if (isDownloadOnly(file)) return null;
 	const type = inferType(file.name, file.type).toLowerCase();
-	if (type in IMAGES) return 'image';
+	if (Object.hasOwn(IMAGES, type)) return 'image';
 	if (type === 'application/pdf') return 'pdf';
 	if (type.startsWith('audio/')) return 'audio';
 	if (type.startsWith('video/')) return 'video';
@@ -95,7 +95,8 @@ export function viewerFor(file: { name: string; type: string }): ViewerKind | nu
 
 /** The type an image blob is built with: only ever one of the safe ones. */
 export function safeImageType(file: { name: string; type: string }): string {
-	return IMAGES[inferType(file.name, file.type).toLowerCase()] ?? 'application/octet-stream';
+	const type = inferType(file.name, file.type).toLowerCase();
+	return Object.hasOwn(IMAGES, type) ? IMAGES[type] : 'application/octet-stream';
 }
 
 /** Decodes text for the viewer. Bytes that are not UTF-8 show as replacement characters. */

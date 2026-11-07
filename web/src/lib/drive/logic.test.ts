@@ -288,6 +288,14 @@ describe('viewers', () => {
 		expect(viewerFor({ name, type })).toBeNull();
 	});
 
+	it.each(['constructor', '__proto__'])(
+		'does not take a type named %s, which metadata can claim, for an image',
+		(type) => {
+			expect(viewerFor({ name: 'a', type })).toBeNull();
+			expect(safeImageType({ name: 'a', type })).toBe('application/octet-stream');
+		}
+	);
+
 	it('builds an image blob only with a safe type', () => {
 		expect(safeImageType({ name: 'a.png', type: '' })).toBe('image/png');
 		expect(safeImageType({ name: 'a.png', type: 'text/html' })).toBe('application/octet-stream');
