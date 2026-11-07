@@ -7,7 +7,8 @@ import { saveVersion, type SaveDeps } from './save';
 const server = vi.hoisted(() => ({
 	current: 'v1',
 	loseNextAnswer: false,
-	expectedSeen: [] as string[]
+	expectedSeen: [] as string[],
+	committed: [] as string[]
 }));
 
 vi.mock('$lib/drive/upload/engine', () => ({
@@ -19,6 +20,7 @@ vi.mock('$lib/drive/upload/engine', () => ({
 		server.expectedSeen.push(r.expected);
 		if (r.expected !== server.current) throw new ApiError(409, 'version_conflict');
 		server.current = r.versionId;
+		server.committed.push(r.versionId);
 		if (server.loseNextAnswer) {
 			server.loseNextAnswer = false;
 			throw new TypeError('Failed to fetch');
@@ -48,6 +50,7 @@ describe('saving a version', () => {
 		server.current = 'v1';
 		server.loseNextAnswer = false;
 		server.expectedSeen = [];
+		server.committed = [];
 	});
 
 	it('takes a save whose answer was lost as its own, not as someone else’s', async () => {
@@ -61,8 +64,24 @@ describe('saving a version', () => {
 		// The editor still thinks v1 is current, and saves again on top of it.
 		const saved = await saveVersion(deps(), { id: 'n1', name: 'a.docx' }, bytes, 'v1');
 		expect(server.expectedSeen).toEqual(['v1', 'v1', landed]);
-		expect(saved.currentVersion).toBe(server.current);
+		expect(saved.version).toBe(server.current);
 		expect(server.current).not.toBe(landed);
+	});
+
+	it('bases the next save on the version it committed, not on a later one', async () => {
+		const d = deps();
+		const refresh = d.tree.refresh;
+		// Someone else commits just after this save, before its refresh answers.
+		d.tree.refresh = async (id: string) => {
+			server.current = 'theirs';
+			return refresh(id);
+		};
+		const saved = await saveVersion(d, { id: 'n1', name: 'a.docx' }, new Uint8Array([1]), 'v1');
+		expect(saved.version).toBe(server.committed[0]);
+		// So the next save from this editor meets their version, and is refused.
+		await expect(
+			saveVersion(deps(), { id: 'n1', name: 'a.docx' }, new Uint8Array([2]), saved.version)
+		).rejects.toMatchObject({ code: 'version_conflict' });
 	});
 
 	it('still refuses a version someone else saved', async () => {

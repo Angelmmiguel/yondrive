@@ -27,14 +27,17 @@ export interface SaveDeps {
  */
 const unconfirmed = new Map<string, Set<string>>();
 
-/** Sends bytes as the next version of a node, on top of `expected` ('' for a new file). */
+/**
+ * Sends bytes as the next version of a node, on top of `expected` ('' for a new
+ * file), and returns the version committed.
+ */
 async function upload(
 	deps: SaveDeps,
 	nodeId: string,
 	name: string,
 	bytes: Uint8Array,
 	expected: string
-): Promise<void> {
+): Promise<string> {
 	const file = new File([bytes as Uint8Array<ArrayBuffer>], name, {
 		type: inferType(name, ''),
 		lastModified: deps.now?.() ?? Date.now()
@@ -52,7 +55,7 @@ async function upload(
 		try {
 			await sendUpload(file, record, nodeKey, deps.engine);
 			unconfirmed.delete(nodeId);
-			return;
+			return versionId;
 		} catch (e) {
 			await abandonUpload(record.uploadId, deps.engine);
 			// Rotated meanwhile: once more under the new key.
@@ -65,7 +68,7 @@ async function upload(
 				const current = (await deps.tree.refresh(nodeId))?.currentVersion;
 				if (current === versionId) {
 					unconfirmed.delete(nodeId);
-					return;
+					return versionId;
 				}
 				// An earlier save of ours landed after all: these bytes go on top of it.
 				if (current != null && unconfirmed.get(nodeId)?.has(current)) {
@@ -86,21 +89,26 @@ async function upload(
 	}
 }
 
-/** Saves bytes over the version this editor started from, renaming the file if asked. */
+/**
+ * Saves bytes over the version this editor started from. Returns the node and
+ * the version this save committed, which the next save is based on: the node's
+ * current version may already be someone else's, saved just after.
+ */
 export async function saveVersion(
 	deps: SaveDeps,
 	node: Pick<DriveNode, 'id' | 'name'>,
 	bytes: Uint8Array,
 	expected: string
-): Promise<DriveNode> {
-	await upload(deps, node.id, node.name, bytes, expected);
+): Promise<{ node: DriveNode; version: string }> {
+	const version = await upload(deps, node.id, node.name, bytes, expected);
 	await deps.tree.refresh(node.id);
 	const now = deps.now?.() ?? Date.now();
-	return deps.tree.patch(node.id, {
+	const saved = await deps.tree.patch(node.id, {
 		size: bytes.length,
 		modified: now,
 		type: inferType(node.name, '')
 	});
+	return { node: saved, version };
 }
 
 /** Makes a new file with these bytes, with a name not yet taken in the folder. */

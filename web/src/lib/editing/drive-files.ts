@@ -32,8 +32,8 @@ export function driveFiles(): Pick<EditSessionDeps, 'save' | 'copy' | 'rename' |
 	return {
 		save: async (file, out) => {
 			const saved = await saveVersion(saveDeps(), file, out, file.version);
-			indexed(saved.id, out);
-			return saved.currentVersion ?? '';
+			indexed(saved.node.id, out);
+			return saved.version;
 		},
 		copy: async (file, out) => {
 			const who = account.account?.user.username ?? 'me';
