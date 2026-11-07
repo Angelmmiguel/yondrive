@@ -2764,7 +2764,7 @@ components:
           type: string
         client_secret:
           type: string
-          description: Write-only. Absent keeps the one stored.
+          description: Write-only. Absent or empty keeps the one stored.
         scopes:
           type: string
           description: Separated by spaces, including `openid`.

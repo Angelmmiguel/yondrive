@@ -138,7 +138,10 @@ func mergeOIDCSettings(cur store.OIDCSettings, in oapi.OIDCSettingsInput) (store
 	set(&cur.Enabled, in.Enabled)
 	set(&cur.Label, in.Label)
 	set(&cur.ClientID, in.ClientId)
-	set(&cur.ClientSecret, in.ClientSecret)
+	// A form left blank means no change, and is no way to clear the secret by accident.
+	if in.ClientSecret != nil && *in.ClientSecret != "" {
+		cur.ClientSecret = *in.ClientSecret
+	}
 	set(&cur.Scopes, in.Scopes)
 	set(&cur.AdminGroup, in.AdminGroup)
 	set(&cur.AdminClaim, in.AdminClaim)

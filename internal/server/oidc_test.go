@@ -1006,8 +1006,9 @@ func TestOIDCSettings(t *testing.T) {
 		if !got.OIDC.Set || got.OIDC.Redirect != "https://drive.example.com/auth/oidc/callback" {
 			t.Errorf("settings = %s", read.body)
 		}
-		// Leaving it out keeps it.
+		// Leaving it out, or blank, keeps it.
 		patch(obj{"label": "Other"}).wantStatus(t, http.StatusOK)
+		patch(obj{"client_secret": ""}).wantStatus(t, http.StatusOK)
 		st, err := e.st.Settings(ctx)
 		if err != nil || st.OIDC.ClientSecret != oidctest.ClientSecret || st.OIDC.Label != "Other" {
 			t.Errorf("stored = %+v, %v", st.OIDC, err)

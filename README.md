@@ -218,6 +218,9 @@ set in the environment:
 | `YONDRIVE_PUBLIC_URL` | Set in the wizard | Address used in share links and for OIDC |
 | `YONDRIVE_SECURE` | `auto` | Mark cookies `Secure`: `auto` follows the HTTPS status reported by a trusted proxy |
 | `YONDRIVE_TRUSTED_PROXIES` | Empty | Proxy addresses or CIDRs whose forwarded headers are trusted |
+| `YONDRIVE_CA_FILE` | Empty | PEM file of certificate authorities to trust as well as the image's bundle, for an internal identity provider |
+
+Guides: [reverse proxies](docs/PROXY.md) and [identity providers](docs/OIDC.md).
 
 ## Development
 

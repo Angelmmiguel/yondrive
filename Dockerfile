@@ -31,8 +31,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}"
 RUN mkdir /rootfs-data && chown 99:100 /rootfs-data && chmod 700 /rootfs-data
 
 FROM scratch
-# The server never dials out for content, but single sign-on will need to
-# verify an identity provider's certificate.
+# The server never dials out for content, but single sign-on has to verify an
+# identity provider's certificate. YONDRIVE_CA_FILE adds an internal authority.
 COPY --from=server /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=server /yondrive /yondrive
 COPY --from=server --chown=99:100 /rootfs-data /data

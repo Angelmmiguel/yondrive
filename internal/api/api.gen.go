@@ -1162,7 +1162,7 @@ type OIDCSettingsInput struct {
 	AllowInsecure *bool   `json:"allow_insecure,omitempty"`
 	ClientId      *string `json:"client_id,omitempty"`
 
-	// ClientSecret Write-only. Absent keeps the one stored.
+	// ClientSecret Write-only. Absent or empty keeps the one stored.
 	ClientSecret *string `json:"client_secret,omitempty"`
 	Enabled      *bool   `json:"enabled,omitempty"`
 

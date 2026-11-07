@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Angelmmiguel/yondrive/internal/auth"
+	"github.com/Angelmmiguel/yondrive/internal/oidc"
 	"github.com/Angelmmiguel/yondrive/internal/server"
 	"github.com/Angelmmiguel/yondrive/internal/store"
 	"github.com/Angelmmiguel/yondrive/web"
@@ -79,6 +81,9 @@ serve flags:
   --trusted-proxies  comma-separated addresses or CIDR ranges of the reverse
                      proxy, whose forwarded headers are then believed
                      (env YONDRIVE_TRUSTED_PROXIES)
+  --ca-file          PEM file of certificate authorities to trust as well as the
+                     system's, for an identity provider behind an internal one
+                     (env YONDRIVE_CA_FILE)
 `)
 }
 
@@ -89,6 +94,7 @@ type settings struct {
 	publicURL string
 	secure    server.SecureMode
 	proxies   []netip.Prefix
+	roots     *x509.CertPool
 }
 
 func parseSettings(args []string) (settings, error) {
@@ -99,6 +105,7 @@ func parseSettings(args []string) (settings, error) {
 	publicURL := fs.String("public-url", os.Getenv("YONDRIVE_PUBLIC_URL"), "public address")
 	secure := fs.String("secure", env("YONDRIVE_SECURE", "auto"), "auto, true or false")
 	proxies := fs.String("trusted-proxies", os.Getenv("YONDRIVE_TRUSTED_PROXIES"), "reverse proxy addresses or CIDR ranges")
+	caFile := fs.String("ca-file", os.Getenv("YONDRIVE_CA_FILE"), "PEM file of extra certificate authorities")
 	if err := fs.Parse(args); err != nil {
 		return settings{}, err
 	}
@@ -113,6 +120,11 @@ func parseSettings(args []string) (settings, error) {
 	}
 	if s.proxies, err = parsePrefixes(*proxies); err != nil {
 		return settings{}, fmt.Errorf("--trusted-proxies: %w", err)
+	}
+	// A file that does not load stops the server: sign-in failing later, for a reason
+	// far from here, is harder to find.
+	if s.roots, err = oidc.LoadRoots(*caFile); err != nil {
+		return settings{}, fmt.Errorf("--ca-file: %w", err)
 	}
 	return s, nil
 }
@@ -147,6 +159,7 @@ func serve(args []string) error {
 		Version:        version,
 		Secure:         cfg.secure,
 		TrustedProxies: cfg.proxies,
+		OIDCRoots:      cfg.roots,
 		DataDir:        cfg.dataDir,
 		PublicURL:      cfg.publicURL,
 		SetupToken:     setupToken,

@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -177,5 +181,25 @@ func TestAdminRejectsBadUsage(t *testing.T) {
 		if err := admin(args); err == nil {
 			t.Errorf("admin(%v) accepted", args)
 		}
+	}
+}
+
+func TestParseSettingsLoadsTheCAFile(t *testing.T) {
+	if s, err := parseSettings(nil); err != nil || s.roots != nil {
+		t.Fatalf("no file: %v, %v", s.roots, err)
+	}
+	if _, err := parseSettings([]string{"--ca-file", filepath.Join(t.TempDir(), "missing.pem")}); err == nil {
+		t.Error("a missing file was accepted")
+	}
+	ts := httptest.NewTLSServer(http.NotFoundHandler())
+	defer ts.Close()
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ts.Certificate().Raw})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YONDRIVE_CA_FILE", path)
+	if s, err := parseSettings(nil); err != nil || s.roots == nil {
+		t.Errorf("with a file: %v, %v", s.roots, err)
 	}
 }

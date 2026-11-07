@@ -2234,7 +2234,7 @@ export interface components {
             /** @description Exactly as the provider spells it, trailing slash included. */
             issuer?: string;
             client_id?: string;
-            /** @description Write-only. Absent keeps the one stored. */
+            /** @description Write-only. Absent or empty keeps the one stored. */
             client_secret?: string;
             /** @description Separated by spaces, including `openid`. */
             scopes?: string;
