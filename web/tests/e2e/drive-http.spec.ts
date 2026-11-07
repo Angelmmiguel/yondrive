@@ -47,12 +47,22 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			page.on('request', (request) => {
 				if (new URL(request.url()).pathname.startsWith('/stream/')) stream = true;
 			});
+			// The notice lives only while the download does, and a small file is done in
+			// a blink: hold the bytes back until the notice has been seen.
+			let release = () => {};
+			const held = new Promise<void>((resolve) => (release = resolve));
+			await page.route('**/api/v1/blobs/**', async (route) => {
+				await held;
+				await route.continue();
+			});
 			const notice = page.getByText(/held in memory while it downloads/);
 			const bytes = download(page, file.name);
 			await expect(notice).toBeVisible();
+			release();
 			expect((await bytes).equals(file.bytes)).toBe(true);
 			expect(stream).toBe(false);
 			await expect(notice).toHaveCount(0);
+			await page.unroute('**/api/v1/blobs/**');
 		});
 
 		test('still opens a viewer', async () => {
