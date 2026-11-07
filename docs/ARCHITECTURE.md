@@ -887,8 +887,8 @@ what its bytes say is a picture the browser may draw, and fetches nothing else. 
 to its new notebook (numbered on a clash), to the trash and back, and deleted with it; the export leaves out those
 of a note in the trash. Typing `[[` offers notes and Drive
 files; `/` offers blocks; `# `, `- `, `1. `, `[] `, `> ` and three backticks at the start of a line set one. A
-checklist item is also `[ ] ` or `[x] ` (ticked), with or without the `- ` before it, so Markdown typed as it would
-be written becomes one.
+checklist item is also `[ ] ` or `[x] ` (ticked), with or without the `- ` before it, on any line or list item, so
+Markdown typed as it would be written becomes one.
 Callouts are GitHub's `> [!NOTE]`, a quote with a kind in the document model, which the Markdown reader and
 writer carry.
 

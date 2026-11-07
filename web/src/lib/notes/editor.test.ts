@@ -78,6 +78,18 @@ describe('the note editor', () => {
 		view.destroy();
 	});
 
+	it('takes a checklist typed line after line, as Markdown is written', () => {
+		const { view } = editor('\n');
+		type(view, '- [x] Write the schema');
+		view.someProp('handleKeyDown', (f) => f(view, new KeyboardEvent('keydown', { key: 'Enter' })));
+		type(view, '- [ ] Benchmark');
+		expect(tasks(view)).toEqual([
+			{ text: 'Write the schema', checked: true },
+			{ text: 'Benchmark', checked: false }
+		]);
+		view.destroy();
+	});
+
 	it('leaves brackets later in a line as text', () => {
 		const { view } = editor('\n');
 		type(view, 'a [x] b');

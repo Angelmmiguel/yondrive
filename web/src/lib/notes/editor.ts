@@ -155,9 +155,9 @@ const SHORTCUTS: [RegExp, Command][] = [
 ];
 
 /**
- * A checklist item as Markdown writes it, ticked with an `x`: `[ ] `, `[x] `, or
- * `- [ ] ` at the start of a line, or `[ ] ` at the start of a bullet, which is
- * what typing `- [ ] ` makes of it once the `- ` has become a bullet.
+ * A checklist item as Markdown writes it, ticked with an `x`: `[ ] `, `[x] ` or
+ * `- [ ] ` at the start of any line or list item. Typed on a bullet, which `- `
+ * has already made, or on the next item of a checklist, it sets that item.
  */
 const CHECK = /^(?:[-*]\s)?\[([ xX]?)\]$/;
 
@@ -173,7 +173,7 @@ function shortcuts(): Plugin {
 				if (a.style !== 'normal') return false;
 				const before = para.textBetween(0, $from.parentOffset, undefined, '￼');
 				const box = CHECK.exec(before);
-				if (box && (a.list === null || a.list.kind === 'bullet')) {
+				if (box) {
 					const checked = box[1].toLowerCase() === 'x';
 					const list = { kind: 'check' as const, level: a.list?.level ?? 0, checked };
 					const tr = view.state.tr.delete(from - before.length, from);
