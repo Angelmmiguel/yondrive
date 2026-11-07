@@ -87,20 +87,33 @@ function wire(e: unknown): WireError {
 export function expose(target: object, port: Port): void {
 	let queue = Promise.resolve();
 	port.onmessage = (event: MessageEvent<Request>) => {
-		const req = event.data;
+		const req: unknown = event.data;
+		// Nothing can be answered without an id; the queue must never reject, or
+		// every later call would go unanswered.
+		if (req === null || typeof req !== 'object' || typeof (req as Request).id !== 'number') return;
+		const { id, method, args } = req as Request;
 		queue = queue.then(async () => {
 			let reply: Reply;
 			let list: Transferable[] = [];
 			try {
-				const f = callable(target, req.method);
-				if (!f) throw new Error(`no method ${req.method}`);
-				const value = await f.apply(target, req.args);
+				const f = typeof method === 'string' ? callable(target, method) : null;
+				if (!f) throw new Error(`no method ${String(method)}`);
+				const value = await f.apply(target, Array.isArray(args) ? args : []);
 				if (value !== null && typeof value === 'object') list = transfers.get(value) ?? [];
-				reply = { id: req.id, ok: true, value };
+				reply = { id, ok: true, value };
 			} catch (e) {
-				reply = { id: req.id, ok: false, error: wire(e) };
+				reply = { id, ok: false, error: wire(e) };
 			}
-			port.postMessage(reply, list);
+			try {
+				port.postMessage(reply, list);
+			} catch (e) {
+				// A value that cannot be cloned, or a buffer already moved.
+				try {
+					port.postMessage({ id, ok: false, error: wire(e) } satisfies Reply);
+				} catch {
+					// The port is gone.
+				}
+			}
 		});
 	};
 }

@@ -19,11 +19,20 @@ class Target {
 		const b = new Uint8Array([1, 2, 3]);
 		return transfer({ b }, [b.buffer]);
 	}
+	uncloneable() {
+		return { f: () => 1 };
+	}
+	moved() {
+		const b = new Uint8Array([1]);
+		structuredClone(b.buffer, { transfer: [b.buffer] });
+		return transfer({ b }, [b.buffer]);
+	}
 }
 
 /** A worker made of a message channel, with the target on the far port. */
 function fakeWorker(): Worker {
 	const ch = new MessageChannel();
+	fakeWorker.port = ch.port2;
 	expose(new Target(), ch.port1 as never);
 	return {
 		postMessage: (m: unknown) => ch.port2.postMessage(m),
@@ -37,6 +46,8 @@ function fakeWorker(): Worker {
 		}
 	} as unknown as Worker;
 }
+
+fakeWorker.port = null as MessagePort | null;
 
 describe('rpc', () => {
 	it('calls methods and carries errors with their fields', async () => {
@@ -63,6 +74,16 @@ describe('rpc', () => {
 		await expect(w.api.slow()).rejects.toBeInstanceOf(RpcTimeoutError);
 		expect(failed).toBeInstanceOf(RpcTimeoutError);
 		expect(await w.api.add(1, 1)).toBe(2);
+		w.close();
+	});
+
+	it('keeps answering after a malformed message or a reply that cannot be sent', async () => {
+		const w = wrap<Target>(fakeWorker, { timeoutMs: 1000 });
+		expect(await w.api.add(1, 1)).toBe(2);
+		for (const bad of [null, 1, 'x', {}, { id: 'a' }]) fakeWorker.port!.postMessage(bad);
+		await expect(w.api.uncloneable()).rejects.toMatchObject({ name: 'DataCloneError' });
+		await expect(w.api.moved()).rejects.toBeInstanceOf(RemoteError);
+		expect(await w.api.add(2, 2)).toBe(4);
 		w.close();
 	});
 
