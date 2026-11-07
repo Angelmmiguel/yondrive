@@ -399,7 +399,8 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 
 | Component | Used for | Licence |
 | --- | --- | --- |
-| ProseMirror | Document and note editing | MIT |
+| ProseMirror: `prosemirror-model`, `-state`, `-view`, `-transform`, `-commands`, `-history`, `-keymap`, `-tables`, `-gapcursor` | Document and note editing | MIT |
+| `orderedmap`, `rope-sequence`, `w3c-keyname` | Linked through ProseMirror | MIT |
 | pdf.js (`pdfjs-dist`) | PDF viewing | Apache-2.0 |
 | `@noble/*`, `@scure/*` | Cryptography | MIT |
 | DOMPurify | Sanitising | MPL-2.0 or Apache-2.0 |
@@ -598,6 +599,9 @@ triggers the warning. **Release 0.2.**
 - Print and export; "someone else is editing" warning; separate copies on conflict
 
 **Exit:** the test set round trips with unedited content byte-identical, verified automatically and by opening results in Word, on a corpus of real files. **Release 0.4.**
+
+Built and checked automatically on synthetic files (pandoc output, and a `.doc` built to the format's layout). Still open
+before this exit: the corpus of real files from Word and other office applications, and opening saved files in Word.
 
 ### Phase 6: Spreadsheets (L)
 

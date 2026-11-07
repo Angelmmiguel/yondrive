@@ -241,6 +241,32 @@ can reset a password. The per-frame SHA-256 detects disk corruption, and is not 
 anyone who can write to the disk. Use disk encryption such as LUKS or ZFS native encryption against
 theft of the disks.
 
+## Documents from anywhere
+
+A document may come from anyone who can write to a folder this user reads, so every format
+is parsed as hostile input, on the device and never on the server.
+
+- **Parsed into a model, never into HTML.** Readers produce plain data, and the editor builds
+  its own nodes from it. Raw HTML in Markdown is text. SVG and HTML files stay download-only.
+- **Bounded.** ZIP entry counts, declared and actual inflated sizes and compression ratio are
+  capped, so a small file cannot unpack into gigabytes; XML, RTF and Markdown nesting is capped;
+  every sector chain of a `.doc` is bounded and checked for loops. Seeded fuzz tests feed damaged
+  files to every reader and expect a model or an error.
+- **Off the page.** Reading and writing run in a worker that is ended after 60 seconds, so a
+  file that makes a parser crawl stalls only that worker.
+- **No requests on the file's behalf.** Images linked from outside a document are shown as a
+  placeholder and never fetched; `connect-src 'self'` would refuse them anyway. Pasted pictures
+  arrive as data and are decoded and drawn again before they are kept, which drops anything but
+  the pixels.
+- **Links.** Only `http`, `https`, `mailto`, `tel` and anchors inside the document are links, and
+  they open in a new tab with `noopener noreferrer`. Any other address is shown as text.
+- **Locked content** is copied back from the source as it was. The editor never writes what it
+  did not understand.
+
+**Who is editing.** The editing heartbeat tells the server which user has which node open in an
+editor, and when. Anyone who can read the node sees the usernames of the others editing it.
+Nothing about content is involved.
+
 ## Implementation safeguards
 
 - `@noble/*` and `@scure/*` are pinned to exact versions, installed with `--frozen-lockfile`,

@@ -692,6 +692,70 @@ leaves the index whole on this device. Ranking puts a name over a tag over text,
 
 Nothing typed leaves the palette: no request carries it, and it never enters the address.
 
+### Documents
+
+`src/lib/formats` reads and writes office documents with no framework, so it runs the same in vitest and in a
+worker. `src/lib/docs` is the editor around it, and `src/routes/(app)/doc/[id]` the screen, which the app shell
+draws full screen with the drive still running behind it.
+
+| Where | Holds |
+| --- | --- |
+| `formats/zip.ts`, `xml.ts`, `cfb.ts` | The containers: ZIP on the browser's own deflate, a pull parser with offsets and an element tree, and the compound file of `.doc`. |
+| `formats/model.ts` | The document model: paragraphs (style, alignment, list position, inline text with marks, images, breaks), tables, and locked blocks. Plain data, never HTML. |
+| `formats/docx.ts`, `odf.ts`, `markdown.ts` | Readers and writers that keep what was not edited (below). `ooxml.ts` holds relationships and content types. |
+| `formats/rtf.ts`, `txt.ts`, `doc.ts` | Direct converters. `.doc` is read only: CFB, the FIB, the piece table, and character, paragraph and list properties, best effort. |
+| `formats/patch.ts`, `document.ts` | Placing blocks back into their source; one entry point per format, what each can hold (`CAPS`), and the notice. |
+| `docs/schema.ts`, `convert.ts`, `commands.ts`, `plugins.ts`, `editor.ts` | ProseMirror, used directly: the schema is the model, flat like Word's paragraphs, with list numbers drawn as decorations. |
+| `docs/formats.worker.ts`, `formats-client.ts` | Reading and writing off the page, with a 60 second limit that ends the worker. |
+| `docs/session.ts`, `save.ts`, `presence.ts`, `images.ts`, `search-text.ts` | Saving, copies on conflict, the heartbeat, pictures, and text for search. |
+
+**Keeping files intact (PLAN 6.2).** Every block a reader makes carries a `ref` to the element it came from, and the
+editor keeps it as a node attribute. On save the writer parses the original again, which gives the same refs, and
+walks the new blocks in order: a block whose ref is still there, in order, and whose model is the same as the
+original's is copied from the source text as it was; a changed one is regenerated, carrying over what the model does
+not hold (`w:pPr` with only the style, alignment and numbering replaced, run properties chosen by the marks they give,
+bookmarks, image runs, automatic styles in ODF); a block with no usable ref is new. A ref seen twice, as after a split,
+or out of order, as after a move, counts as new. Whatever lies between blocks is copied. Only the edited part is written
+again, and every other entry of the package keeps its local record, compressed bytes included. An ODF list whose items
+are all still there keeps its markup; otherwise it is rebuilt around its paragraphs, which are still copied when
+unchanged. Markdown does the same on its text, so unedited blocks keep their markers and spacing. RTF and plain text
+are rewritten whole. A new document starts from a minimal template through the same path.
+
+**Locked blocks.** What the model cannot represent (tracked changes, equations, fields, comments' anchors, footnote
+references, text boxes, charts, shapes, content controls, merged or nested tables, HTML and front matter in Markdown) is a
+locked block: its text is shown under a label, and its source is always written back. A plugin refuses any transaction
+that removes, adds or changes one, so neither typing nor deleting a selection can touch it. Parts not read at all
+(macros, comments, headers and footers, footnotes, embedded files) stay in the package untouched.
+
+**The census and the notice.** Each reader tallies what it found and how it is handled: locked, kept and not shown,
+lost on save, or changed (a `.doc` converted, change tracking that edits here do not follow). The notice above the
+document is generated from it, per file.
+
+**Saving.** `DocSession` saves 2.5 seconds after typing stops, or after 20 seconds of typing, or on Ctrl+S, one save at
+a time. Each save writes into the bytes that were opened and uploads them as a new version through the drive's upload
+engine, committed on the version this editor last saw. A `version_conflict` turns the bytes into a new file beside it (or
+in My files, where the folder is not writable) named `… (conflicting copy from <user>, <date>)`; the editor goes on in the
+copy and says so. A `.doc`, or a document whose format is changed in Details, is renamed and saved in the new format,
+or saved as a new file beside it when this user may not rename it; the original stays in Versions. Downloads in another
+format are written from the editor's model.
+
+**Who else is editing.** While a document is open for editing the screen sends `PUT /nodes/{id}/editing` every 15 seconds;
+someone who may only read asks with `GET`. Both answer with the others whose heartbeat is younger than 45 seconds and who
+can still write, and the screen shows a warning that can be dismissed. Nothing is locked.
+
+**Pictures and pastes.** Pictures stay as bytes keyed like the model; only PNG, JPEG, GIF, WebP and BMP whose bytes say
+so get an object URL. Anything linked from outside is a placeholder and is never fetched. A pasted or picked picture is
+decoded and drawn again on a canvas before it is kept. A paste is reduced to the schema and to what the file's format can
+hold; links keep only `http`, `https`, `mailto`, `tel` and in-document anchors, and open with `noopener noreferrer`.
+
+**Search.** `registerDocumentText` plugs `.docx`, `.odt`, `.rtf` and `.doc` into the search extractor. After a save the
+editor hands the new bytes to search, as an upload does.
+
+**Limits.** ZIP: 4,096 entries, 128 MiB an entry, 512 MiB in all, a ratio of 200 for entries over 1 MiB, no duplicate names,
+and inflating stops when an entry passes its declared size. XML: 256 levels, and no entities beyond the predefined ones.
+RTF: 64 MiB, 512 groups deep. Markdown: 8 MiB and 32 levels. CFB: every sector chain bounded and checked for loops. A
+document opens up to 64 MiB.
+
 ### Single sign-on
 
 The sign-in page asks `GET /auth/methods`. With local accounts off it keeps a small way to the form, for the

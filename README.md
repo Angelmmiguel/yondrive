@@ -34,37 +34,41 @@ it, holds only ciphertext. It runs as one container with one data directory.
 - Previews for PDFs, images, video, audio and text
 - Per-user storage quotas
 
-### Documents and spreadsheets
+### Documents
 
-Open office files in the browser and edit them with no conversion server and no
+Open documents in the browser and edit them with no conversion server and no
 external service. Everything is parsed and written on your device.
 
 | Format | Open | Edit | Saved back as |
 | --- | --- | --- | --- |
-| `.docx`, `.odt` | Yes | Yes | The same format |
-| `.rtf`, `.md`, `.txt` | Yes | Yes | The same format |
-| `.doc` | Text and basic formatting | After conversion | `.docx`; the original stays in Versions |
-| `.xlsx`, `.ods` | Yes | Yes | The same format |
-| `.csv`, `.tsv` | Yes | Yes | The same format |
-| `.xls` | Values, formulas and basic formatting | After conversion | `.xlsx`; the original stays in Versions |
+| `.docx`, `.odt` | Yes | Yes | The same format; what you did not edit is written back unchanged |
+| `.md` | Yes | Yes | The same format; blocks you did not edit are written back unchanged |
+| `.rtf`, `.txt` | Yes | Yes | The same format, rewritten whole |
+| `.doc` | Text and basic formatting, best effort | After conversion | `.docx`; the original stays in Versions |
 
-Apple `.pages` and `.numbers` files can be stored, shared and downloaded like any
-other file, but do not open in the editors in v1.
+Spreadsheets are not in this release: `.xlsx`, `.ods`, `.xls`, `.csv` and
+`.tsv` are stored, shared and downloaded like any other file. Apple `.pages` and
+`.numbers` files are too, and do not open in the editors in v1.
 
-**The editors cover everyday use, on purpose:**
+**The editor covers everyday use, on purpose:** headings, text formatting, fonts
+and colors, lists and checklists, alignment, links, images, tables, quotes, code,
+and find and replace. There is one continuous page view, not Word-style page
+layout. Markdown and plain text offer only what they can store.
 
-- **Documents:** headings, text formatting, fonts and colors, lists and
-  checklists, alignment, links, images, tables, quotes, code, find and replace.
-  There is one continuous page view, not Word-style page layout.
-- **Spreadsheets:** multiple sheets, number formats, cell formatting, merged
-  cells, sort and filter, and a built-in formula engine with the common functions
-  (`SUM`, `IF`, `VLOOKUP`, `SUMIF`, `TEXT`, and so on).
+**Your file stays intact.** Paragraphs you do not edit are written back exactly
+as they were, and the parts of the file the editor does not read, such as macros,
+comments, headers and footers, stay as they were. Content it cannot change, such
+as tracked changes, equations, fields and text boxes, is shown, labelled and kept
+instead of being dropped. A notice above each document lists what that file holds
+and how it is handled. Saving in another format keeps the original in Versions,
+and says first what cannot be carried over.
 
-**Your file stays intact.** Paragraphs and cells you do not edit are written back
-exactly as they were. Content the editors cannot show or change, such as macros,
-tracked changes, charts and pivot tables, is kept in the file and flagged instead
-of being dropped. Cells using an unsupported formula keep their last value and
-are shown as read-only.
+**What has been tested, and what has not.** The round trip is checked
+automatically on files we generate: documents written by pandoc, a synthetic
+`.doc`, and damaged and oversized files. It has not yet been checked on a corpus
+of real files from Word and other office applications, and files saved here have
+not been opened in Word to confirm it accepts them. `.doc` import has only been
+tried on synthetic files.
 
 If someone else is already editing a file, YonDrive warns you. There is no
 real-time co-editing. If two people save anyway, the second save becomes a
@@ -245,8 +249,8 @@ just build         # build the web app and a Go binary that embeds it
   binary
 - **Cryptography:** Argon2id, XChaCha20-Poly1305, X25519 and Ed25519, through the
   audited `@noble` libraries
-- **Office formats:** our own file readers and writers and our own formula engine,
-  running in web workers
+- **Office formats:** our own file readers and writers, running in web workers,
+  with ProseMirror for editing
 - **API:** OpenAPI 3.1, written first, with server and client code generated
   from it
 
