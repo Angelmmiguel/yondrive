@@ -159,3 +159,29 @@ func TestHandlerNeverServesAPIPaths(t *testing.T) {
 		t.Fatalf("GET /api/unknown = %d, want 404", rec.Code)
 	}
 }
+
+// A worker takes its policy from the response that delivered its script, so the
+// scripts that run as workers carry one of their own, and nothing else does.
+func TestWorkerScriptsCarryTheirOwnPolicy(t *testing.T) {
+	h := handler(fstest.MapFS{
+		"index.html":                         {Data: []byte("shell")},
+		"service-worker.js":                  {Data: []byte("sw")},
+		"_app/immutable/workers/a.worker.js": {Data: []byte("w")},
+		"_app/immutable/entry.js":            {Data: []byte("e")},
+	})
+	for _, path := range []string{"/service-worker.js", "/_app/immutable/workers/a.worker.js"} {
+		rec := get(t, h, path)
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", path, rec.Code)
+		}
+		if got := rec.Header().Get("Content-Security-Policy"); got != workerContentSecurityPolicy {
+			t.Errorf("GET %s Content-Security-Policy = %q, want the worker policy", path, got)
+		}
+	}
+	if got := get(t, h, "/_app/immutable/entry.js").Header().Get("Content-Security-Policy"); got != "" {
+		t.Errorf("a plain script carries the policy %q", got)
+	}
+	if got := get(t, h, "/service-worker.js").Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("the service worker has Cache-Control %q, want it revalidated", got)
+	}
+}

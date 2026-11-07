@@ -7,6 +7,9 @@ const config = {
 		runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
 	},
 	kit: {
+		// The app registers its own service worker, only in a secure context.
+		serviceWorker: { register: false },
+
 		// A single index.html fallback, served by the Go binary for every app
 		// route. Nothing is prerendered because the app is client-only.
 		adapter: adapter({ fallback: 'index.html', precompress: false, strict: true }),
@@ -24,6 +27,7 @@ const config = {
 				'script-src': ['self'],
 				'style-src': ['self', 'unsafe-inline'],
 				'img-src': ['self', 'data:', 'blob:'],
+				'media-src': ['self', 'blob:'],
 				'font-src': ['self'],
 				'connect-src': ['self'],
 				'worker-src': ['self'],

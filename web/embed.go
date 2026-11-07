@@ -33,11 +33,22 @@ const indexFile = "index.html"
 const defaultContentSecurityPolicy = "default-src 'self'; " +
 	"img-src 'self' data: blob:; " +
 	"style-src 'self' 'unsafe-inline'; " +
+	"media-src 'self' blob:; " +
 	"connect-src 'self'; " +
 	"worker-src 'self' blob:; " +
 	"frame-ancestors 'none'; " +
 	"base-uri 'none'; " +
 	"form-action 'self'"
+
+// workerContentSecurityPolicy governs what a worker may do. A worker takes its
+// policy from the response that delivered its script, not from the page that
+// started it, and these handle keys and plaintext: they may load the app's own
+// scripts and talk to this origin, and nothing else.
+const workerContentSecurityPolicy = "default-src 'none'; script-src 'self'; connect-src 'self'"
+
+// serviceWorkerFile is the one script served from the root, as its path sets its
+// scope: everything, of which it answers only /stream/ and leaves the rest alone.
+const serviceWorkerFile = "service-worker.js"
 
 // cspMeta matches the meta tag SvelteKit emits for a hash-mode policy. The tag
 // comes from the build, never from user input.
@@ -79,6 +90,9 @@ func handler(fsys fs.FS) http.Handler {
 			serveIndex(w, r, fsys, csp)
 			return
 		}
+		if isWorkerScript(name) {
+			w.Header().Set("Content-Security-Policy", workerContentSecurityPolicy)
+		}
 		// Hashed asset paths never change contents, so they can be cached
 		// forever; anything else is revalidated.
 		if strings.HasPrefix(name, "_app/immutable/") {
@@ -88,6 +102,11 @@ func handler(fsys fs.FS) http.Handler {
 		}
 		http.ServeFileFS(w, r, fsys, name) //nolint:gosec // name is cleaned and checked with fs.ValidPath above
 	})
+}
+
+// isWorkerScript reports whether a built file runs as a worker.
+func isWorkerScript(name string) bool {
+	return name == serviceWorkerFile || strings.HasPrefix(name, "_app/immutable/workers/")
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request, fsys fs.FS, csp string) {
