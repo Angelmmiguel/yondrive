@@ -39,9 +39,8 @@
 	} from '$lib/formats/document';
 	import { safeHref } from '$lib/formats/model';
 	import { countWords } from '../words';
-	import { canChangePlace, canWrite, isOwner } from '$lib/sharing/roles';
+	import { canWrite, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
-	import { search } from '$lib/state/search.svelte';
 	import { session as account } from '$lib/state/session.svelte';
 	import { theme } from '$lib/state/theme.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
@@ -50,8 +49,8 @@
 	import { createEditor } from '../editor';
 	import { createFormats } from '../formats-client';
 	import { ImageStore, redraw } from '../images';
-	import { Presence } from '../presence';
-	import { conflictName, createWith, saveVersion, type SaveDeps } from '../save';
+	import { Presence } from '$lib/editing/presence';
+	import { driveFiles } from '$lib/editing/drive-files';
 	import { DocSession, type SaveStatus, type SessionFile } from '../session';
 	import { schema } from '../schema';
 	import DocSide from './DocSide.svelte';
@@ -115,20 +114,6 @@
 		}
 	});
 
-	function saveDeps(): SaveDeps {
-		const core = drive.core;
-		if (core === null) throw new Error('locked');
-		return { tree: core.tree, engine: core.engine };
-	}
-
-	/** Where a new file goes: next to this one if this user may write there, or My files. */
-	function folderFor(file: SessionFile): string {
-		const here = drive.node(file.id);
-		const parent = here?.parentId == null ? undefined : drive.node(here.parentId);
-		if (parent !== undefined && canWrite(parent)) return parent.id;
-		return drive.rootId as string;
-	}
-
 	async function load() {
 		phase = 'loading';
 		problem = '';
@@ -155,37 +140,7 @@
 			docSession = new DocSession(
 				{
 					formats,
-					save: async (file, out) => {
-						const saved = await saveVersion(saveDeps(), file, out, file.version);
-						search.fileCommitted(saved.id, new Blob([out as Uint8Array<ArrayBuffer>]));
-						return saved.currentVersion ?? '';
-					},
-					copy: async (file, out) => {
-						const who = account.account?.user.username ?? 'me';
-						const made = await createWith(
-							saveDeps(),
-							folderFor(file),
-							conflictName(file.name, who, new Date()),
-							out
-						);
-						search.fileCommitted(made.id, new Blob([out as Uint8Array<ArrayBuffer>]));
-						return { id: made.id, name: made.name, version: made.currentVersion ?? '' };
-					},
-					rename: async (file, name) => {
-						const here = drive.node(file.id);
-						const parent = here?.parentId == null ? undefined : drive.node(here.parentId);
-						if (here === undefined || !canChangePlace(here, parent)) return false;
-						try {
-							await drive.core?.tree.rename(file.id, name);
-							return true;
-						} catch {
-							return false;
-						}
-					},
-					create: async (file, name, out) => {
-						const made = await createWith(saveDeps(), folderFor(file), name, out);
-						return { id: made.id, name: made.name, version: made.currentVersion ?? '' };
-					},
+					...driveFiles(),
 					blocks: () => (view ? fromDoc(view.state.doc) : []),
 					images: store,
 					onstatus: (s, e) => {

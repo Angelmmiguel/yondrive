@@ -2,8 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '$lib/api/types';
 import { ImageStore } from './images';
 import { DocSession, imageKeys, type SessionDeps, type SessionFile } from './session';
-import { conflictName, numbered } from './save';
-import { Presence } from './presence';
+import { conflictName, numbered } from '$lib/editing/save';
 import { sniffFormat } from './search-text';
 import type { Block } from '$lib/formats/model';
 
@@ -163,35 +162,6 @@ describe('a document session', () => {
 			}
 		];
 		expect([...imageKeys(blocks)]).toEqual(['a', 'b']);
-	});
-});
-
-describe('presence', () => {
-	it('beats while editing, asks while looking, and reports changes once', async () => {
-		const seen: string[][] = [];
-		const api = {
-			putEditing: vi.fn(async () => ({
-				editors: [{ user_id: 'u2', username: 'bob', since: '' }],
-				ttl_seconds: 45
-			})),
-			getEditing: vi.fn(async () => ({ editors: [], ttl_seconds: 45 }))
-		};
-		let tick: () => void = () => {};
-		const p = new Presence({
-			api,
-			onchange: (e) => seen.push(e.map((x) => x.username)),
-			setInterval: (fn) => (tick = fn),
-			clearInterval: () => {}
-		});
-		p.start('n1', true);
-		await vi.waitFor(() => expect(seen).toEqual([['bob']]));
-		tick();
-		await Promise.resolve();
-		expect(seen).toEqual([['bob']]);
-		p.start('n1', false);
-		await vi.waitFor(() => expect(api.getEditing).toHaveBeenCalled());
-		p.stop();
-		expect(seen.at(-1)).toEqual([]);
 	});
 });
 

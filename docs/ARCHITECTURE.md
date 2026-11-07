@@ -707,7 +707,8 @@ draws full screen with the drive still running behind it.
 | `formats/patch.ts`, `document.ts` | Placing blocks back into their source; one entry point per format, what each can hold (`CAPS`), and the notice. |
 | `docs/schema.ts`, `convert.ts`, `commands.ts`, `plugins.ts`, `editor.ts` | ProseMirror, used directly: the schema is the model, flat like Word's paragraphs, with list numbers drawn as decorations. |
 | `docs/formats.worker.ts`, `formats-client.ts` | Reading and writing off the page, with a 60 second limit that ends the worker. |
-| `docs/session.ts`, `save.ts`, `presence.ts`, `images.ts`, `search-text.ts` | Saving, copies on conflict, the heartbeat, pictures, and text for search. |
+| `editing/session.ts`, `save.ts`, `presence.ts`, `drive-files.ts` | Saving, copies on conflict and the heartbeat, shared by the document and spreadsheet editors. |
+| `docs/session.ts`, `images.ts`, `search-text.ts` | The document's bytes for a save, pictures, and text for search. |
 
 **Keeping files intact (PLAN 6.2).** Every block a reader makes carries a `ref` to the element it came from, and the
 editor keeps it as a node attribute. On save the writer parses the original again, which gives the same refs, and

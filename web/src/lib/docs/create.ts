@@ -1,7 +1,7 @@
 /** A new, empty document: a minimal valid `.docx`, uploaded like any file. */
 import { writeDocument } from '$lib/formats/document';
 import type { DriveNode } from '$lib/drive/tree';
-import { createWith, type SaveDeps } from './save';
+import { createWith, type SaveDeps } from '$lib/editing/save';
 
 export const NEW_DOCUMENT_NAME = 'Untitled document.docx';
 
