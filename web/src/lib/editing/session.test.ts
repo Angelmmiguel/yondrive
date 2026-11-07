@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ApiError } from '$lib/api/types';
 import { EditSession, type EditSessionDeps } from './session';
 
 function deps() {
@@ -83,5 +84,25 @@ describe('closing while a save runs', () => {
 		expect(saved).toEqual(['one', 'two']);
 		expect(s.status).toBe('saved');
 		expect(s.file.version).toBe('v3');
+	});
+});
+
+describe('a conflict on the first save in a new format', () => {
+	it('makes the copy under the new format’s name', async () => {
+		const { d } = deps();
+		d.save = vi.fn(async () => {
+			throw new ApiError(409, 'version_conflict');
+		});
+		const s = new EditSession(
+			d,
+			file,
+			{ original: 'xls', saveAs: 'xlsx' },
+			async () => new Uint8Array([1])
+		);
+		s.changed();
+		await s.flush();
+		expect(d.rename).toHaveBeenLastCalledWith({ ...file, name: 'Book.xlsx' }, 'Book.xls');
+		expect(d.copy).toHaveBeenCalledWith({ ...file, name: 'Book.xlsx' }, new Uint8Array([1]));
+		expect(s.status).toBe('saved');
 	});
 });

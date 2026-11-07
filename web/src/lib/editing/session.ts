@@ -179,7 +179,9 @@ export class EditSession<F extends string> {
 		} catch (e) {
 			if (isApiError(e, 'version_conflict')) {
 				try {
-					const copy = await this.#deps.copy(this.#file, bytes!);
+					// The bytes are in the format saved in, and so is the copy's name.
+					const name = this.converting ? renamed(this.#file.name, this.#saveAs) : this.#file.name;
+					const copy = await this.#deps.copy({ ...this.#file, name }, bytes!);
 					this.#file = copy;
 					this.#deps.onfile(copy);
 					this.#deps.onconflict(copy);
