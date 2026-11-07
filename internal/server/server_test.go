@@ -13,6 +13,7 @@ import (
 
 	spec "github.com/Angelmmiguel/yondrive/api"
 	"github.com/Angelmmiguel/yondrive/internal/server"
+	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
 func newServer(t *testing.T, cfg server.Config) *httptest.Server {
@@ -20,7 +21,16 @@ func newServer(t *testing.T, cfg server.Config) *httptest.Server {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	ts := httptest.NewServer(server.New(cfg))
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	srv, err := server.New(cfg, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	return ts
 }
@@ -205,37 +215,23 @@ func TestStalledBodyIsCutOff(t *testing.T) {
 	}
 }
 
-func TestHealth(t *testing.T) {
-	done := false
-	ts := newServer(t, server.Config{Version: "1.2.3", SetupComplete: func() bool { return done }})
-
+func TestHealthBeforeSetup(t *testing.T) {
+	ts := newServer(t, server.Config{Version: "1.2.3"})
 	resp := do(t, ts, http.MethodGet, "/api/v1/health", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
 	var got struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
-		Setup   bool   `json:"setup"`
+		Status  string  `json:"status"`
+		Version string  `json:"version"`
+		Setup   bool    `json:"setup"`
+		Mode    *string `json:"mode"`
 	}
 	if err := json.Unmarshal([]byte(resp.Body), &got); err != nil {
 		t.Fatalf("body %q: %v", resp.Body, err)
 	}
-	if got.Status != "ok" || got.Version != "1.2.3" || got.Setup {
+	if got.Status != "ok" || got.Version != "1.2.3" || got.Setup || got.Mode != nil {
 		t.Errorf("health = %+v", got)
-	}
-
-	done = true
-	resp = do(t, ts, http.MethodGet, "/api/v1/health", nil)
-	if !strings.Contains(resp.Body, `"setup":true`) {
-		t.Errorf("body = %q, want setup true", resp.Body)
-	}
-}
-
-func TestHealthWithoutSetupFuncReportsNotSetUp(t *testing.T) {
-	resp := do(t, newServer(t, server.Config{}), http.MethodGet, "/api/v1/health", nil)
-	if !strings.Contains(resp.Body, `"setup":false`) {
-		t.Errorf("body = %q, want setup false", resp.Body)
 	}
 }
 

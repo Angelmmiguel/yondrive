@@ -8,16 +8,18 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Angelmmiguel/yondrive/internal/auth"
 	"github.com/Angelmmiguel/yondrive/internal/server"
+	"github.com/Angelmmiguel/yondrive/internal/store"
 	"github.com/Angelmmiguel/yondrive/web"
 )
 
@@ -106,17 +108,33 @@ func serve(args []string) error {
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
 
-	if err := os.MkdirAll(cfg.dataDir, 0o700); err != nil {
-		return fmt.Errorf("data directory: %w", err)
+	st, err := store.Open(cfg.dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	var setupToken string
+	if _, err := st.Settings(context.Background()); errors.Is(err, store.ErrNotConfigured) {
+		setupToken = auth.NewToken()
+		log.Info("first-run setup required, open this link", "link", setupLink(cfg.publicURL, cfg.addr, setupToken))
+	} else if err != nil {
+		return err
 	}
 
-	srv := server.New(server.Config{
+	srv, err := server.New(server.Config{
 		Version:        version,
 		Secure:         cfg.secure,
 		TrustedProxies: cfg.proxies,
+		DataDir:        cfg.dataDir,
+		PublicURL:      cfg.publicURL,
+		SetupToken:     setupToken,
 		UI:             web.Handler(),
 		Logger:         log,
-	})
+	}, st)
+	if err != nil {
+		return err
+	}
 
 	httpSrv := &http.Server{
 		Addr:    cfg.addr,
@@ -168,21 +186,30 @@ func parseSecure(v string) (server.SecureMode, error) {
 	return "", fmt.Errorf("%q is not auto, true or false", v)
 }
 
-// parsePublicURL accepts an empty value, or an http or https address with a
-// host and no query, fragment or credentials.
+// parsePublicURL accepts an empty value, or an address the server accepts.
 func parsePublicURL(v string) (string, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
+	if strings.TrimSpace(v) == "" {
 		return "", nil
 	}
-	u, err := url.Parse(v)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return "", fmt.Errorf("%q is not an http or https address", v)
+	return server.ParsePublicURL(v)
+}
+
+// setupLink is the address printed for the first run. The token goes in the
+// fragment, so it stays out of proxy logs and the Referer header.
+func setupLink(publicURL, addr, token string) string {
+	base := publicURL
+	if base == "" {
+		host, port, err := net.SplitHostPort(addr)
+		if err != nil {
+			base = "http://" + addr
+		} else {
+			if host == "" {
+				host = "localhost"
+			}
+			base = "http://" + net.JoinHostPort(host, port)
+		}
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("%q must not carry credentials, a query or a fragment", v)
-	}
-	return strings.TrimRight(u.String(), "/"), nil
+	return base + "/setup#" + token
 }
 
 // parsePrefixes reads a comma-separated list of addresses and CIDR ranges;

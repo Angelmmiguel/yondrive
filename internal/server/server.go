@@ -3,10 +3,19 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/Angelmmiguel/yondrive/internal/api"
+	"github.com/Angelmmiguel/yondrive/internal/auth"
+	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
 // Defaults for Config.
@@ -48,9 +57,19 @@ type Config struct {
 	BodyTimeout time.Duration
 	// MaxBodyBytes is the default limit on request bodies.
 	MaxBodyBytes int64
-	// SetupComplete reports whether the first-run setup has been completed.
-	// Nil means it has not.
-	SetupComplete func() bool
+	// DataDir is the data directory, shown read-only by the setup wizard.
+	DataDir string
+	// PublicURL is the address from the environment, offered by the wizard.
+	PublicURL string
+	// SetupToken is the one-time token that the wizard's calls must carry on
+	// an unconfigured server. Empty means setup cannot be completed.
+	SetupToken string
+	// LoginAttempts and LoginWindow are the per-address rate limit on
+	// everything that checks a credential.
+	LoginAttempts int
+	LoginWindow   time.Duration
+	// Now is the clock. Nil uses time.Now.
+	Now func() time.Time
 	// UI serves the web app. Nil disables it and every non-API path 404s.
 	UI http.Handler
 	// Logger receives request and error logs. Nil uses slog.Default.
@@ -61,11 +80,25 @@ type Config struct {
 type Server struct {
 	cfg     Config
 	log     *slog.Logger
+	store   *store.Store
+	limiter *auth.RateLimiter
 	handler http.Handler
+
+	// mode is nil until setup completes. It never changes after that, and the
+	// advisory lock on the data directory means no other process can set it.
+	mode atomic.Pointer[api.Mode]
+
+	// accountMu serialises what reads a credential and acts on it: setup,
+	// login, rekey and disabling a user. A session must never be opened on a
+	// credential that has just been retired.
+	accountMu sync.Mutex
+	// setupHash is the hash of the setup token, nil once burnt. Guarded by
+	// accountMu.
+	setupHash []byte
 }
 
-// New builds a Server and applies Config defaults.
-func New(cfg Config) *Server {
+// New builds a Server over st and applies Config defaults.
+func New(cfg Config, st *store.Store) (*Server, error) {
 	if cfg.Secure == "" {
 		cfg.Secure = SecureAuto
 	}
@@ -75,12 +108,32 @@ func New(cfg Config) *Server {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultMaxBodyBytes
 	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
-	s := &Server{cfg: cfg, log: cfg.Logger}
+	s := &Server{
+		cfg:     cfg,
+		log:     cfg.Logger,
+		store:   st,
+		limiter: auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+	}
+	settings, err := st.Settings(context.Background())
+	switch {
+	case err == nil:
+		mode := api.Mode(settings.Mode)
+		s.mode.Store(&mode)
+	case errors.Is(err, store.ErrNotConfigured):
+		if cfg.SetupToken != "" {
+			s.setupHash = auth.HashToken(cfg.SetupToken)
+		}
+	default:
+		return nil, fmt.Errorf("server: read settings: %w", err)
+	}
 	s.handler = s.routes()
-	return s
+	return s, nil
 }
 
 // ServeHTTP implements http.Handler.

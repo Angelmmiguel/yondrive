@@ -2,9 +2,13 @@ module github.com/Angelmmiguel/yondrive
 
 go 1.26.0
 
-require modernc.org/sqlite v1.61.1
+require (
+	github.com/oapi-codegen/runtime v1.8.0
+	modernc.org/sqlite v1.61.1
+)
 
 require (
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

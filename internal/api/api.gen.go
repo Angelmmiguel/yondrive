@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+
+	"github.com/oapi-codegen/runtime"
 )
 
 // Defines values for HealthStatus.
@@ -29,10 +31,76 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for KDFName.
+const (
+	Argon2id KDFName = "argon2id"
+)
+
+// Valid indicates whether the value is a known member of the KDFName enum.
+func (e KDFName) Valid() bool {
+	switch e {
+	case Argon2id:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Mode.
+const (
+	E2e  Mode = "e2e"
+	None Mode = "none"
+)
+
+// Valid indicates whether the value is a known member of the Mode enum.
+func (e Mode) Valid() bool {
+	switch e {
+	case E2e:
+		return true
+	case None:
+		return true
+	default:
+		return false
+	}
+}
+
+// AccountKeys The account's keys as the client seals them. Opaque to the server, which
+// checks only their encoding and size. Present in `e2e` mode, absent in
+// `none`.
+type AccountKeys struct {
+	PublicKeys PublicKeys `json:"public_keys"`
+
+	// SealedEd25519 The Ed25519 private key sealed under the master key.
+	SealedEd25519 []byte `json:"sealed_ed25519"`
+
+	// SealedX25519 The X25519 private key sealed under the master key.
+	SealedX25519 []byte `json:"sealed_x25519"`
+
+	// WrappedMasterKey The master key wrapped under the passphrase KEK.
+	WrappedMasterKey []byte `json:"wrapped_master_key"`
+
+	// WrappedMasterKeyRecovery The master key wrapped under the recovery KEK.
+	WrappedMasterKeyRecovery []byte `json:"wrapped_master_key_recovery"`
+}
+
+// CreatedUser defines model for CreatedUser.
+type CreatedUser struct {
+	// UserId Id of the new user.
+	UserId string `json:"user_id"`
+}
+
 // Error defines model for Error.
 type Error struct {
-	// Code Stable machine-readable identifier, such as `not_found`. Never a
-	// free-form message.
+	// Code Stable machine-readable identifier, never a free-form message:
+	//
+	// - `bad_request`, `not_found`, `forbidden`, `internal`, `too_large`,
+	//   `rate_limited`
+	// - `unauthorized`: no valid session or token
+	// - `setup_token_invalid`, `already_setup`, `not_setup`
+	// - `invalid_username`, `invalid_email`, `invalid_kdf`,
+	//   `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
+	//   `invalid_public_url`, `invalid_mode`
+	// - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
 	//
 	//
 	// Examples: not_found
@@ -41,6 +109,10 @@ type Error struct {
 
 // Health defines model for Health.
 type Health struct {
+	// Mode The encryption mode of the whole server, fixed at setup. Absent from
+	// health until then.
+	Mode *Mode `json:"mode,omitempty"`
+
 	// Setup Whether the first-run setup has been completed.
 	Setup  bool         `json:"setup"`
 	Status HealthStatus `json:"status"`
@@ -54,6 +126,133 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// KDF Argon2id parameters, which the client runs.
+type KDF struct {
+	// M Memory in KiB.
+	//
+	// Examples: 65536
+	M    int     `json:"m"`
+	Name KDFName `json:"name"`
+
+	// P Lanes.
+	//
+	// Examples: 1
+	P int `json:"p"`
+
+	// Salt 16 bytes.
+	Salt []byte `json:"salt"`
+
+	// T Iterations.
+	//
+	// Examples: 3
+	T int `json:"t"`
+}
+
+// KDFName defines model for KDF.Name.
+type KDFName string
+
+// Mode The encryption mode of the whole server, fixed at setup. Absent from
+// health until then.
+type Mode string
+
+// NewAccount Everything a new local account stores. In `e2e` mode `recovery_auth_key`
+// and `keys` are required; in `none` they must be absent.
+type NewAccount struct {
+	// AuthKey 32 bytes, derived from the passphrase.
+	AuthKey []byte `json:"auth_key"`
+
+	// Email Examples: alice@example.com
+	Email *string `json:"email,omitempty"`
+
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf KDF `json:"kdf"`
+
+	// Keys The account's keys as the client seals them. Opaque to the server, which
+	// checks only their encoding and size. Present in `e2e` mode, absent in
+	// `none`.
+	Keys *AccountKeys `json:"keys,omitempty"`
+
+	// RecoveryAuthKey 32 bytes, derived from the recovery key.
+	RecoveryAuthKey *[]byte `json:"recovery_auth_key,omitempty"`
+
+	// Username 1 to 64 of `a-z`, `0-9`, `.`, `_`, `-`, starting with a letter or
+	// digit. Case is folded.
+	//
+	//
+	// Examples: alice
+	Username string `json:"username"`
+}
+
+// PublicKeys defines model for PublicKeys.
+type PublicKeys struct {
+	// Ed25519 32 bytes.
+	Ed25519 []byte `json:"ed25519"`
+
+	// X25519 32 bytes.
+	X25519 []byte `json:"x25519"`
+}
+
+// ServerSettingsInput defines model for ServerSettingsInput.
+type ServerSettingsInput struct {
+	// DefaultQuotaBytes Storage for a new user; 0 means no limit.
+	DefaultQuotaBytes int64 `json:"default_quota_bytes"`
+
+	// Language Examples: en, pt-BR
+	Language string `json:"language"`
+
+	// Mode The encryption mode of the whole server, fixed at setup. Absent from
+	// health until then.
+	Mode Mode `json:"mode"`
+
+	// Name 1 to 128 characters.
+	Name      string `json:"name"`
+	PublicUrl string `json:"public_url"`
+
+	// TimeZone Examples: Europe/Madrid
+	TimeZone string `json:"time_zone"`
+}
+
+// SetupInfo defines model for SetupInfo.
+type SetupInfo struct {
+	// DataDir The data directory, set through the environment.
+	DataDir string `json:"data_dir"`
+
+	// FreeBytes Free space in the data directory, if it can be told.
+	FreeBytes *int64 `json:"free_bytes,omitempty"`
+
+	// PublicUrl The address given through the environment, if any.
+	PublicUrl *string `json:"public_url,omitempty"`
+	Version   string  `json:"version"`
+}
+
+// SetupRequest defines model for SetupRequest.
+type SetupRequest struct {
+	// Admin Everything a new local account stores. In `e2e` mode `recovery_auth_key`
+	// and `keys` are required; in `none` they must be absent.
+	Admin    NewAccount          `json:"admin"`
+	Settings ServerSettingsInput `json:"settings"`
+}
+
+// ValidateURLRequest defines model for ValidateURLRequest.
+type ValidateURLRequest struct {
+	Url string `json:"url"`
+}
+
+// ValidatedURL defines model for ValidatedURL.
+type ValidatedURL struct {
+	// Insecure The address is plain HTTP.
+	Insecure bool `json:"insecure"`
+
+	// Url The address, normalised.
+	Url string `json:"url"`
+}
+
+// CompleteSetupJSONRequestBody defines body for CompleteSetup for application/json ContentType.
+type CompleteSetupJSONRequestBody = SetupRequest
+
+// ValidateSetupURLJSONRequestBody defines body for ValidateSetupURL for application/json ContentType.
+type ValidateSetupURLJSONRequestBody = ValidateURLRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
@@ -62,6 +261,15 @@ type ServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// CompleteSetup Finish the setup
+	// (POST /api/v1/setup/complete)
+	CompleteSetup(w http.ResponseWriter, r *http.Request)
+	// GetSetupInfo Describe the environment for the wizard
+	// (GET /api/v1/setup/info)
+	GetSetupInfo(w http.ResponseWriter, r *http.Request)
+	// ValidateSetupURL Check a public URL
+	// (POST /api/v1/setup/validate-url)
+	ValidateSetupURL(w http.ResponseWriter, r *http.Request)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -92,6 +300,48 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteSetup operation middleware
+func (siw *ServerInterfaceWrapper) CompleteSetup(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteSetup(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSetupInfo operation middleware
+func (siw *ServerInterfaceWrapper) GetSetupInfo(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSetupInfo(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ValidateSetupURL operation middleware
+func (siw *ServerInterfaceWrapper) ValidateSetupURL(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ValidateSetupURL(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -223,6 +473,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/health", wrapper.GetHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/openapi.yaml", wrapper.GetOpenAPISpec)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/setup/info", wrapper.GetSetupInfo)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/validate-url", wrapper.ValidateSetupURL)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/complete", wrapper.CompleteSetup)
 
 	return m
 }
@@ -311,6 +564,122 @@ func (response GetHealthdefaultJSONResponse) VisitGetHealthResponse(w http.Respo
 	return err
 }
 
+type CompleteSetupRequestObject struct {
+	Body *CompleteSetupJSONRequestBody
+}
+
+type CompleteSetupResponseObject interface {
+	VisitCompleteSetupResponse(w http.ResponseWriter) error
+}
+
+type CompleteSetup201JSONResponse CreatedUser
+
+func (response CompleteSetup201JSONResponse) VisitCompleteSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteSetupdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CompleteSetupdefaultJSONResponse) VisitCompleteSetupResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSetupInfoRequestObject struct {
+}
+
+type GetSetupInfoResponseObject interface {
+	VisitGetSetupInfoResponse(w http.ResponseWriter) error
+}
+
+type GetSetupInfo200JSONResponse SetupInfo
+
+func (response GetSetupInfo200JSONResponse) VisitGetSetupInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSetupInfodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSetupInfodefaultJSONResponse) VisitGetSetupInfoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateSetupURLRequestObject struct {
+	Body *ValidateSetupURLJSONRequestBody
+}
+
+type ValidateSetupURLResponseObject interface {
+	VisitValidateSetupURLResponse(w http.ResponseWriter) error
+}
+
+type ValidateSetupURL200JSONResponse ValidatedURL
+
+func (response ValidateSetupURL200JSONResponse) VisitValidateSetupURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ValidateSetupURLdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ValidateSetupURLdefaultJSONResponse) VisitValidateSetupURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
@@ -319,6 +688,15 @@ type StrictServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// CompleteSetup Finish the setup
+	// (POST /api/v1/setup/complete)
+	CompleteSetup(ctx context.Context, request CompleteSetupRequestObject) (CompleteSetupResponseObject, error)
+	// GetSetupInfo Describe the environment for the wizard
+	// (GET /api/v1/setup/info)
+	GetSetupInfo(ctx context.Context, request GetSetupInfoRequestObject) (GetSetupInfoResponseObject, error)
+	// ValidateSetupURL Check a public URL
+	// (POST /api/v1/setup/validate-url)
+	ValidateSetupURL(ctx context.Context, request ValidateSetupURLRequestObject) (ValidateSetupURLResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -401,6 +779,92 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteSetup operation middleware
+func (sh *strictHandler) CompleteSetup(w http.ResponseWriter, r *http.Request) {
+	var request CompleteSetupRequestObject
+
+	var body CompleteSetupJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteSetup(ctx, request.(CompleteSetupRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteSetup")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteSetupResponseObject); ok {
+		if err := validResponse.VisitCompleteSetupResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSetupInfo operation middleware
+func (sh *strictHandler) GetSetupInfo(w http.ResponseWriter, r *http.Request) {
+	var request GetSetupInfoRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSetupInfo(ctx, request.(GetSetupInfoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSetupInfo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSetupInfoResponseObject); ok {
+		if err := validResponse.VisitGetSetupInfoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ValidateSetupURL operation middleware
+func (sh *strictHandler) ValidateSetupURL(w http.ResponseWriter, r *http.Request) {
+	var request ValidateSetupURLRequestObject
+
+	var body ValidateSetupURLJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ValidateSetupURL(ctx, request.(ValidateSetupURLRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ValidateSetupURL")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ValidateSetupURLResponseObject); ok {
+		if err := validResponse.VisitValidateSetupURLResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

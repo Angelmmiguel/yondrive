@@ -11,13 +11,15 @@ import (
 
 var _ oapi.StrictServerInterface = (*Server)(nil)
 
-// GetHealth reports liveness, the build version and whether setup is done.
+// GetHealth reports liveness, the build version, whether setup is done and the
+// encryption mode.
 func (s *Server) GetHealth(context.Context, oapi.GetHealthRequestObject) (oapi.GetHealthResponseObject, error) {
-	setup := s.cfg.SetupComplete != nil && s.cfg.SetupComplete()
+	mode := s.mode.Load()
 	return oapi.GetHealth200JSONResponse{
 		Status:  oapi.Ok,
 		Version: s.cfg.Version,
-		Setup:   setup,
+		Setup:   mode != nil,
+		Mode:    mode,
 	}, nil
 }
 
@@ -29,23 +31,28 @@ func (s *Server) GetOpenAPISpec(context.Context, oapi.GetOpenAPISpecRequestObjec
 	}, nil
 }
 
-// apiHandler mounts the generated routes on mux. Failures the generated code
-// meets before a handler runs, such as a malformed request, answer with the
-// same JSON error as everything else.
+// apiHandler mounts the generated routes on mux, each behind guard. Failures
+// the generated code meets before a handler runs, such as a malformed request,
+// answer with the same JSON error as everything else.
 func (s *Server) apiHandler(mux *http.ServeMux) {
-	badRequest := func(w http.ResponseWriter, _ *http.Request, _ error) {
-		writeError(w, http.StatusBadRequest, codeBadRequest)
+	malformed := func(w http.ResponseWriter, _ *http.Request, err error) {
+		if !writeFailure(w, err) {
+			writeError(w, http.StatusBadRequest, codeBadRequest)
+		}
 	}
 	failed := func(w http.ResponseWriter, r *http.Request, err error) {
+		if writeFailure(w, err) {
+			return
+		}
 		s.log.Error("handler failed", "method", r.Method, "path", r.URL.Path, "error", err)
 		writeError(w, http.StatusInternalServerError, codeInternal)
 	}
-	strict := oapi.NewStrictHandlerWithOptions(s, nil, oapi.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc:  badRequest,
+	strict := oapi.NewStrictHandlerWithOptions(s, []oapi.StrictMiddlewareFunc{s.guard}, oapi.StrictHTTPServerOptions{
+		RequestErrorHandlerFunc:  malformed,
 		ResponseErrorHandlerFunc: failed,
 	})
 	oapi.HandlerWithOptions(strict, oapi.StdHTTPServerOptions{
 		BaseRouter:       mux,
-		ErrorHandlerFunc: badRequest,
+		ErrorHandlerFunc: malformed,
 	})
 }

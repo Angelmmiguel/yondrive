@@ -97,3 +97,16 @@ func TestParseSettingsRejectsBadValues(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupLink(t *testing.T) {
+	for _, tc := range []struct{ publicURL, addr, want string }{
+		{"https://drive.example.com", ":8080", "https://drive.example.com/setup#tok"},
+		{"", ":8080", "http://localhost:8080/setup#tok"},
+		{"", "127.0.0.1:8080", "http://127.0.0.1:8080/setup#tok"},
+		{"", "nonsense", "http://nonsense/setup#tok"},
+	} {
+		if got := setupLink(tc.publicURL, tc.addr, "tok"); got != tc.want {
+			t.Errorf("setupLink(%q, %q) = %q, want %q", tc.publicURL, tc.addr, got, tc.want)
+		}
+	}
+}

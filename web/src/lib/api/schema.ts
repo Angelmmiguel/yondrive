@@ -13,9 +13,10 @@ export interface paths {
         };
         /**
          * Report that the server is up
-         * @description Open to anyone. Tells a client which build it is talking to and
-         *     whether the first-run setup has been completed, so the web app can
-         *     choose between the wizard and the sign-in screen.
+         * @description Open to anyone. Tells a client which build it is talking to, whether
+         *     the first-run setup has been completed, and the encryption mode, so
+         *     the web app can choose between the wizard and the sign-in screen and
+         *     check the mode it pinned.
          */
         get: operations["getHealth"];
         put?: never;
@@ -43,6 +44,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/setup/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe the environment for the wizard
+         * @description The data directory is shown, never edited: it is set through the
+         *     environment.
+         */
+        get: operations["getSetupInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/setup/validate-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check a public URL
+         * @description Accepts `http` and `https`. Plain HTTP is allowed, and `insecure` tells
+         *     the wizard to warn about it. An unusable address answers
+         *     `invalid_public_url`.
+         */
+        post: operations["validateSetupURL"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/setup/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish the setup
+         * @description Atomically stores the server settings and creates the first admin, and
+         *     burns the setup token. The encryption mode is written here once; no
+         *     route can change it. The admin signs in afterwards as any user does.
+         */
+        post: operations["completeSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -57,14 +123,167 @@ export interface components {
             version: string;
             /** @description Whether the first-run setup has been completed. */
             setup: boolean;
+            mode?: components["schemas"]["Mode"];
         };
+        /**
+         * @description The encryption mode of the whole server, fixed at setup. Absent from
+         *     health until then.
+         * @enum {string}
+         */
+        Mode: "e2e" | "none";
         Error: {
             /**
-             * @description Stable machine-readable identifier, such as `not_found`. Never a
-             *     free-form message.
+             * @description Stable machine-readable identifier, never a free-form message:
+             *
+             *     - `bad_request`, `not_found`, `forbidden`, `internal`, `too_large`,
+             *       `rate_limited`
+             *     - `unauthorized`: no valid session or token
+             *     - `setup_token_invalid`, `already_setup`, `not_setup`
+             *     - `invalid_username`, `invalid_email`, `invalid_kdf`,
+             *       `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
+             *       `invalid_public_url`, `invalid_mode`
+             *     - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
              * @example not_found
              */
             code: string;
+        };
+        /** @description Argon2id parameters, which the client runs. */
+        KDF: {
+            /** @enum {string} */
+            name: "argon2id";
+            /**
+             * @description Memory in KiB.
+             * @example 65536
+             */
+            m: number;
+            /**
+             * @description Iterations.
+             * @example 3
+             */
+            t: number;
+            /**
+             * @description Lanes.
+             * @example 1
+             */
+            p: number;
+            /**
+             * Format: byte
+             * @description 16 bytes.
+             */
+            salt: string;
+        };
+        PublicKeys: {
+            /**
+             * Format: byte
+             * @description 32 bytes.
+             */
+            x25519: string;
+            /**
+             * Format: byte
+             * @description 32 bytes.
+             */
+            ed25519: string;
+        };
+        /**
+         * @description The account's keys as the client seals them. Opaque to the server, which
+         *     checks only their encoding and size. Present in `e2e` mode, absent in
+         *     `none`.
+         */
+        AccountKeys: {
+            /**
+             * Format: byte
+             * @description The master key wrapped under the passphrase KEK.
+             */
+            wrapped_master_key: string;
+            /**
+             * Format: byte
+             * @description The master key wrapped under the recovery KEK.
+             */
+            wrapped_master_key_recovery: string;
+            /**
+             * Format: byte
+             * @description The X25519 private key sealed under the master key.
+             */
+            sealed_x25519: string;
+            /**
+             * Format: byte
+             * @description The Ed25519 private key sealed under the master key.
+             */
+            sealed_ed25519: string;
+            public_keys: components["schemas"]["PublicKeys"];
+        };
+        /**
+         * @description Everything a new local account stores. In `e2e` mode `recovery_auth_key`
+         *     and `keys` are required; in `none` they must be absent.
+         */
+        NewAccount: {
+            /**
+             * @description 1 to 64 of `a-z`, `0-9`, `.`, `_`, `-`, starting with a letter or
+             *     digit. Case is folded.
+             * @example alice
+             */
+            username: string;
+            /** @example alice@example.com */
+            email?: string;
+            /**
+             * Format: byte
+             * @description 32 bytes, derived from the passphrase.
+             */
+            auth_key: string;
+            kdf: components["schemas"]["KDF"];
+            /**
+             * Format: byte
+             * @description 32 bytes, derived from the recovery key.
+             */
+            recovery_auth_key?: string;
+            keys?: components["schemas"]["AccountKeys"];
+        };
+        CreatedUser: {
+            /** @description Id of the new user. */
+            user_id: string;
+        };
+        SetupInfo: {
+            /** @description The data directory, set through the environment. */
+            data_dir: string;
+            /**
+             * Format: int64
+             * @description Free space in the data directory, if it can be told.
+             */
+            free_bytes?: number;
+            /** @description The address given through the environment, if any. */
+            public_url?: string;
+            version: string;
+        };
+        ValidateURLRequest: {
+            url: string;
+        };
+        ValidatedURL: {
+            /** @description The address, normalised. */
+            url: string;
+            /** @description The address is plain HTTP. */
+            insecure: boolean;
+        };
+        ServerSettingsInput: {
+            /** @description 1 to 128 characters. */
+            name: string;
+            public_url: string;
+            /**
+             * Format: int64
+             * @description Storage for a new user; 0 means no limit.
+             */
+            default_quota_bytes: number;
+            /**
+             * @example en
+             * @example pt-BR
+             */
+            language: string;
+            /** @example Europe/Madrid */
+            time_zone: string;
+            mode: components["schemas"]["Mode"];
+        };
+        SetupRequest: {
+            settings: components["schemas"]["ServerSettingsInput"];
+            admin: components["schemas"]["NewAccount"];
         };
     };
     responses: {
@@ -122,6 +341,77 @@ export interface operations {
                 };
                 content: {
                     "application/yaml": string;
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getSetupInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The environment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetupInfo"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    validateSetupURL: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidateURLRequest"];
+            };
+        };
+        responses: {
+            /** @description The address, normalised. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidatedURL"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    completeSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetupRequest"];
+            };
+        };
+        responses: {
+            /** @description The server is configured. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedUser"];
                 };
             };
             default: components["responses"]["Error"];

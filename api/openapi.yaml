@@ -10,15 +10,26 @@ info:
 
     The specification is written by hand. Go and TypeScript code is generated
     from it (`just api`).
+
+    Binary fields are padded standard base64. Times are RFC 3339 in UTC.
+    Failures answer with the `Error` schema, whose `code` is listed there.
+    Browsers authenticate with the session cookie, and their state-changing
+    requests must be same-origin; native clients use a bearer token, which is
+    exempt from that check.
   license:
     name: AGPL-3.0-only
     identifier: AGPL-3.0-only
 servers:
   - url: /
     description: The server that delivered this document.
+security:
+  - sessionCookie: []
+  - bearerToken: []
 tags:
   - name: system
     description: Liveness and the state of the server.
+  - name: setup
+    description: The first-run wizard. Every call needs the one-time setup token.
 paths:
   /api/v1/health:
     get:
@@ -26,9 +37,10 @@ paths:
       tags: [system]
       summary: Report that the server is up
       description: |
-        Open to anyone. Tells a client which build it is talking to and
-        whether the first-run setup has been completed, so the web app can
-        choose between the wizard and the sign-in screen.
+        Open to anyone. Tells a client which build it is talking to, whether
+        the first-run setup has been completed, and the encryption mode, so
+        the web app can choose between the wizard and the sign-in screen and
+        check the mode it pinned.
       security: []
       responses:
         "200":
@@ -54,7 +66,93 @@ paths:
                 type: string
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/setup/info:
+    get:
+      operationId: getSetupInfo
+      tags: [setup]
+      summary: Describe the environment for the wizard
+      description: |
+        The data directory is shown, never edited: it is set through the
+        environment.
+      security:
+        - setupToken: []
+      responses:
+        "200":
+          description: The environment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupInfo"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/setup/validate-url:
+    post:
+      operationId: validateSetupURL
+      tags: [setup]
+      summary: Check a public URL
+      description: |
+        Accepts `http` and `https`. Plain HTTP is allowed, and `insecure` tells
+        the wizard to warn about it. An unusable address answers
+        `invalid_public_url`.
+      security:
+        - setupToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateURLRequest"
+      responses:
+        "200":
+          description: The address, normalised.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidatedURL"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/setup/complete:
+    post:
+      operationId: completeSetup
+      tags: [setup]
+      summary: Finish the setup
+      description: |
+        Atomically stores the server settings and creates the first admin, and
+        burns the setup token. The encryption mode is written here once; no
+        route can change it. The admin signs in afterwards as any user does.
+      security:
+        - setupToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupRequest"
+      responses:
+        "201":
+          description: The server is configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedUser"
+        default:
+          $ref: "#/components/responses/Error"
 components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: yondrive_session
+      description: HttpOnly, SameSite=Strict session cookie set by login.
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: A named per-device token.
+    setupToken:
+      type: apiKey
+      in: header
+      name: X-Setup-Token
+      description: The one-time token from the setup link in the server's logs.
   schemas:
     Health:
       type: object
@@ -70,6 +168,14 @@ components:
         setup:
           type: boolean
           description: Whether the first-run setup has been completed.
+        mode:
+          $ref: "#/components/schemas/Mode"
+    Mode:
+      type: string
+      description: |
+        The encryption mode of the whole server, fixed at setup. Absent from
+        health until then.
+      enum: [e2e, none]
     Error:
       type: object
       required: [code]
@@ -77,9 +183,187 @@ components:
         code:
           type: string
           description: |
-            Stable machine-readable identifier, such as `not_found`. Never a
-            free-form message.
+            Stable machine-readable identifier, never a free-form message:
+
+            - `bad_request`, `not_found`, `forbidden`, `internal`, `too_large`,
+              `rate_limited`
+            - `unauthorized`: no valid session or token
+            - `setup_token_invalid`, `already_setup`, `not_setup`
+            - `invalid_username`, `invalid_email`, `invalid_kdf`,
+              `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
+              `invalid_public_url`, `invalid_mode`
+            - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
           examples: [not_found]
+    KDF:
+      type: object
+      description: Argon2id parameters, which the client runs.
+      required: [name, m, t, p, salt]
+      properties:
+        name:
+          type: string
+          enum: [argon2id]
+        m:
+          type: integer
+          description: Memory in KiB.
+          minimum: 8192
+          maximum: 1048576
+          examples: [65536]
+        t:
+          type: integer
+          description: Iterations.
+          minimum: 1
+          maximum: 10
+          examples: [3]
+        p:
+          type: integer
+          description: Lanes.
+          minimum: 1
+          maximum: 1
+          examples: [1]
+        salt:
+          type: string
+          format: byte
+          description: 16 bytes.
+    PublicKeys:
+      type: object
+      required: [x25519, ed25519]
+      properties:
+        x25519:
+          type: string
+          format: byte
+          description: 32 bytes.
+        ed25519:
+          type: string
+          format: byte
+          description: 32 bytes.
+    AccountKeys:
+      type: object
+      description: |
+        The account's keys as the client seals them. Opaque to the server, which
+        checks only their encoding and size. Present in `e2e` mode, absent in
+        `none`.
+      required:
+        - wrapped_master_key
+        - wrapped_master_key_recovery
+        - sealed_x25519
+        - sealed_ed25519
+        - public_keys
+      properties:
+        wrapped_master_key:
+          type: string
+          format: byte
+          description: The master key wrapped under the passphrase KEK.
+        wrapped_master_key_recovery:
+          type: string
+          format: byte
+          description: The master key wrapped under the recovery KEK.
+        sealed_x25519:
+          type: string
+          format: byte
+          description: The X25519 private key sealed under the master key.
+        sealed_ed25519:
+          type: string
+          format: byte
+          description: The Ed25519 private key sealed under the master key.
+        public_keys:
+          $ref: "#/components/schemas/PublicKeys"
+    NewAccount:
+      type: object
+      description: |
+        Everything a new local account stores. In `e2e` mode `recovery_auth_key`
+        and `keys` are required; in `none` they must be absent.
+      required: [username, auth_key, kdf]
+      properties:
+        username:
+          type: string
+          description: |
+            1 to 64 of `a-z`, `0-9`, `.`, `_`, `-`, starting with a letter or
+            digit. Case is folded.
+          examples: [alice]
+        email:
+          type: string
+          examples: [alice@example.com]
+        auth_key:
+          type: string
+          format: byte
+          description: 32 bytes, derived from the passphrase.
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        recovery_auth_key:
+          type: string
+          format: byte
+          description: 32 bytes, derived from the recovery key.
+        keys:
+          $ref: "#/components/schemas/AccountKeys"
+    CreatedUser:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: string
+          description: Id of the new user.
+    SetupInfo:
+      type: object
+      required: [data_dir, version]
+      properties:
+        data_dir:
+          type: string
+          description: The data directory, set through the environment.
+        free_bytes:
+          type: integer
+          format: int64
+          description: Free space in the data directory, if it can be told.
+        public_url:
+          type: string
+          description: The address given through the environment, if any.
+        version:
+          type: string
+    ValidateURLRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+    ValidatedURL:
+      type: object
+      required: [url, insecure]
+      properties:
+        url:
+          type: string
+          description: The address, normalised.
+        insecure:
+          type: boolean
+          description: The address is plain HTTP.
+    ServerSettingsInput:
+      type: object
+      required: [name, public_url, default_quota_bytes, language, time_zone, mode]
+      properties:
+        name:
+          type: string
+          description: 1 to 128 characters.
+        public_url:
+          type: string
+        default_quota_bytes:
+          type: integer
+          format: int64
+          description: Storage for a new user; 0 means no limit.
+          minimum: 0
+        language:
+          type: string
+          examples: [en, pt-BR]
+        time_zone:
+          type: string
+          examples: [Europe/Madrid]
+        mode:
+          $ref: "#/components/schemas/Mode"
+    SetupRequest:
+      type: object
+      required: [settings, admin]
+      properties:
+        settings:
+          $ref: "#/components/schemas/ServerSettingsInput"
+        admin:
+          $ref: "#/components/schemas/NewAccount"
   responses:
     Error:
       description: The request failed.
