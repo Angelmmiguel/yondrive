@@ -3,8 +3,10 @@
  * path as any file: sealed in frames, signed, and committed on the version it
  * started from. A commit the server refuses with `version_conflict` is the
  * caller's to turn into a copy; nothing here retries over someone else's save.
+ * A conflict with a version this device sent, whose answer was lost, is no
+ * conflict: the save goes on top of it.
  */
-import { isApiError } from '$lib/api/types';
+import { ApiError, isApiError } from '$lib/api/types';
 import { newId } from '$lib/drive/ids';
 import { inferType } from '$lib/drive/kinds';
 import type { DriveNode, DriveTree } from '$lib/drive/tree';
@@ -19,6 +21,12 @@ export interface SaveDeps {
 	now?: () => number;
 }
 
+/**
+ * Versions sent for each node whose commit may have landed with its answer lost.
+ * A later save that meets one of them as the current version is meeting itself.
+ */
+const unconfirmed = new Map<string, Set<string>>();
+
 /** Sends bytes as the next version of a node, on top of `expected` ('' for a new file). */
 async function upload(
 	deps: SaveDeps,
@@ -31,28 +39,47 @@ async function upload(
 		type: inferType(name, ''),
 		lastModified: deps.now?.() ?? Date.now()
 	});
-	for (let attempt = 0; ; attempt++) {
+	let rotated = false;
+	let adopted = false;
+	for (;;) {
 		const nodeKey = await deps.tree.nodeKey(nodeId);
+		const versionId = newId();
 		const record = await beginUpload(
 			file,
-			{
-				nodeId,
-				nodeKey,
-				expected,
-				versionId: newId(),
-				keyGeneration: deps.tree.generationOf(nodeId)
-			},
+			{ nodeId, nodeKey, expected, versionId, keyGeneration: deps.tree.generationOf(nodeId) },
 			deps.engine
 		);
 		try {
 			await sendUpload(file, record, nodeKey, deps.engine);
+			unconfirmed.delete(nodeId);
 			return;
 		} catch (e) {
 			await abandonUpload(record.uploadId, deps.engine);
 			// Rotated meanwhile: once more under the new key.
-			if (isApiError(e, 'key_generation_conflict') && attempt === 0) {
+			if (isApiError(e, 'key_generation_conflict') && !rotated) {
+				rotated = true;
 				await deps.tree.refresh(nodeId);
 				continue;
+			}
+			if (isApiError(e, 'version_conflict') && !adopted) {
+				const current = (await deps.tree.refresh(nodeId))?.currentVersion;
+				if (current === versionId) {
+					unconfirmed.delete(nodeId);
+					return;
+				}
+				// An earlier save of ours landed after all: these bytes go on top of it.
+				if (current != null && unconfirmed.get(nodeId)?.has(current)) {
+					unconfirmed.delete(nodeId);
+					adopted = true;
+					expected = current;
+					continue;
+				}
+			}
+			// Without a clear answer from the server, the commit may have landed.
+			if (!(e instanceof ApiError && e.status < 500)) {
+				const sent = unconfirmed.get(nodeId) ?? new Set();
+				if (sent.size < 16) sent.add(versionId);
+				unconfirmed.set(nodeId, sent);
 			}
 			throw e;
 		}
