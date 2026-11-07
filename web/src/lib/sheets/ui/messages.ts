@@ -23,6 +23,8 @@ export function describeInputError(e: InputRefusal): string {
 			if (d === 'not a valid sheet name')
 				return 'Sheet names have 1 to 31 characters, none of [ ] : * ? / \\, and do not start or end with an apostrophe.';
 			return 'That formula refers to a sheet that does not exist.';
+		case 'argument':
+			return `That could not be done: the ${d || 'request'} given was out of range. Select the cells again and retry.`;
 		case 'readonly':
 			if (d === 'array formula')
 				return 'Part of an array formula, which is kept as it was and cannot be changed here.';

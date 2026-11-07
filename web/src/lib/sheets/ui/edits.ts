@@ -35,6 +35,8 @@ export interface Outcome {
 	styles?: CellStyle[];
 	/** Rows, columns, merges, sizes or panes changed: the sheet's layout is read again. */
 	layout: boolean;
+	/** Formatting reached only the cells with content, the area being too large for every empty one. */
+	partial?: boolean;
 	/** The step could not be recorded, and the history was cleared. */
 	notUndoable?: boolean;
 	/** For undo and redo: the step taken, to show where it was. */
@@ -127,6 +129,7 @@ export class SheetEditor {
 			out.layout ||= LAYOUT.has(op.t);
 			if (r) {
 				out.changed.push(...r.changed);
+				if (r.partial) out.partial = true;
 				if (r.newStyles) grew = true;
 			}
 		}

@@ -477,6 +477,11 @@
 			if (!out) return true;
 			await absorb(out);
 			fileSession?.changed();
+			if (out.partial)
+				toasts.push(
+					'info',
+					'That area is too large to format every empty cell, so only the cells with something in them were formatted.'
+				);
 			if (out.notUndoable)
 				toasts.push('info', 'That change is too large to undo, so the undo history was cleared.');
 			if (out.step) {
