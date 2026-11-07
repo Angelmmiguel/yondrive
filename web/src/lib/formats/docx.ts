@@ -503,7 +503,7 @@ class BodyReader {
 		if (child(rPr, 'w:u') && u !== 'none') m.underline = true;
 		if (on(child(rPr, 'w:strike')) || on(child(rPr, 'w:dstrike'))) m.strike = true;
 		const fonts = child(rPr, 'w:rFonts');
-		const font = fonts && (fonts.attrs['w:ascii'] ?? fonts.attrs['w:hAnsi']);
+		const font = fontName(fonts && (fonts.attrs['w:ascii'] ?? fonts.attrs['w:hAnsi']));
 		if (font) m.font = font;
 		const sz = Number(attr(child(rPr, 'w:sz'), 'w:val'));
 		if (sz > 0 && sz < 3200) m.size = sz / 2;
@@ -1133,6 +1133,16 @@ function genImage(img: Extract<Inline, { type: 'image' }>, w: Writer): string {
 	const id = w.docPrId();
 	const alt = escapeAttr(img.alt);
 	return `<w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="${id}" name="Picture ${id}" descr="${alt}"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="${PIC_URI}"><pic:pic xmlns:pic="${PIC_URI}"><pic:nvPicPr><pic:cNvPr id="${id}" name="Picture ${id}" descr="${alt}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${rId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+
+/**
+ * A font name as a file gives it, if it is one: letters, digits, spaces and
+ * `_-.,'`, up to 64. Anything else, such as a quote, a semicolon or a newline,
+ * could end the CSS string it is drawn in, so the mark is dropped instead.
+ */
+export function fontName(v: string | undefined): string | undefined {
+	const name = v?.trim().replace(/^['"]|['"]$/g, '');
+	return name !== undefined && /^[\p{L}\p{N} _\-.,']{1,64}$/u.test(name) ? name : undefined;
 }
 
 /** Width and height in pixels from a PNG, GIF or JPEG header. */

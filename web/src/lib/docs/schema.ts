@@ -46,10 +46,25 @@ function listOf(el: HTMLElement): ListInfo | null {
 	return { kind: ordered ? 'number' : 'bullet', level: Math.max(0, Math.min(level, 8)) };
 }
 
+const ALIGNS = ['left', 'center', 'right', 'justify'];
+
 const alignOf = (el: HTMLElement) => {
 	const a = el.style.textAlign;
-	return ['left', 'center', 'right', 'justify'].includes(a) ? a : null;
+	return ALIGNS.includes(a) ? a : null;
 };
+
+/**
+ * A font name, if it is one, by the readers' rule (`fontName` in formats/docx,
+ * not imported so that the editor does not load a writer): anything that could
+ * end the CSS string it is drawn in, such as a quote or a newline, is refused.
+ */
+const fontName = (v: string): string | undefined => {
+	const name = v.trim().replace(/^['"]|['"]$/g, '');
+	return /^[\p{L}\p{N} _\-.,']{1,64}$/u.test(name) ? name : undefined;
+};
+
+/** A colour as `#rrggbb`, the only form written into a style attribute. */
+const isHex = (v: unknown): v is string => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
 
 const paragraph: NodeSpec = {
 	attrs: {
@@ -97,7 +112,7 @@ const paragraph: NodeSpec = {
 			if (a.list.kind === 'check') attrs['data-checked'] = String(a.list.checked === true);
 		}
 		if (classes.length > 0) attrs.class = classes.join(' ');
-		if (a.align) attrs.style = `text-align: ${a.align}`;
+		if (a.align && ALIGNS.includes(a.align)) attrs.style = `text-align: ${a.align}`;
 		if (a.style === 'code') return ['pre', attrs, ['code', 0]];
 		return [STYLE_TAGS[a.style] ?? 'p', attrs, 0];
 	}
@@ -277,21 +292,16 @@ const marks: Record<string, MarkSpec> = {
 			{
 				style: 'font-family',
 				getAttrs(v: string) {
-					const family = v
-						.split(',')[0]
-						.trim()
-						.replace(/^['"]|['"]$/g, '');
-					return family && family.length < 64 && !/inherit|initial/i.test(family)
-						? { family }
-						: false;
+					const family = fontName(v.split(',')[0]);
+					return family && !/inherit|initial/i.test(family) ? { family } : false;
 				}
 			}
 		],
-		toDOM: (mark) => [
-			'span',
-			{ style: `font-family: "${String(mark.attrs.family).replace(/["\\]/g, '')}"` },
-			0
-		]
+		toDOM(mark): DOMOutputSpec {
+			// A name that is not one is drawn in the default font, never written into the CSS.
+			const family = fontName(String(mark.attrs.family));
+			return family ? ['span', { style: `font-family: "${family}"` }, 0] : ['span', 0];
+		}
 	},
 	size: {
 		attrs: { pt: {} },
@@ -306,12 +316,16 @@ const marks: Record<string, MarkSpec> = {
 				}
 			}
 		],
-		toDOM: (mark) => ['span', { style: `font-size: ${Number(mark.attrs.pt)}pt` }, 0]
+		toDOM(mark): DOMOutputSpec {
+			const pt = Number(mark.attrs.pt);
+			return pt > 0 && pt <= 1600 ? ['span', { style: `font-size: ${pt}pt` }, 0] : ['span', 0];
+		}
 	},
 	color: {
 		attrs: { value: {} },
 		parseDOM: [{ style: 'color', getAttrs: (v: string) => (hex(v) ? { value: hex(v) } : false) }],
-		toDOM: (mark) => ['span', { style: `color: ${mark.attrs.value as string}` }, 0]
+		toDOM: (mark) =>
+			isHex(mark.attrs.value) ? ['span', { style: `color: ${mark.attrs.value}` }, 0] : ['span', 0]
 	},
 	highlight: {
 		attrs: { value: {} },
@@ -322,7 +336,10 @@ const marks: Record<string, MarkSpec> = {
 				getAttrs: (v: string) => (hex(v) && hex(v) !== '#ffffff' ? { value: hex(v) } : false)
 			}
 		],
-		toDOM: (mark) => ['mark', { style: `background-color: ${mark.attrs.value as string}` }, 0]
+		toDOM: (mark) =>
+			isHex(mark.attrs.value)
+				? ['mark', { style: `background-color: ${mark.attrs.value}` }, 0]
+				: ['mark', 0]
 	}
 };
 

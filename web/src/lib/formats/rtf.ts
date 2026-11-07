@@ -22,7 +22,7 @@ import {
 	type Paragraph,
 	type Row
 } from './model';
-import { imageSize } from './docx';
+import { fontName, imageSize } from './docx';
 
 export const RTF_LIMITS = { size: 64 * 1024 * 1024, depth: 512 };
 
@@ -227,7 +227,7 @@ export function readRtf(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (c.italic && !base.italic) m.italic = true;
 		if (c.underline) m.underline = true;
 		if (c.strike) m.strike = true;
-		const font = c.font === null ? undefined : fonts.get(c.font);
+		const font = c.font === null ? undefined : fontName(fonts.get(c.font));
 		const styleFont = cs?.char.font ?? base.font;
 		if (font && c.font !== styleFont && c.font !== 0) m.font = font;
 		if (c.size !== null && c.size !== (base.size ?? null) && c.size !== 24) m.size = c.size / 2;

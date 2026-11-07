@@ -7,6 +7,7 @@
  * carried over.
  */
 import { readCfb } from './cfb';
+import { fontName } from './docx';
 import {
 	cleanMarks,
 	normalizeInlines,
@@ -409,7 +410,8 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (c.size && c.size !== 12 && c.size !== 10 && c.size < 1600) m.size = c.size;
 		if (c.color && c.color !== '#000000') m.color = c.color;
 		if (c.highlight) m.highlight = c.highlight;
-		if (c.font !== undefined && c.font > 0 && fonts[c.font]) m.font = fonts[c.font];
+		const font = c.font !== undefined && c.font > 0 ? fontName(fonts[c.font]) : undefined;
+		if (font) m.font = font;
 		const link = [...fields].reverse().find((f) => f.phase === 'result' && f.link)?.link;
 		if (link) m.link = link;
 		return cleanMarks(m);

@@ -31,7 +31,7 @@ import {
 } from './model';
 import { partText, spliceBeforeClose } from './ooxml';
 import { emit, plan, type SourceItem } from './patch';
-import { imageSize } from './docx';
+import { fontName, imageSize } from './docx';
 import {
 	child,
 	descendants,
@@ -500,7 +500,8 @@ class Reader {
 					? (this.#p.fonts.get(t['style:font-name']) ?? t['style:font-name'])
 					: undefined);
 			// Fonts and sizes of named styles belong to the style, not the text.
-			if (family && s.auto) m.font = family.replace(/^['"]|['"]$/g, '');
+			const font = fontName(family);
+			if (font && s.auto) m.font = font;
 			const size = /^([\d.]+)pt$/.exec(t['fo:font-size'] ?? '');
 			if (size && s.auto) m.size = Number(size[1]);
 			const color = hexColor(t['fo:color']);

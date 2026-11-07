@@ -293,6 +293,34 @@ describe('docx', () => {
 		expect(back.content[0]).toEqual({ type: 'text', text: 'Zebra ', marks: { bold: true } });
 	});
 
+	it('drops a font whose name is not one', async () => {
+		const saved = await writeDocx({
+			blocks: [
+				{
+					type: 'paragraph',
+					style: 'normal',
+					content: [{ type: 'text', text: 'x', marks: { font: 'Arial' } }]
+				}
+			],
+			images: {}
+		});
+		expect(paras((await readDocx(saved)).model)[0].content[0]).toMatchObject({
+			marks: { font: 'Arial' }
+		});
+		const xml = (await part(saved, 'word/document.xml')).replaceAll(
+			'"Arial"',
+			'"Evil&#10;;position:fixed"'
+		);
+		const evil = await writeZip(readZip(saved), [
+			{ name: 'word/document.xml', data: new TextEncoder().encode(xml) }
+		]);
+		expect(paras((await readDocx(evil)).model)[0].content[0]).toEqual({
+			type: 'text',
+			text: 'x',
+			marks: {}
+		});
+	});
+
 	it('makes a minimal document that reads back empty', async () => {
 		const t = await docxTemplate();
 		expect((await readDocx(t)).model.blocks).toEqual([]);

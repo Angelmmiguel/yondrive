@@ -30,6 +30,16 @@ describe('rtf', () => {
 		expect(plainText(readRtf(enc.encode(src)).model)).toBe('café — end');
 	});
 
+	it('drops a font whose name is not one', () => {
+		const src =
+			"{\\rtf1\\ansi{\\fonttbl{\\f0 Calibri;}{\\f1 Times New Roman;}{\\f2 Evil\\'0a;position:fixed;}}" +
+			'\\f1 good \\f2 bad\\par}';
+		expect(paras(readRtf(enc.encode(src)).model)[0].content).toEqual([
+			{ type: 'text', text: 'good ', marks: { font: 'Times New Roman' } },
+			{ type: 'text', text: 'bad', marks: {} }
+		]);
+	});
+
 	it('round-trips every kind of edit', async () => {
 		const model: DocModel = {
 			blocks: [

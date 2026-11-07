@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state';
-import { DOMParser as PMParser, Slice } from 'prosemirror-model';
+import { DOMParser as PMParser, DOMSerializer, Slice } from 'prosemirror-model';
 import { describe, expect, it } from 'vitest';
 import { CAPS, readDocument, writeDocument } from '$lib/formats/document';
 import { plainText, sameBlock, type Paragraph } from '$lib/formats/model';
@@ -106,6 +106,38 @@ describe('the editor model', () => {
 		expect(fromDoc(s.doc)[0]).toMatchObject({ style: 'h2' });
 		s = run(stateOf('task'), toggleList('check'));
 		expect(fromDoc(s.doc)[0]).toMatchObject({ list: { kind: 'check', level: 0, checked: false } });
+	});
+
+	it('writes a font, size, colour or alignment into CSS only when it is one', () => {
+		const html = (marks: Record<string, unknown>, align?: string) => {
+			const doc = toDoc({
+				blocks: [
+					{
+						type: 'paragraph',
+						style: 'normal',
+						align,
+						content: [{ type: 'text', text: 'x', marks }]
+					}
+				]
+			} as Parameters<typeof toDoc>[0]);
+			const div = document.createElement('div');
+			div.append(DOMSerializer.fromSchema(schema).serializeFragment(doc.content));
+			return div.innerHTML;
+		};
+		const evil = html(
+			{
+				font: 'Evil\n;position:fixed;inset:0;x:',
+				size: '12;position:fixed',
+				color: 'red;position:fixed',
+				highlight: '#fff;position:fixed'
+			},
+			'left;position:fixed'
+		);
+		expect(evil).not.toContain('position');
+		expect(evil).not.toContain('Evil');
+		expect(html({ font: 'Source Serif 4', size: 13, color: '#336699' }, 'center')).toBe(
+			'<p style="text-align: center;"><span style="font-family: &quot;Source Serif 4&quot;;"><span style="font-size: 13pt;"><span style="color: rgb(51, 102, 153);">x</span></span></span></p>'
+		);
 	});
 
 	it('carries a list on with Enter, and ends it on an empty item', () => {
