@@ -26,8 +26,8 @@
 	</Field>
 {:else}
 	<p class="note" data-testid="reauth-note">
-		This needs a recent sign-in. If yours is more than five minutes old, you will be asked to sign
-		in again through your provider.
+		This needs a fresh sign-in. Unless you signed in again through your provider in the last five
+		minutes, you will be asked to, and come back here to finish.
 	</p>
 {/if}
 

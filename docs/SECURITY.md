@@ -112,6 +112,15 @@ and on any it can link. That is:
 **In `none` mode** it reads and changes everything those accounts can reach, as there is no key
 between a session and the content.
 
+**A current credential in `none` mode.** An account that signs in only through the provider has no
+passphrase, so for what needs a current credential (a device token, invites, deleting a user,
+shortening the grace period, sign-in settings) a fresh sign-in stands in. The server asks the
+provider to authenticate the user again (`prompt=login`, `max_age=300`) and accepts the session that
+makes only if the ID token's `auth_time` is within the last five minutes; it counts for five minutes
+after that time. A session that is merely new does not count, so a cookie taken from an ordinary
+sign-in cannot mint a device token or delete users. A cookie taken within those five minutes of a
+fresh sign-in still can, and a provider that reports a false `auth_time` decides this alone.
+
 **Becoming an admin.** With an admin group set, the provider decides who is an admin, at each
 sign-in. An admin session sees no content in `e2e` mode, but it can delete users and change
 settings, subject to the current credential on the worst of those. The first local admin is

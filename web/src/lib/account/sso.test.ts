@@ -306,6 +306,7 @@ describe('around the provider', () => {
 			'sso_identity_conflict',
 			'sso_email_unverified',
 			'sso_not_invited',
+			'sso_reauth_unconfirmed',
 			'rate_limited',
 			'user_disabled',
 			'invite_invalid',

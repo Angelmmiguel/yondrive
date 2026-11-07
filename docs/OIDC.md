@@ -187,8 +187,12 @@ The provider never sees it. They can sign in through the provider on a new devic
 are recovered with the recovery key's words after signing in through the provider. An admin cannot reset
 it, and neither can the provider.
 
-**No-encryption mode.** There is no unlock passphrase. Sensitive actions ask for a fresh sign-in through
-the provider, within five minutes.
+**No-encryption mode.** There is no unlock passphrase. Sensitive actions (a device token, invites, deleting
+users, shortening the grace period) ask for a fresh sign-in through the provider: YonDrive sends
+`prompt=login` and `max_age=300`, and accepts it only if the ID token's `auth_time` is within the last
+five minutes. If the provider leaves `auth_time` out, that sign-in ends on the sign-in page with
+`sso_reauth_unconfirmed`, and those actions cannot be done through it: check that the provider honours
+`max_age`.
 
 **Second factor.** Configure it at the provider. TOTP in YonDrive is for local sign-in.
 

@@ -216,6 +216,7 @@ export type ErrorCode =
 	| 'sso_identity_conflict'
 	| 'sso_email_unverified'
 	| 'sso_not_invited'
+	| 'sso_reauth_unconfirmed'
 	| 'cursor_expired'
 	| 'network'
 	| 'unknown'

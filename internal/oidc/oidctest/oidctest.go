@@ -76,6 +76,8 @@ type Provider struct {
 	RefuseToken bool
 	// PostOnly restricts client authentication to client_secret_post, and discovery says so.
 	PostOnly bool
+	// IgnoreMaxAge makes the provider leave auth_time out even when max_age asks for it.
+	IgnoreMaxAge bool
 
 	mu            sync.Mutex
 	codes         map[string]issuedCode
@@ -91,6 +93,9 @@ type Provider struct {
 
 type issuedCode struct {
 	challenge, redirectURI, nonce string
+	// authTime is set when the request asked for max_age: the user signed in
+	// just now, and the token says when.
+	authTime bool
 }
 
 // New starts a provider at its own loopback address, plain http: the client under
@@ -194,7 +199,8 @@ func (p *Provider) authorize(w http.ResponseWriter, r *http.Request) {
 	code := token()
 	p.mu.Lock()
 	p.lastAuthorize = q
-	p.codes[code] = issuedCode{challenge: q.Get("code_challenge"), redirectURI: q.Get("redirect_uri"), nonce: q.Get("nonce")}
+	p.codes[code] = issuedCode{challenge: q.Get("code_challenge"), redirectURI: q.Get("redirect_uri"), nonce: q.Get("nonce"),
+		authTime: q.Has("max_age") && !p.IgnoreMaxAge}
 	p.mu.Unlock()
 	back, err := url.Parse(q.Get("redirect_uri"))
 	if err != nil {
@@ -238,14 +244,21 @@ func (p *Provider) token(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"access_token": "access-token",
 		"token_type":   "Bearer",
-		"id_token":     p.IDToken(issued.nonce),
+		"id_token":     p.idToken(issued.nonce, issued.authTime),
 	})
 }
 
 // IDToken issues a token for the next signer-in, with the given nonce.
 func (p *Provider) IDToken(nonce string) string {
+	return p.idToken(nonce, false)
+}
+
+func (p *Provider) idToken(nonce string, authTime bool) string {
 	now := p.Now().Unix()
 	claims := map[string]any{"iss": p.URL, "aud": ClientID, "exp": now + 300, "iat": now, "nonce": nonce}
+	if authTime {
+		claims["auth_time"] = now
+	}
 	for k, v := range p.Claims {
 		claims[k] = v
 	}

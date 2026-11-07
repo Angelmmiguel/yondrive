@@ -895,19 +895,47 @@ func TestNoEncryptionModeHasARecentSignInForACredential(t *testing.T) {
 	s.who("s1", nil)
 	c := s.signIn()
 	token := obj{"name": "t", "current_auth_key": ""}
-	c.call(http.MethodPost, "/api/v1/me/tokens", token).wantStatus(t, http.StatusCreated)
-
-	s.e.advance(6 * time.Minute)
+	// A new session is not enough: the provider may have let the user straight
+	// back in on its own session, and the cookie may have been taken since.
 	c.call(http.MethodPost, "/api/v1/me/tokens", token).wantError(t, http.StatusUnauthorized, "reauth_required")
 
-	query, flow := s.leave("?fresh=true")
-	resp := s.back(query, flow)
-	session := cookieNamed(resp, "yondrive_session")
-	if session == nil {
+	freshSignIn := func() (*client, hop) {
+		t.Helper()
+		query, flow := s.leave("?fresh=true")
+		if q := s.fake.LastAuthorize(); q.Get("prompt") != "login" || q.Get("max_age") != "300" {
+			t.Errorf("fresh sign-in asked %v", q)
+		}
+		resp := s.back(query, flow)
+		session := cookieNamed(resp, "yondrive_session")
+		if session == nil {
+			return nil, resp
+		}
+		return &client{e: s.e, cookie: session.Name + "=" + session.Value}, resp
+	}
+	fresh, _ := freshSignIn()
+	if fresh == nil {
 		t.Fatal("no session")
 	}
-	fresh := &client{e: s.e, cookie: session.Name + "=" + session.Value}
 	fresh.call(http.MethodPost, "/api/v1/me/tokens", token).wantStatus(t, http.StatusCreated)
+	s.e.advance(6 * time.Minute)
+	fresh.call(http.MethodPost, "/api/v1/me/tokens", token).wantError(t, http.StatusUnauthorized, "reauth_required")
+
+	// A provider that does not say when the user authenticated, or says it was a
+	// while ago, has not confirmed a fresh sign-in.
+	s.fake.IgnoreMaxAge = true
+	if c, resp := freshSignIn(); c != nil || resp.Header.Get("Location") != "/signin?sso_error=sso_reauth_unconfirmed" {
+		t.Errorf("no auth_time: went to %q", resp.Header.Get("Location"))
+	}
+	s.fake.IgnoreMaxAge = false
+	s.fake.Claims["auth_time"] = s.e.now().Add(-10 * time.Minute).Unix()
+	if c, resp := freshSignIn(); c != nil || resp.Header.Get("Location") != "/signin?sso_error=sso_reauth_unconfirmed" {
+		t.Errorf("stale auth_time: went to %q", resp.Header.Get("Location"))
+	}
+	delete(s.fake.Claims, "auth_time")
+	fresh, _ = freshSignIn()
+	if fresh == nil {
+		t.Fatal("no session")
+	}
 	fresh.call(http.MethodPost, "/api/v1/auth/rekey", obj{"current_auth_key": "", "auth_key": b64(key("x")), "kdf": kdf(5)}).wantError(t, http.StatusConflict, "sso_only")
 	fresh.call(http.MethodPost, "/api/v1/auth/totp/enrol", obj{"current_auth_key": ""}).wantError(t, http.StatusConflict, "totp_local_only")
 
@@ -965,9 +993,14 @@ func TestLocalAccountsOff(t *testing.T) {
 		invite := createInvite(t, s.root, obj{"role": "admin", "current_auth_key": cur})
 		s.who("s-admin", nil)
 		query, flow := s.startInvited(invite)
+		if cookieNamed(s.back(query, flow), "yondrive_session") == nil {
+			t.Fatal("no session")
+		}
+		// Deleting a user needs a fresh sign-in in place of a credential.
+		query, flow = s.leave("?fresh=true")
 		session := cookieNamed(s.back(query, flow), "yondrive_session")
 		if session == nil {
-			t.Fatal("no session")
+			t.Fatal("no fresh session")
 		}
 		admin = &client{e: s.e, cookie: session.Name + "=" + session.Value}
 		admin.call(http.MethodPatch, "/api/v1/admin/users/"+rootID, obj{"disabled": true}).wantError(t, http.StatusConflict, "local_accounts_lockout")

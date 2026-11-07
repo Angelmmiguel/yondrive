@@ -186,7 +186,7 @@ paths:
           in: query
           schema:
             type: boolean
-          description: Ask the provider to authenticate again, for `reauth_required`.
+          description: Ask the provider to authenticate again (`prompt=login`, `max_age=300`), for `reauth_required`. The session it makes stands in for a current credential for five minutes after the `auth_time` the provider reports.
       responses:
         "302":
           description: To the provider, or to `/signin?sso_error=<code>`.
@@ -2169,13 +2169,15 @@ components:
             - `identity_not_relinkable`: the match mode could not find this account after its identity is forgotten (409)
             - `already_enrolled`: the account has its keys; `POST /auth/rekey` replaces them
             - `totp_local_only`: the identity provider handles the second factor of this account
-            - `reauth_required`: sign in through the provider again, within five minutes, and retry
+            - `reauth_required`: sign in through the provider again with `fresh=true`, and retry within five minutes
             - `invalid_issuer`: not a usable issuer address; https unless `allow_insecure`
             - `invalid_oidc_settings`
             - `oidc_discovery_failed`, `oidc_issuer_mismatch`, `oidc_keys_failed`: testing a provider (502)
             - `sso_state_invalid`, `sso_denied`, `sso_provider_error`, `sso_token_invalid`,
-              `sso_identity_conflict`, `sso_email_unverified`, `sso_not_invited`: a failed
-              sign-in, given in `?sso_error=` on `/signin` rather than as a response body
+              `sso_identity_conflict`, `sso_email_unverified`, `sso_not_invited`,
+              `sso_reauth_unconfirmed` (a fresh sign-in whose `auth_time` is missing or
+              older than five minutes): a failed sign-in, given in `?sso_error=` on `/signin`
+              rather than as a response body
             - `invalid_cursor`
             - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
               the tree again, then start over with no cursor

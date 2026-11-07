@@ -324,10 +324,20 @@ test.describe.serial('with no keys', () => {
 		await expect(page.getByText('Two-factor sign-in', { exact: true })).toHaveCount(0);
 	});
 
-	test('a recent sign-in stands in for a credential', async () => {
+	test('a fresh sign-in stands in for a credential, and an ordinary one does not', async () => {
+		test.setTimeout(60_000);
 		await page.goto(`${server.url}/settings`);
 		await page.getByRole('tab', { name: 'Devices' }).click();
 		await expect(page.getByTestId('reauth-note')).toBeVisible();
+		await page.getByLabel(/^Device name/).fill('tablet');
+		const before = provider.authorizations.length;
+		await page.getByRole('button', { name: 'Create token' }).click();
+		// The session from signing in is minutes old, and still not enough.
+		await expect(page.getByText('You signed in again.')).toBeVisible({ timeout: 30_000 });
+		expect(provider.authorizations.length).toBe(before + 1);
+		expect(provider.authorizations.at(-1)?.get('prompt')).toBe('login');
+		expect(provider.authorizations.at(-1)?.get('max_age')).toBe('300');
+		await page.getByRole('tab', { name: 'Devices' }).click();
 		await page.getByLabel(/^Device name/).fill('tablet');
 		await page.getByRole('button', { name: 'Create token' }).click();
 		await expect(page.getByText('Copy this token now')).toBeVisible();

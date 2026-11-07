@@ -143,6 +143,8 @@ type Server struct {
 	oidcHTTP    *http.Client
 	oidcFlowKey []byte
 	providers   providerCache
+	// recent holds the sessions a fresh sign-in through the provider made.
+	recent recentSignIns
 
 	// frames keeps two writers off the same frame.
 	frames *frameLocks

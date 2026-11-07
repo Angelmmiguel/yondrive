@@ -101,8 +101,6 @@ type principal struct {
 	sessionHash []byte
 	// tokenID names the bearer token it came through, if it did.
 	tokenID string
-	// sessionCreatedAt is when the session was made, if there is one.
-	sessionCreatedAt time.Time
 }
 
 // guard enforces operationAccess before a handler runs, and makes the request
@@ -237,7 +235,7 @@ func (s *Server) authenticateSession(ctx context.Context, r *http.Request) (prin
 			s.log.Error("session not extended", "error", err)
 		}
 	}
-	return principal{user: user, sessionHash: hash, sessionCreatedAt: sess.CreatedAt}, nil
+	return principal{user: user, sessionHash: hash}, nil
 }
 
 // activeUser loads the user behind a session or token. Disabling a user ends

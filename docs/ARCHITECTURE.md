@@ -507,9 +507,11 @@ so neither its unlock nor its recovery auth key signs anybody in, and both answe
 route gives such an account's name fake parameters, as `GET /me` has the real ones. In `e2e` mode
 `enrolment_required` says it has no keys yet, and `POST /auth/oidc/enrol` stores them once.
 After that, rekey with its unlock or recovery auth key replaces them. Recovery is that rekey,
-in a session from the provider. In `none` mode it has no credentials at all, so a session under five
-minutes old stands in where a current auth key is asked for, `GET /auth/oidc/start?fresh=true` gets
-one, and everything else answers `reauth_required`. TOTP answers `totp_local_only` and a reset
+in a session from the provider. In `none` mode it has no credentials at all, so a session made by
+`GET /auth/oidc/start?fresh=true` stands in where a current auth key is asked for, for five minutes
+after the `auth_time` its ID token carried, which has to be that recent (`max_age=300`), or the callback
+answers `sso_reauth_unconfirmed`. Which sessions those are is held in memory. Everything else answers
+`reauth_required`. TOTP answers `totp_local_only` and a reset
 link `sso_only`, as either would give a local way in to an account that has none.
 
 ## Keeping history bounded

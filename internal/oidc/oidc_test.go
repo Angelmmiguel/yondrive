@@ -280,7 +280,8 @@ func testClient() Client {
 func signIn(t *testing.T, fake *oidctest.Provider, p *Provider, fresh bool) (Tokens, Flow, error) {
 	t.Helper()
 	f := NewFlow(time.Now())
-	target, err := p.AuthorizationURL(testClient(), f, fresh)
+	f.Fresh = fresh
+	target, err := p.AuthorizationURL(testClient(), f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +351,7 @@ func TestExchangeFailures(t *testing.T) {
 	}
 	// A wrong verifier is what PKCE refuses: a stolen code is useless.
 	f := NewFlow(time.Now())
-	target, _ := p.AuthorizationURL(testClient(), f, false)
+	target, _ := p.AuthorizationURL(testClient(), f)
 	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	resp, err := client.Get(target) //nolint:noctx // a test
 	if err != nil {
@@ -383,17 +384,23 @@ func TestAuthorizationURLAsksForFreshLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	q := fake.LastAuthorize()
-	if q.Has("prompt") {
-		t.Error("prompt on an ordinary sign-in")
+	if q.Has("prompt") || q.Has("max_age") {
+		t.Error("prompt or max_age on an ordinary sign-in")
 	}
 	if q.Get("code_challenge") == "" || q.Get("scope") != "openid email" {
 		t.Errorf("query = %v", q)
 	}
-	if _, _, err := signIn(t, fake, p, true); err != nil {
+	tokens, f, err := signIn(t, fake, p, true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fake.LastAuthorize().Get("prompt") != "login" {
-		t.Error("no prompt on a fresh login")
+	if q := fake.LastAuthorize(); q.Get("prompt") != "login" || q.Get("max_age") != "300" {
+		t.Errorf("fresh login query = %v", q)
+	}
+	// The provider says when the user authenticated, which the server checks.
+	claims, err := p.VerifyIDToken(context.Background(), tokens.IDToken, oidctest.ClientID, f.Nonce)
+	if err != nil || claims.AuthTime.IsZero() {
+		t.Errorf("auth_time = %v, %v", claims.AuthTime, err)
 	}
 }
 

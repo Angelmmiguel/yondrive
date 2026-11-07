@@ -45,6 +45,9 @@ const (
 	// reauthWindow is how recent a sign-in through the provider has to be to stand in
 	// for a current credential, for an account with no credential of its own.
 	reauthWindow = 5 * time.Minute
+	// reauthClockSkew is how far ahead of this server's clock a provider's auth_time
+	// may be.
+	reauthClockSkew = time.Minute
 
 	maxClientIDLen     = 256
 	maxClientSecretLen = 1024
@@ -264,12 +267,15 @@ func (s *Server) checkLocalSignIn(ctx context.Context, user store.User) error {
 }
 
 // checkRecentSignIn stands in for a current credential for an account that has none:
-// single sign-on in no-encryption mode, which has no passphrase of any kind. A session
-// a few minutes old proves the provider has just let this person in, and the client
-// can get one with GET /auth/oidc/start?fresh=true. A token is not a sign-in.
+// single sign-on in no-encryption mode, which has no passphrase of any kind. Only a
+// session from a fresh sign-in counts (GET /auth/oidc/start?fresh=true), for which the
+// provider was asked to authenticate the user again and said, in auth_time, that it
+// did within the last few minutes. A session that is merely new does not: the
+// provider may have let the user straight back in on its own session, and the cookie
+// may have been taken since. A token is not a sign-in.
 func (s *Server) checkRecentSignIn(ctx context.Context, user store.User) error {
 	p := principalFrom(ctx)
-	if p.sessionHash != nil && s.cfg.Now().Sub(p.sessionCreatedAt) <= reauthWindow {
+	if p.sessionHash != nil && s.recent.within(p.sessionHash, s.cfg.Now()) {
 		return nil
 	}
 	s.audit(ctx, auditCredentialRejected, user.ID, user.ID)
@@ -389,7 +395,8 @@ func (s *Server) beginFlow(ctx context.Context, inviteID string, fresh bool) (ta
 	}
 	flow := oidc.NewFlow(s.cfg.Now())
 	flow.InviteID = inviteID
-	if target, err = provider.AuthorizationURL(oidcClient(settings), flow, fresh); err != nil {
+	flow.Fresh = fresh
+	if target, err = provider.AuthorizationURL(oidcClient(settings), flow); err != nil {
 		return "", "", err
 	}
 	sealed, err := flow.Seal(s.oidcFlowKey)
@@ -441,6 +448,9 @@ func (s *Server) FinishOIDC(ctx context.Context, req oapi.FinishOIDCRequestObjec
 	if err != nil {
 		return s.ssoFailure(ctx, err, clearFlow)
 	}
+	if flow.Fresh && !s.recent.authenticatedJustNow(claims.AuthTime, s.cfg.Now()) {
+		return s.ssoFailure(ctx, fail(http.StatusUnauthorized, codeSSOReauth), clearFlow)
+	}
 	// Everything over the network is done: this part holds the lock.
 	s.accountMu.Lock()
 	defer s.accountMu.Unlock()
@@ -451,6 +461,9 @@ func (s *Server) FinishOIDC(ctx context.Context, req oapi.FinishOIDCRequestObjec
 	token, err := s.openSession(ctx, account)
 	if err != nil {
 		return s.ssoFailure(ctx, err, clearFlow)
+	}
+	if flow.Fresh {
+		s.recent.add(auth.HashToken(token), claims.AuthTime, s.cfg.Now())
 	}
 	s.audit(ctx, auditSSOSucceeded, account.ID, account.ID)
 	return redirectResponse{
@@ -893,4 +906,40 @@ func (s *Server) UnlinkIdentity(ctx context.Context, req oapi.UnlinkIdentityRequ
 	s.keys.Drop(revoked...)
 	s.audit(ctx, auditSSOUnlinked, actor, req.Id)
 	return oapi.UnlinkIdentity204Response{}, nil
+}
+
+// recentSignIns remembers the sessions that fresh sign-ins through the provider
+// made, with the time the provider says the user authenticated. It lives in
+// memory: after a restart, an action that needs it asks for a fresh sign-in again.
+type recentSignIns struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+// authenticatedJustNow reports whether an auth_time is recent enough for a fresh
+// sign-in: within reauthWindow, and not further ahead than the clocks may disagree.
+func (*recentSignIns) authenticatedJustNow(at, now time.Time) bool {
+	return !at.IsZero() && now.Sub(at) <= reauthWindow && at.Sub(now) <= reauthClockSkew
+}
+
+func (r *recentSignIns) add(sessionHash []byte, at, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.at == nil {
+		r.at = map[string]time.Time{}
+	}
+	for k, t := range r.at {
+		if now.Sub(t) > reauthWindow {
+			delete(r.at, k)
+		}
+	}
+	r.at[string(sessionHash)] = at
+}
+
+// within reports whether a session came from a fresh sign-in that is still recent.
+func (r *recentSignIns) within(sessionHash []byte, now time.Time) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	at, ok := r.at[string(sessionHash)]
+	return ok && now.Sub(at) <= reauthWindow
 }

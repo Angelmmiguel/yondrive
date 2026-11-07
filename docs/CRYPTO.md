@@ -111,8 +111,10 @@ on the strength of the session, when there is nothing yet to protect. Replacing 
 that takes `POST /auth/rekey` with a current credential. Recovery works as for a local account,
 but in a session from the provider, since the recovery auth key does not sign an SSO account in.
 
-In mode `none` an SSO account has no passphrase and no recovery key, and no enrolment. A sign-in
-through the provider in the last five minutes stands in for a current credential.
+In mode `none` an SSO account has no passphrase and no recovery key, and no enrolment. A fresh
+sign-in through the provider (`prompt=login`, `max_age=300`), whose ID token says in `auth_time` that
+the user authenticated in the last five minutes, stands in for a current credential, in the session
+it made and for five minutes.
 
 ## 4. Recovery key
 

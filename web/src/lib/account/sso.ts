@@ -31,6 +31,8 @@ const SSO_ERRORS: Record<string, string> = {
 	sso_email_unverified:
 		'Your identity provider has not verified your email address, which an existing account here uses. Verify it there, and try again.',
 	sso_not_invited: 'This server only lets invited people in. Ask your administrator for an invite.',
+	sso_reauth_unconfirmed:
+		'Your identity provider did not confirm that you signed in again just now, which this needs. Try again, or ask your administrator to check that the provider sends auth_time.',
 	rate_limited: 'Too many attempts. Wait a minute and try again.',
 	user_disabled: 'This account has been disabled. Ask your administrator.',
 	invite_invalid: 'This invite is not valid. It may have been used, revoked or expired.',

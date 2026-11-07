@@ -66,7 +66,9 @@ type Claims struct {
 	Email             string
 	EmailVerified     bool
 	PreferredUsername string
-	raw               map[string]any
+	// AuthTime is when the user last authenticated at the provider, if it says.
+	AuthTime time.Time
+	raw      map[string]any
 }
 
 func parseClaims(raw map[string]any) Claims {
@@ -76,6 +78,7 @@ func parseClaims(raw map[string]any) Claims {
 	c.PreferredUsername, _ = raw["preferred_username"].(string)
 	// True or nothing: a provider that says anything else has not verified it.
 	c.EmailVerified, _ = raw["email_verified"].(bool)
+	c.AuthTime, _ = numericDate(raw["auth_time"])
 	return c
 }
 

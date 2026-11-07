@@ -46,7 +46,10 @@ export async function startProvider(who: Identity = { sub: 'first' }): Promise<F
 	const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 	const jwk = publicKey.export({ format: 'jwk' });
 	const kid = 'test-key';
-	const codes = new Map<string, { nonce: string; challenge: string; who: Identity }>();
+	const codes = new Map<
+		string,
+		{ nonce: string; challenge: string; authTime: boolean; who: Identity }
+	>();
 	const tokens = new Map<string, Identity>();
 
 	const server = createServer(async (req, res) => {
@@ -83,6 +86,8 @@ export async function startProvider(who: Identity = { sub: 'first' }): Promise<F
 					codes.set(code, {
 						nonce: url.searchParams.get('nonce') ?? '',
 						challenge: url.searchParams.get('code_challenge') ?? '',
+						// Asked to authenticate again within max_age, it says when it did.
+						authTime: url.searchParams.has('max_age'),
 						who: { ...provider.who }
 					});
 					back.searchParams.set('code', code);
@@ -118,6 +123,7 @@ export async function startProvider(who: Identity = { sub: 'first' }): Promise<F
 					iat: now,
 					exp: now + 300,
 					nonce: grant.nonce,
+					...(grant.authTime ? { auth_time: now } : {}),
 					...grant.who
 				};
 				const input = `${b64url(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT' }))}.${b64url(JSON.stringify(claims))}`;

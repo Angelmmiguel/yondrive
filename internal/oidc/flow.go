@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -19,6 +20,10 @@ import (
 // FlowTTL is how long a sign-in may take from leaving for the provider to coming
 // back.
 const FlowTTL = 10 * time.Minute
+
+// FreshMaxAge is how long ago a fresh sign-in may have authenticated at the
+// provider, which it asks for as max_age and checks in auth_time.
+const FreshMaxAge = 5 * time.Minute
 
 // flowAAD binds a sealed flow to its purpose.
 var flowAAD = []byte("yondrive/oidc-flow/v1")
@@ -36,6 +41,9 @@ type Flow struct {
 	ExpiresAt int64  `json:"e"`
 	// InviteID is the invite the sign-in was started with, if any.
 	InviteID string `json:"i,omitempty"`
+	// Fresh is a sign-in that asked the provider to authenticate again, to stand
+	// in for a current credential.
+	Fresh bool `json:"f,omitempty"`
 }
 
 // NewFlow draws the secrets of a sign-in.
@@ -116,9 +124,10 @@ type Client struct {
 	Scopes      string
 }
 
-// AuthorizationURL is where the browser goes to sign in. With freshLogin the
-// provider is asked to authenticate again, whatever session it already has.
-func (p *Provider) AuthorizationURL(c Client, f Flow, freshLogin bool) (string, error) {
+// AuthorizationURL is where the browser goes to sign in. For a fresh flow the
+// provider is asked to authenticate again, whatever session it already has, and
+// to say when it did in auth_time.
+func (p *Provider) AuthorizationURL(c Client, f Flow) (string, error) {
 	u, err := url.Parse(p.meta.AuthorizationEndpoint)
 	if err != nil {
 		return "", fmt.Errorf("%w: unusable endpoint", ErrDiscovery)
@@ -132,8 +141,9 @@ func (p *Provider) AuthorizationURL(c Client, f Flow, freshLogin bool) (string, 
 	q.Set("nonce", f.Nonce)
 	q.Set("code_challenge", challenge(f.Verifier))
 	q.Set("code_challenge_method", "S256")
-	if freshLogin {
+	if f.Fresh {
 		q.Set("prompt", "login")
+		q.Set("max_age", strconv.Itoa(int(FreshMaxAge.Seconds())))
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil

@@ -101,6 +101,7 @@ const (
 	codeNotRelinkable      = "identity_not_relinkable"
 	codeSSOUnverified      = "sso_email_unverified"
 	codeSSONotInvited      = "sso_not_invited"
+	codeSSOReauth          = "sso_reauth_unconfirmed"
 	codeInvalidCursor      = "invalid_cursor"
 	codeCursorExpired      = "cursor_expired"
 
