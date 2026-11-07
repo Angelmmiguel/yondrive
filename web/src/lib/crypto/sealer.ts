@@ -171,18 +171,8 @@ export interface Sealer {
 
 	/** A fresh link key; empty in suite `none`, whose URLs carry none. */
 	newLinkKey(): Bytes;
-	sealLinkNodeKey(
-		nodeKey: Uint8Array,
-		linkKey: Uint8Array,
-		linkId: string,
-		nodeId: string
-	): Bytes;
-	openLinkNodeKey(
-		stored: Uint8Array,
-		linkKey: Uint8Array,
-		linkId: string,
-		nodeId: string
-	): Bytes;
+	sealLinkNodeKey(nodeKey: Uint8Array, linkKey: Uint8Array, linkId: string, nodeId: string): Bytes;
+	openLinkNodeKey(stored: Uint8Array, linkKey: Uint8Array, linkId: string, nodeId: string): Bytes;
 	sealLinkOwnerCopy(linkKey: Uint8Array, masterKey: Uint8Array, linkId: string): Bytes;
 	openLinkOwnerCopy(stored: Uint8Array, masterKey: Uint8Array, linkId: string): Bytes;
 	/** What a password's root gives: the same auth key in both modes, and a KEK only with keys. */

@@ -467,7 +467,12 @@ function sharingVectors() {
 				root: hex(passwordRoot),
 				authKey: hex(hkdf(passwordRoot, 'yondrive/link-auth/v1')),
 				kek: hex(kekOfLink),
-				...wrap(kekOfLink, bytes(89, 24), fields('yondrive/link/password/v1', utf8(linkId)), linkKey)
+				...wrap(
+					kekOfLink,
+					bytes(89, 24),
+					fields('yondrive/link/password/v1', utf8(linkId)),
+					linkKey
+				)
 			}
 		},
 		pins: {

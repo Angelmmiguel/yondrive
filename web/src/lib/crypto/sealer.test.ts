@@ -324,9 +324,7 @@ describe('what sharing asks of a sealer', () => {
 		const empty = new Uint8Array(0);
 
 		expect(none.signGrant(grant, keys)).toHaveLength(0);
-		expect(() =>
-			none.verifyGrant(grant, empty, { x25519: empty, ed25519: empty })
-		).not.toThrow();
+		expect(() => none.verifyGrant(grant, empty, { x25519: empty, ed25519: empty })).not.toThrow();
 		expect(none.newLinkKey()).toHaveLength(0);
 		expect(none.sealLinkNodeKey(empty, empty, 'l', 'n')).toHaveLength(0);
 		expect(none.openLinkNodeKey(empty, empty, 'l', 'n')).toHaveLength(0);
