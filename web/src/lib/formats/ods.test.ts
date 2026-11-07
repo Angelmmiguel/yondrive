@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { print } from '$lib/formula/ast';
+import { parseFormula } from '$lib/formula/parse';
 import { err } from '$lib/formula/values';
 import { readCsv } from './csv';
 import { odfToExcel, ODS_LIMITS, OdsError, readOds, writeOds } from './ods';
@@ -21,6 +23,12 @@ describe('OpenFormula', () => {
 		expect(odfToExcel('of:=[.#REF!]')).toBe('#REF!');
 		expect(odfToExcel('msoxl:=A1+1')).toBe('A1+1');
 		expect(odfToExcel('oooc:=[.A1]')).toBe('oooc:=[.A1]');
+	});
+
+	it('separates the rows of inline arrays with | both ways', () => {
+		expect(odfToExcel('of:=SUM({1;2|3;4})')).toBe('SUM({1,2;3,4})');
+		expect(odfToExcel('of:="a|b"&{1|2}')).toBe('"a|b"&{1;2}');
+		expect(print(parseFormula('SUM({1,2;3,4})'), { mode: 'odf' })).toBe('SUM({1;2|3;4})');
 	});
 });
 

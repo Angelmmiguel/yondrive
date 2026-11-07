@@ -138,7 +138,8 @@ export function print(node: Node, opts: PrintOptions = {}): string {
 			case 'paren':
 				return `(${p(n.expr)})`;
 			case 'array':
-				return `{${n.rows.map((r) => r.map(p).join(sep)).join(';')}}`;
+				// OpenFormula separates rows with |, since ; separates columns there.
+				return `{${n.rows.map((r) => r.map(p).join(sep)).join(mode === 'odf' ? '|' : ';')}}`;
 			case 'missing':
 				return '';
 		}

@@ -59,8 +59,16 @@ export function odfToExcel(formula: string): string {
 	if (ns === 'msoxl') return s;
 	if (ns && ns !== 'of') return formula;
 	let out = '';
+	let braces = 0;
 	for (let i = 0; i < s.length; i++) {
 		const c = s[i];
+		if (c === '{') braces++;
+		else if (c === '}') braces = Math.max(0, braces - 1);
+		if (c === '|' && braces > 0) {
+			// Rows of an inline array.
+			out += ';';
+			continue;
+		}
 		if (c === '"') {
 			const j = s.indexOf('"', i + 1);
 			let end = j < 0 ? s.length : j;
