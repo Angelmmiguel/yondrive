@@ -14,6 +14,7 @@ import { deriveKeys } from './credentials';
 import { defaultDeps, type Deps } from './deps';
 import { RekeyMaybeAppliedError, WrongRecoveryKeyError } from './errors';
 import { attemptLogin, type LoginStep } from './login';
+import { acceptMode } from './mode';
 import { acceptSigningIn, rememberSession } from './session';
 import { recordOf, rekeyBody } from './wire';
 
@@ -45,6 +46,31 @@ export async function openRecovery(
 	);
 }
 
+/**
+ * The same for someone already signed in through a provider, where the words sign
+ * nobody in. They open the recovery wrap from the account, and their auth key goes out
+ * with the rekey alone, as the current credential.
+ */
+export async function openRecoveryInSession(
+	input: { phrase: string },
+	deps: Deps = defaultDeps
+): Promise<Recovery> {
+	const account = await deps.api.getMe();
+	const sealer = acceptMode(account.mode, recordOf(account), deps);
+	const recoveryKey = sealer.parseRecoveryPhrase(input.phrase);
+	const { kek, authKey } = sealer.expandRecoveryKey(recoveryKey);
+	zero(recoveryKey);
+	try {
+		const master = unwrapWithRecovery(sealer, account, kek);
+		return new Recovery(sealer, account, master, authKey, deps, true);
+	} catch (e) {
+		zero(authKey);
+		throw e;
+	} finally {
+		zero(kek);
+	}
+}
+
 function unwrapWithRecovery(sealer: Sealer, account: Account, kek: Bytes): Bytes {
 	try {
 		return sealer.unwrapMaster(recordOf(account).recoveryWrappedMaster, kek, 'recovery');
@@ -62,8 +88,18 @@ export class Recovery {
 	#deps: Deps;
 	/** A rekey failed without an answer from the server, so it may have been applied. */
 	#unanswered = false;
+	/** The session came from elsewhere, so giving up here does not end it. */
+	readonly #keepSession: boolean;
 
-	constructor(sealer: Sealer, account: Account, master: Bytes, authKey: Bytes, deps: Deps) {
+	constructor(
+		sealer: Sealer,
+		account: Account,
+		master: Bytes,
+		authKey: Bytes,
+		deps: Deps,
+		keepSession = false
+	) {
+		this.#keepSession = keepSession;
 		this.#sealer = sealer;
 		this.#account = account;
 		this.#master = master;
@@ -121,6 +157,6 @@ export class Recovery {
 		if (this.#master === null) return;
 		zero(this.#master, this.#authKey);
 		this.#master = null;
-		await this.#deps.api.logout().catch(() => {});
+		if (!this.#keepSession) await this.#deps.api.logout().catch(() => {});
 	}
 }

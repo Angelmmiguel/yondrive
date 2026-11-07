@@ -118,6 +118,10 @@ export async function unlock(passphrase: string, deps: Deps = defaultDeps): Prom
  */
 export async function resume(account: Account, deps: Deps = defaultDeps): Promise<void> {
 	const sealer = acceptMode(account.mode, recordOf(account), deps);
+	if (account.enrolment_required === true) {
+		deps.session.enrolling(sealer, account);
+		return;
+	}
 	const master = await sealer.resumeSession(sessionKeyApi(deps));
 	if (master === null) {
 		deps.session.locked(sealer, account);

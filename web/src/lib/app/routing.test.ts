@@ -53,4 +53,14 @@ describe('destinationFor', () => {
 			'/settings'
 		);
 	});
+
+	it('lets someone with no keys yet do nothing but make them', () => {
+		for (const path of ['/', '/settings', '/admin', '/unlock', '/invite', '/styleguide']) {
+			expect(destinationFor({ status: 'enrolling', path })).toBe('/enrol');
+		}
+		expect(destinationFor({ status: 'enrolling', path: '/enrol' })).toBeNull();
+		expect(destinationFor({ status: 'unlocked', path: '/enrol' })).toBe('/');
+		expect(destinationFor({ status: 'locked', path: '/enrol' })).toBe('/unlock');
+		expect(destinationFor({ status: 'signed-out', path: '/enrol' })).toBe('/signin');
+	});
 });

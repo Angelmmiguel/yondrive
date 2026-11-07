@@ -8,6 +8,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { followOtherTabs } from '$lib/account/session';
+	import { takeReturn } from '$lib/account/sso';
 	import { boot } from '$lib/app/boot';
 	import { destinationFor } from '$lib/app/routing';
 	import { AuthCard, Banner, Button, ModeAlert, Toast, ToastStack } from '$lib/components';
@@ -31,6 +32,16 @@
 	});
 
 	$effect(() => followOtherTabs());
+
+	// Back from signing in again for an action: to where it was, to do it again.
+	$effect(() => {
+		if (session.status !== 'unlocked') return;
+		const path = takeReturn();
+		if (path === null) return;
+		toasts.push('info', 'You signed in again. Try that within the next five minutes.');
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- kept from this app's own location
+		void goto(path, { replaceState: true });
+	});
 
 	const insecure = !window.isSecureContext;
 	let retrying = $state(false);

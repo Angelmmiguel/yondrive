@@ -3,7 +3,14 @@
  * follows from the bytes alone: what the sealer left empty is left out, and what
  * the server left out is empty, which is how the two modes share one code path.
  */
-import type { Account, AccountKeys, Kdf, NewAccount, RekeyRequest } from '$lib/api/types';
+import type {
+	Account,
+	AccountKeys,
+	EnrolRequest,
+	Kdf,
+	NewAccount,
+	RekeyRequest
+} from '$lib/api/types';
 import { decodeBase64, encodeBase64, type Bytes } from '$lib/crypto/encoding';
 import { accountHasWrappedKeys, type UserKeyRecord } from '$lib/crypto/sealer';
 import type { SessionKeyApi } from '$lib/crypto/persist';
@@ -67,6 +74,21 @@ export function newAccountBody(input: {
 		kdf: input.kdf,
 		recovery_auth_key: optional(input.recoveryAuthKey),
 		keys: accountKeysOf(input.record)
+	};
+}
+
+/** The keys of an account signing in through a provider for the first time. */
+export function enrolBody(input: {
+	kdf: Kdf;
+	unlockAuthKey: string;
+	recoveryAuthKey: string;
+	record: UserKeyRecord;
+}): EnrolRequest {
+	return {
+		kdf: input.kdf,
+		unlock_auth_key: input.unlockAuthKey,
+		recovery_auth_key: input.recoveryAuthKey,
+		keys: accountKeysOf(input.record) as AccountKeys
 	};
 }
 

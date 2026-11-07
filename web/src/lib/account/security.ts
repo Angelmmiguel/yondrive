@@ -1,7 +1,8 @@
 /**
  * The actions that a session alone must not be able to take: enrolling in TOTP,
- * turning it off, minting a device token, inviting another admin, deleting a user
- * and issuing a password reset link. Each proves the passphrase first.
+ * turning it off, minting a device token, inviting another admin, deleting a user,
+ * issuing a password reset link, forgetting an identity and changing how people sign
+ * in. Each proves the passphrase first, or for an account with none, a recent sign-in.
  */
 import type {
 	CreatedInvite,
@@ -9,7 +10,9 @@ import type {
 	CreatedToken,
 	CreateInviteRequest,
 	RecoveryCodes,
-	TotpEnrolment
+	ServerSettings,
+	TotpEnrolment,
+	UpdateSettingsRequest
 } from '$lib/api/types';
 import { encodeBase64, type Bytes } from '$lib/crypto/encoding';
 import { zero } from '$lib/crypto/random';
@@ -94,6 +97,25 @@ export function createPasswordResetLink(
 ): Promise<CreatedPasswordReset> {
 	return withCurrentKey(input.passphrase, deps, (key) =>
 		deps.api.createPasswordReset(input.userId, { current_auth_key: encodeBase64(key) })
+	);
+}
+
+export function unlinkUserIdentity(
+	input: { userId: string; passphrase: string },
+	deps: Deps = defaultDeps
+): Promise<void> {
+	return withCurrentKey(input.passphrase, deps, (key) =>
+		deps.api.unlinkIdentity(input.userId, { current_auth_key: encodeBase64(key) })
+	);
+}
+
+/** A change to the server's settings that the API wants a current credential for. */
+export function changeSettings(
+	input: { request: UpdateSettingsRequest; passphrase: string },
+	deps: Deps = defaultDeps
+): Promise<ServerSettings> {
+	return withCurrentKey(input.passphrase, deps, (key) =>
+		deps.api.updateSettings({ ...input.request, current_auth_key: encodeBase64(key) })
 	);
 }
 

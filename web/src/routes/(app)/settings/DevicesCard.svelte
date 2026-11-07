@@ -1,20 +1,13 @@
 <!-- Bearer tokens for other devices. A secret is shown once, when it is made. -->
 <script lang="ts">
 	import { createDeviceToken } from '$lib/account/security';
+	import ConfirmPassphrase from '$lib/account/ui/ConfirmPassphrase.svelte';
 	import { api } from '$lib/api/client';
 	import type { CreatedToken, DeviceToken } from '$lib/api/types';
 	import { failure } from '$lib/app/failure';
 	import { formatDate } from '$lib/app/format';
-	import {
-		Banner,
-		Button,
-		Card,
-		CodeBlock,
-		EmptyState,
-		Field,
-		PasswordField,
-		TextInput
-	} from '$lib/components';
+	import { Banner, Button, Card, CodeBlock, EmptyState, Field, TextInput } from '$lib/components';
+	import { session } from '$lib/state/session.svelte';
 
 	let tokens = $state<DeviceToken[]>([]);
 	let name = $state('');
@@ -91,14 +84,17 @@
 			<Field label="Device name" required>
 				{#snippet children(field)}<TextInput {...field} bind:value={name} />{/snippet}
 			</Field>
-			<Field label="Passphrase" required>
-				{#snippet children(field)}
-					<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
-				{/snippet}
-			</Field>
+			<ConfirmPassphrase
+				bind:value={passphrase}
+				label={session.account?.user.sign_in_method === 'sso' ? 'Unlock passphrase' : 'Passphrase'}
+			/>
 		</div>
 		<div>
-			<Button type="submit" {busy} disabled={name.trim() === '' || passphrase === ''}>
+			<Button
+				type="submit"
+				{busy}
+				disabled={name.trim() === '' || (session.asksPassphrase && passphrase === '')}
+			>
 				{busy ? 'Creating…' : 'Create token'}
 			</Button>
 		</div>

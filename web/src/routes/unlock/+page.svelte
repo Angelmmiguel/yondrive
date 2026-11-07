@@ -6,6 +6,9 @@
 	import { AuthCard, Banner, Button, Field, PasswordField } from '$lib/components';
 	import { session } from '$lib/state/session.svelte';
 
+	const sso = $derived(session.account?.user.sign_in_method === 'sso');
+	const label = $derived(sso ? 'Unlock passphrase' : 'Passphrase');
+
 	let passphrase = $state('');
 	let busy = $state(false);
 	let error = $state<string | null>(null);
@@ -29,11 +32,12 @@
 
 <AuthCard
 	title="Unlock"
-	lede="Signed in as {session.account?.user.username}. Enter your passphrase to open your files."
+	lede="Signed in as {session.account?.user
+		.username}. Enter your {label.toLowerCase()} to open your files."
 >
 	{#if error}<Banner tone="danger">{error}</Banner>{/if}
 	<form onsubmit={submit}>
-		<Field label="Passphrase" required>
+		<Field {label} required>
 			{#snippet children(field)}
 				<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
 			{/snippet}

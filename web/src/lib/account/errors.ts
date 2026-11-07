@@ -91,6 +91,23 @@ const API_MESSAGES: Partial<Record<ErrorCode, string>> = {
 	invalid_quota: 'That quota is not valid.',
 	wrong_mode: 'This server keeps its keys end to end, so an administrator cannot reset passwords.',
 	reset_invalid: 'This reset link is not valid. It may have been used or expired.',
+	sso_disabled: 'Single sign-on is not turned on here.',
+	sso_required:
+		'This account signs in through your identity provider. Continue with it from the sign-in page; “Forgot your passphrase?” on the unlock screen then takes these words.',
+	sso_only: 'This account signs in through your identity provider, and has no password here.',
+	local_accounts_disabled: 'Signing in with a passphrase is turned off on this server.',
+	local_accounts_lockout:
+		'That would leave nobody able to sign in. Local accounts can only go off with single sign-on on and a local administrator left.',
+	already_enrolled: 'This account already has its keys.',
+	totp_local_only: 'Your identity provider handles the second factor of this account.',
+	reauth_required: 'Sign in again through your identity provider, and try that again.',
+	invalid_issuer:
+		'That is not a usable issuer address. It has to be https, unless insecure ones are allowed.',
+	invalid_oidc_settings:
+		'Some of those settings are not valid: check the label, scopes and client.',
+	oidc_discovery_failed: 'YonDrive could not read the provider’s configuration from that address.',
+	oidc_issuer_mismatch: 'The provider spells its issuer differently. Use exactly its spelling.',
+	oidc_keys_failed: 'The provider offers no signing key YonDrive can use.',
 	unauthorized: 'Your session has ended. Sign in again.',
 	not_found: 'That no longer exists.',
 	forbidden: 'You are not allowed to do that.'

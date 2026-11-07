@@ -4,7 +4,10 @@
 	import { passphraseProblem } from '$lib/account/strength';
 	import { failure } from '$lib/app/failure';
 	import { Banner, Button, Card, Field, PassphraseFields, PasswordField } from '$lib/components';
+	import { session } from '$lib/state/session.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
+
+	const sso = $derived(session.account?.user.sign_in_method === 'sso');
 
 	let current = $state('');
 	let next = $state('');
@@ -32,8 +35,12 @@
 </script>
 
 <Card padding="lg" as="section" label="Passphrase">
-	<h2>Change passphrase</h2>
-	<p>Other sessions and device tokens are signed out when it changes.</p>
+	<h2>{sso ? 'Change unlock passphrase' : 'Change passphrase'}</h2>
+	<p>
+		{sso
+			? 'It opens your files, and your identity provider never sees it. Other sessions and device tokens are signed out when it changes.'
+			: 'Other sessions and device tokens are signed out when it changes.'}
+	</p>
 	<form onsubmit={submit}>
 		{#if error}<Banner tone="danger">{error}</Banner>{/if}
 		<Field label="Current passphrase" required>

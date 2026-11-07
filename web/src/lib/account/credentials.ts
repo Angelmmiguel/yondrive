@@ -47,6 +47,8 @@ export async function confirming<T>(request: Promise<T>): Promise<T> {
  * now: the session's copy goes stale when a rekey's response is lost.
  */
 export async function freshAuthKey(passphrase: string, deps: Deps): Promise<Bytes> {
+	// With no passphrase there is no key, and a recent sign-in stands in for one.
+	if (!deps.session.asksPassphrase) return new Uint8Array(0);
 	const { kdf } = await deps.api.getMe();
 	return currentAuthKey(passphrase, parseKdfParams(kdf), deps);
 }

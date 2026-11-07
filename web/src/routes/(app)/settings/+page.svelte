@@ -3,6 +3,7 @@
 	import { Tabs, ThemeToggle, Card } from '$lib/components';
 	import { session } from '$lib/state/session.svelte';
 	import DevicesCard from './DevicesCard.svelte';
+	import SignInCard from './SignInCard.svelte';
 	import NameCard from './NameCard.svelte';
 	import PassphraseCard from './PassphraseCard.svelte';
 	import RecoveryCard from './RecoveryCard.svelte';
@@ -24,9 +25,10 @@
 		<div class="panel">
 			{#if id === 'account'}
 				<NameCard />
-				<PassphraseCard />
+				<SignInCard />
+				{#if session.asksPassphrase}<PassphraseCard />{/if}
 				{#if session.sealer?.encrypted}<RecoveryCard />{/if}
-				<TotpCard />
+				{#if session.account?.user.sign_in_method !== 'sso'}<TotpCard />{/if}
 			{:else if id === 'devices'}
 				<DevicesCard />
 			{:else}

@@ -6,7 +6,7 @@
 import type { Role } from '$lib/api/types';
 import type { SessionStatus } from '$lib/state/session.svelte';
 
-export type Destination = '/' | '/setup' | '/signin' | '/unlock' | '/settings';
+export type Destination = '/' | '/setup' | '/signin' | '/unlock' | '/settings' | '/enrol';
 
 /** Open to anyone in any state: a link is for whoever holds it. */
 const OPEN = ['/invite', '/reset', '/styleguide'];
@@ -26,6 +26,7 @@ export function destinationFor(input: {
 	if (status === 'booting' || status === 'offline' || isLinkPath(path)) return null;
 	if (status === 'needs-setup')
 		return path === '/setup' || path === '/styleguide' ? null : '/setup';
+	if (status === 'enrolling') return path === '/enrol' ? null : '/enrol';
 	if (OPEN.includes(path)) return null;
 	switch (status) {
 		case 'signed-out':
@@ -33,7 +34,7 @@ export function destinationFor(input: {
 		case 'locked':
 			return path === '/unlock' || path === '/recover' ? null : '/unlock';
 		case 'unlocked':
-			if (['/signin', '/unlock', '/recover', '/setup'].includes(path)) {
+			if (['/signin', '/unlock', '/recover', '/setup', '/enrol'].includes(path)) {
 				return wantsTotp ? '/settings' : '/';
 			}
 			return path === '/admin' && role !== 'admin' ? '/' : null;

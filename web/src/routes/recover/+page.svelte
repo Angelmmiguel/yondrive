@@ -7,7 +7,7 @@
 	import { resolve } from '$app/paths';
 	import { onDestroy } from 'svelte';
 	import type { LoginStep, TotpChallenge } from '$lib/account/login';
-	import { openRecovery, type Recovery } from '$lib/account/recover';
+	import { openRecovery, openRecoveryInSession, type Recovery } from '$lib/account/recover';
 	import { discardRecovery, newRecovery, type PendingRecovery } from '$lib/account/recovery-key';
 	import { passphraseProblem } from '$lib/account/strength';
 	import { failure } from '$lib/app/failure';
@@ -37,6 +37,12 @@
 	let error = $state<string | null>(null);
 
 	const problem = $derived(passphraseProblem(passphrase, confirmation));
+	/** Someone signed in through a provider already has their session: the words just open keys. */
+	const inSession = $derived(
+		session.status === 'locked' && session.account?.user.sign_in_method !== 'local'
+	);
+	const sso = $derived(session.account?.user.sign_in_method === 'sso');
+	const newLabel = $derived(sso ? 'New unlock passphrase' : 'New passphrase');
 
 	onDestroy(() => {
 		challenge?.cancel();
@@ -71,7 +77,13 @@
 		event.preventDefault();
 		const sealer = session.sealer;
 		if (sealer === null) return;
-		void run(async () => follow(await openRecovery({ username: username.trim(), phrase, sealer })));
+		void run(async () => {
+			if (inSession) {
+				follow({ status: 'done', value: await openRecoveryInSession({ phrase }) });
+			} else {
+				follow(await openRecovery({ username: username.trim(), phrase, sealer }));
+			}
+		});
 	}
 
 	function submitCode(event: SubmitEvent) {
@@ -137,22 +149,28 @@
 {:else if step === 'words'}
 	<AuthCard
 		title="Recover your account"
-		lede="Enter your username and the 24 words of your recovery key. You will then set a new passphrase."
+		lede={inSession
+			? 'Signed in as ' +
+				username +
+				'. Enter the 24 words of your recovery key. You will then set a new passphrase.'
+			: 'Enter your username and the 24 words of your recovery key. You will then set a new passphrase.'}
 		width={520}
 	>
 		{#if error}<Banner tone="danger">{error}</Banner>{/if}
 		<form onsubmit={submitWords}>
-			<Field label="Username" required>
-				{#snippet children(field)}
-					<TextInput
-						{...field}
-						bind:value={username}
-						autocomplete="username"
-						autocapitalize="off"
-						spellcheck="false"
-					/>
-				{/snippet}
-			</Field>
+			{#if !inSession}
+				<Field label="Username" required>
+					{#snippet children(field)}
+						<TextInput
+							{...field}
+							bind:value={username}
+							autocomplete="username"
+							autocapitalize="off"
+							spellcheck="false"
+						/>
+					{/snippet}
+				</Field>
+			{/if}
 			<Field label="Recovery key" hint="The 24 words, separated by spaces." required>
 				{#snippet children(field)}
 					<textarea
@@ -173,7 +191,9 @@
 				{busy ? 'Checking…' : 'Continue'}
 			</Button>
 		</form>
-		<a href={resolve('/signin')}>Back to sign in</a>
+		<a href={resolve(inSession ? '/unlock' : '/signin')}>
+			{inSession ? 'Back to unlock' : 'Back to sign in'}
+		</a>
 	</AuthCard>
 {:else if step === 'passphrase'}
 	<AuthCard
@@ -182,7 +202,7 @@
 	>
 		{#if error}<Banner tone="danger">{error}</Banner>{/if}
 		<form onsubmit={toRecovery}>
-			<PassphraseFields bind:passphrase bind:confirmation label="New passphrase" />
+			<PassphraseFields bind:passphrase bind:confirmation label={newLabel} />
 			<Button type="submit" variant="primary" disabled={problem !== null}>Continue</Button>
 		</form>
 	</AuthCard>

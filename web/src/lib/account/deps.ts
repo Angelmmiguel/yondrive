@@ -33,6 +33,8 @@ export interface Deps {
 	deriveRoot: (passphrase: string, params: KdfParams) => Promise<Bytes>;
 	/** Parameters, salt included, for a passphrase that is being set. */
 	newKdfParams: () => KdfParams;
+	/** Leaves the app for another page, as a sign-in through a provider has to. */
+	leave: (url: string) => void;
 }
 
 export const MODE_PIN_KEY = 'yondrive.mode';
@@ -88,5 +90,6 @@ export const defaultDeps: Deps = {
 	pin: storedPin,
 	channel: broadcast,
 	deriveRoot: deriveRootInWorker,
-	newKdfParams
+	newKdfParams,
+	leave: (url) => location.assign(url)
 };

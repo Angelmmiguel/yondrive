@@ -31,6 +31,8 @@ interface StoredUser {
 	keys?: AccountKeys;
 	totp: boolean;
 	disabled: boolean;
+	/** Signs in through a provider only. `authKey` is then its unlock auth key, or empty. */
+	sso?: boolean;
 }
 
 const fail = (status: number, code: ErrorCode) => new ApiError(status, code);
@@ -39,11 +41,14 @@ export function fakeServer(mode: Mode) {
 	const users = new Map<string, StoredUser>();
 	const calls: string[] = [];
 	const bodies: unknown[] = [];
+	const left: string[] = [];
 	const state = {
 		setup: true,
 		mode,
 		signedIn: null as StoredUser | null,
 		sessionKey: null as string | null,
+		/** Whether the session is a few minutes old, which stands in for a credential in `none`. */
+		recentSignIn: true,
 		/** Rewrites what login and /me say, to play a hostile server. */
 		tamper: (account: Account): Account => account
 	};
@@ -55,13 +60,16 @@ export function fakeServer(mode: Mode) {
 				username: user.username,
 				role: 'admin',
 				quota_bytes: 0,
+				sign_in_method: user.sso ? 'sso' : 'local',
 				totp_enabled: user.totp,
 				disabled: user.disabled,
 				created_at: '2026-01-01T00:00:00Z'
 			},
 			mode: state.mode,
 			kdf: user.kdf,
-			keys: user.keys
+			keys: user.keys,
+			enrolment_required:
+				user.sso && state.mode === 'e2e' && user.keys === undefined ? true : undefined
 		});
 
 	const me = (): StoredUser => {
@@ -71,6 +79,10 @@ export function fakeServer(mode: Mode) {
 
 	const checkCurrent = (key: string): StoredUser => {
 		const user = me();
+		if (user.sso && state.mode === 'none') {
+			if (!state.recentSignIn) throw fail(401, 'reauth_required');
+			return user;
+		}
 		if (key !== user.authKey && key !== user.recoveryAuthKey) throw fail(401, 'wrong_credential');
 		return user;
 	};
@@ -116,6 +128,7 @@ export function fakeServer(mode: Mode) {
 			) {
 				throw fail(401, 'invalid_credentials');
 			}
+			if (user.sso) throw fail(403, 'sso_required');
 			if (user.disabled) throw fail(403, 'user_disabled');
 			if (user.totp) {
 				if (body.totp_code === undefined && body.totp_recovery_code === undefined) {
@@ -139,6 +152,7 @@ export function fakeServer(mode: Mode) {
 		},
 		rekey: async (body: RekeyRequest) => {
 			const user = checkCurrent(body.current_auth_key);
+			if (user.sso && state.mode === 'none') throw fail(409, 'sso_only');
 			if (state.mode === 'none' && (body.recovery_auth_key || body.wrapped_master_key)) {
 				throw fail(400, 'keys_not_allowed');
 			}
@@ -203,6 +217,32 @@ export function fakeServer(mode: Mode) {
 			return { token: 'reset-token', link: 'http://x/reset#reset-token', expires_at: 'later' };
 		},
 		getMe: async () => account(me()),
+		getAuthMethods: async () => ({
+			local_accounts: true,
+			open_signup: false,
+			oidc: { label: 'Fake ID' }
+		}),
+		startOidcWithInvite: async (body) => {
+			if (body.invite_token !== 'invite-token') throw fail(403, 'invite_invalid');
+			return { authorize_url: 'https://id.example/authorize' };
+		},
+		enrolOidc: async (body) => {
+			const user = me();
+			if (state.mode !== 'e2e') throw fail(409, 'wrong_mode');
+			if (user.keys !== undefined) throw fail(409, 'already_enrolled');
+			user.authKey = body.unlock_auth_key;
+			user.recoveryAuthKey = body.recovery_auth_key;
+			user.kdf = body.kdf;
+			user.keys = body.keys;
+			return account(user);
+		},
+		unlinkIdentity: async (_userId, body) => {
+			checkCurrent(body.current_auth_key);
+		},
+		updateSettings: async (body) => {
+			checkCurrent(body.current_auth_key ?? '');
+			return { name: 'nas' } as never;
+		},
 		getSessionKey: async () => {
 			me();
 			if (state.sessionKey === null) throw fail(404, 'no_session_key');
@@ -230,7 +270,24 @@ export function fakeServer(mode: Mode) {
 		}
 	}) as unknown as Api;
 
-	return { api, calls, bodies, users, state };
+	/** Someone a provider has just vouched for: an account with no credentials, and a session. */
+	const signInThroughProvider = (username = 'sso-user') => {
+		const user: StoredUser = users.get(username) ?? {
+			id: `id-${users.size + 1}`,
+			username,
+			authKey: '',
+			// What the server answers before anything has been derived: nothing to go on.
+			kdf: newKdfParamsAtTestCost(),
+			totp: false,
+			disabled: false,
+			sso: true
+		};
+		users.set(username, user);
+		state.signedIn = user;
+		return user;
+	};
+
+	return { api, calls, bodies, users, state, left, signInThroughProvider };
 }
 
 export type FakeServer = ReturnType<typeof fakeServer>;
@@ -279,6 +336,7 @@ export function testDeps(server: FakeServer, overrides: Partial<Deps> = {}): Dep
 		channel: memoryTabs().channel(),
 		deriveRoot: async (passphrase, params) => deriveRoot(passphrase, params),
 		newKdfParams: newKdfParamsAtTestCost,
+		leave: (url) => void server.left.push(url),
 		...overrides
 	};
 }

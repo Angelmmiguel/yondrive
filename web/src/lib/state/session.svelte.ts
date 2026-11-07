@@ -17,6 +17,8 @@ export type SessionStatus =
 	| 'signed-out'
 	/** Signed in, with the keys gone: only a passphrase brings them back. */
 	| 'locked'
+	/** Signed in through a provider, with no keys made yet. Nothing else comes first. */
+	| 'enrolling'
 	| 'unlocked';
 
 export class Session {
@@ -38,6 +40,24 @@ export class Session {
 		this.account = account;
 		this.keys = keys;
 		this.status = 'unlocked';
+	}
+
+	/**
+	 * Whether a current credential is a passphrase this person types. An account with
+	 * only a provider, in a mode with no keys, has none, and a recent sign-in stands in.
+	 */
+	get asksPassphrase(): boolean {
+		const { account, sealer } = this;
+		if (account === null || sealer === null) return true;
+		return account.user.sign_in_method !== 'sso' || sealer.ssoHasPassphrase;
+	}
+
+	/** Signed in through a provider, and about to make its keys. */
+	enrolling(sealer: Sealer, account: Account): void {
+		this.#zero();
+		this.sealer = sealer;
+		this.account = account;
+		this.status = 'enrolling';
 	}
 
 	/** Signed in with no keys, as after a reload whose session key is gone. */

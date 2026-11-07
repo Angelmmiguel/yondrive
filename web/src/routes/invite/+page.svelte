@@ -8,6 +8,9 @@
 	import { onDestroy } from 'svelte';
 	import { discardRecovery, newRecovery, type PendingRecovery } from '$lib/account/recovery-key';
 	import { register } from '$lib/account/setup';
+	import { continueWithInvite, continueWithProvider } from '$lib/account/sso';
+	import { api } from '$lib/api/client';
+	import type { AuthMethods } from '$lib/api/types';
 	import { passphraseProblem } from '$lib/account/strength';
 	import { failure } from '$lib/app/failure';
 	import {
@@ -37,6 +40,32 @@
 
 	const problem = $derived(passphraseProblem(passphrase, confirmation));
 	const ready = $derived(username.trim() !== '' && problem === null);
+	let methods = $state.raw<AuthMethods | null>(null);
+	const showForm = $derived(methods === null || methods.local_accounts);
+
+	$effect(() => {
+		api
+			.getAuthMethods()
+			.then((found) => (methods = found))
+			.catch(() => {
+				// Then the form is what is left to offer.
+			});
+	});
+
+	async function withProvider() {
+		if (token === null) {
+			continueWithProvider();
+			return;
+		}
+		busy = true;
+		error = null;
+		try {
+			await continueWithInvite(token);
+		} catch (e) {
+			error = failure(e);
+			busy = false;
+		}
+	}
 
 	onDestroy(() => {
 		if (pending) discardRecovery(pending);
@@ -84,28 +113,42 @@
 		width={480}
 	>
 		{#if error}<Banner tone="danger">{error}</Banner>{/if}
-		<form onsubmit={submit}>
-			<Field label="Username" required>
-				{#snippet children(field)}
-					<TextInput
-						{...field}
-						bind:value={username}
-						autocomplete="username"
-						autocapitalize="off"
-						spellcheck="false"
-					/>
-				{/snippet}
-			</Field>
-			<Field label="Email" hint="Optional.">
-				{#snippet children(field)}
-					<TextInput {...field} bind:value={email} type="email" autocomplete="email" />
-				{/snippet}
-			</Field>
-			<PassphraseFields bind:passphrase bind:confirmation />
-			<Button type="submit" variant="primary" {busy} disabled={!ready}>
-				{busy ? 'Creating…' : session.sealer?.encrypted ? 'Continue' : 'Create account'}
+		{#if methods?.oidc}
+			<Button
+				variant={showForm ? 'secondary' : 'primary'}
+				trailingIcon="arrow-right"
+				{busy}
+				onclick={withProvider}
+			>
+				Continue with {methods.oidc.label}
 			</Button>
-		</form>
+		{/if}
+		{#if showForm}
+			<form onsubmit={submit}>
+				<Field label="Username" required>
+					{#snippet children(field)}
+						<TextInput
+							{...field}
+							bind:value={username}
+							autocomplete="username"
+							autocapitalize="off"
+							spellcheck="false"
+						/>
+					{/snippet}
+				</Field>
+				<Field label="Email" hint="Optional.">
+					{#snippet children(field)}
+						<TextInput {...field} bind:value={email} type="email" autocomplete="email" />
+					{/snippet}
+				</Field>
+				<PassphraseFields bind:passphrase bind:confirmation />
+				<Button type="submit" variant="primary" {busy} disabled={!ready}>
+					{busy ? 'Creating…' : session.sealer?.encrypted ? 'Continue' : 'Create account'}
+				</Button>
+			</form>
+		{:else if !methods?.oidc}
+			<Banner tone="neutral">New accounts are turned off here. Ask your administrator.</Banner>
+		{/if}
 		<a href={resolve('/signin')}>I already have an account</a>
 	</AuthCard>
 {:else if step === 'recovery' && pending}
