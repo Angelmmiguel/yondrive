@@ -110,15 +110,19 @@ function bounded(value: unknown, field: keyof typeof bounds): number {
 	return value;
 }
 
-/** Argon2id over the normalised passphrase; 32 bytes. Slow by design. */
+/**
+ * Argon2id over the normalised passphrase; 32 bytes. Slow by design. The bounds
+ * are checked here as well, so no path to this function can skip them.
+ */
 export function deriveRoot(passphrase: string, params: KdfParams): Bytes {
+	const { m, t, p, salt: encodedSalt } = parseKdfParams(params);
 	const password = utf8(normalizePassphrase(passphrase));
-	const salt = decodeBase64(params.salt);
+	const salt = decodeBase64(encodedSalt);
 	try {
 		return argon2id(password, salt, {
-			m: params.m,
-			t: params.t,
-			p: params.p,
+			m,
+			t,
+			p,
 			dkLen: KEY_LENGTH
 		}) as Bytes;
 	} finally {

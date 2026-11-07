@@ -6,7 +6,7 @@ import type { KdfReply, KdfRequest } from './kdf.worker';
 
 const params: KdfParams = {
 	name: 'argon2id',
-	m: 64,
+	m: 8192,
 	t: 1,
 	p: 1,
 	salt: encodeBase64(new Uint8Array(16))

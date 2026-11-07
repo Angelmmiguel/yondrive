@@ -223,6 +223,22 @@ describe('accountHasWrappedKeys', () => {
 	});
 });
 
+describe('accountHasWrappedKeys with partial material', () => {
+	const { record: empty } = none.createUser(kek, recoveryKek);
+	const some = new Uint8Array(1);
+
+	it.each([
+		['wrappedMaster', { wrappedMaster: some }],
+		['recoveryWrappedMaster', { recoveryWrappedMaster: some }],
+		['sealedX25519', { sealedX25519: some }],
+		['sealedEd25519', { sealedEd25519: some }],
+		['the X25519 public key', { publicKeys: { x25519: some, ed25519: empty.publicKeys.ed25519 } }],
+		['the Ed25519 public key', { publicKeys: { x25519: empty.publicKeys.x25519, ed25519: some } }]
+	])('sees %s alone', (_, change) => {
+		expect(accountHasWrappedKeys({ ...empty, ...change })).toBe(true);
+	});
+});
+
 describe('mayAcceptNone', () => {
 	it.each([
 		[false, null, { accept: true }],

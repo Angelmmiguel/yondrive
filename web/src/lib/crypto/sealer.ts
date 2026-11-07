@@ -273,14 +273,21 @@ export function sealerFor(suite: Suite): Sealer {
 }
 
 /**
- * Whether the server's record shows the account holds keys: the input of the
- * guard below. It is deliberately not a `Sealer` method, because the sealer in
+ * Whether the server's record shows the account holds keys, from any non-empty
+ * key material: the input of the guard below. A server hiding only some of it
+ * is still caught. It is deliberately not a `Sealer` method, because the sealer in
  * question would be the one chosen by the claim being checked.
  */
-export function accountHasWrappedKeys(
-	record: Pick<UserKeyRecord, 'wrappedMaster'> | null
-): boolean {
-	return record !== null && record.wrappedMaster.length > 0;
+export function accountHasWrappedKeys(record: UserKeyRecord | null): boolean {
+	if (record === null) return false;
+	return [
+		record.wrappedMaster,
+		record.recoveryWrappedMaster,
+		record.sealedX25519,
+		record.sealedEd25519,
+		record.publicKeys.x25519,
+		record.publicKeys.ed25519
+	].some((material) => material.length > 0);
 }
 
 /** Why a client refuses the mode the server claims. */

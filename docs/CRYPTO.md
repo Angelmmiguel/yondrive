@@ -278,9 +278,10 @@ The same operations with no keys:
 
 ## 14. Mode guard
 
-The client refuses mode `none` if the account's record holds a non-empty wrapped master
-key, or if the device pinned `xchacha20poly1305-v1`. The answer MUST NOT depend on the
-claimed suite's own code path.
+The account has keys if any of its key material is non-empty: either wrapped master key,
+either sealed private key, or either public key. The client refuses mode `none` if the
+account has keys, or if the device pinned `xchacha20poly1305-v1`. The answer MUST NOT depend
+on the claimed suite's own code path.
 
 | Server claims | Account has wrapped keys | Device pin | Result |
 | --- | --- | --- | --- |

@@ -20,9 +20,9 @@ import {
 	type KdfParams
 } from './kdf';
 
-/** Parameters small enough to keep the suite fast; never used for real. */
+/** The cheapest parameters the bounds allow, to keep the suite fast. */
 function tiny(salt = Buffer.alloc(16, 7)): KdfParams {
-	return { name: 'argon2id', m: 64, t: 1, p: 1, salt: encodeBase64(salt) };
+	return { name: 'argon2id', m: 8192, t: 1, p: 1, salt: encodeBase64(salt) };
 }
 
 describe('known answers', () => {
@@ -142,6 +142,18 @@ describe('deriveRoot', () => {
 	it('derives the same root from composed and decomposed input', () => {
 		expect(deriveRoot('cafe\u0301 au lait 12', tiny())).toEqual(
 			deriveRoot('caf\u00e9 au lait 12', tiny())
+		);
+	});
+
+	it('enforces the parameter bounds itself', () => {
+		expect(() => deriveRoot('correct horse battery', { ...tiny(), m: 64 })).toThrow(
+			InvalidKdfParamsError
+		);
+		expect(() => deriveRoot('correct horse battery', { ...tiny(), t: 0 })).toThrow(
+			InvalidKdfParamsError
+		);
+		expect(() => deriveRoot('correct horse battery', { ...tiny(), salt: 'AAAA' })).toThrow(
+			InvalidKdfParamsError
 		);
 	});
 
