@@ -137,7 +137,6 @@ const LOST: Record<string, string> = {
 	atnid: 'Comments',
 	object: 'Embedded objects',
 	shp: 'Shapes',
-	shppict: '',
 	nonshppict: '',
 	info: '',
 	xmlnstbl: '',
@@ -418,7 +417,10 @@ export function readRtf(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (starred) {
 			// An ignorable destination: read only the few this converter knows.
 			starred = false;
-			if (word !== 'fldinst' && !(st.dest === 'stylesheet' && word === 'cs')) st.dest = 'skip';
+			// Word puts a picture in {\*\shppict{\pict…}}, and the same again for older readers
+			// in {\nonshppict…}, which is skipped.
+			if (word !== 'fldinst' && word !== 'shppict' && !(st.dest === 'stylesheet' && word === 'cs'))
+				st.dest = 'skip';
 		}
 		if (st.dest === 'skip') continue;
 		if (st.dest === 'listtext' && word !== 'u') continue;

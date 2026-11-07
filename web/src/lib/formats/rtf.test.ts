@@ -30,6 +30,20 @@ describe('rtf', () => {
 		expect(plainText(readRtf(enc.encode(src)).model)).toBe('café — end');
 	});
 
+	it("reads Word's picture in shppict and leaves out the copy in nonshppict", () => {
+		const png = fixture('docs/pixel.png');
+		const hex = Buffer.from(png).toString('hex');
+		const src =
+			'{\\rtf1\\ansi before ' +
+			`{\\*\\shppict{\\pict\\pngblip\\picwgoal360\\pichgoal240 ${hex}}}` +
+			'{\\nonshppict{\\pict\\wmetafile8\\picwgoal360\\pichgoal240 0102}} after\\par}';
+		const { model } = readRtf(enc.encode(src));
+		const images = paras(model).flatMap((p) => p.content.filter((i) => i.type === 'image'));
+		expect(images).toEqual([expect.objectContaining({ width: 24, height: 16 })]);
+		expect(model.images[(images[0] as { image: string }).image].bytes).toEqual(png);
+		expect(plainText(model)).toBe('before  after');
+	});
+
 	it('drops a font whose name is not one', () => {
 		const src =
 			"{\\rtf1\\ansi{\\fonttbl{\\f0 Calibri;}{\\f1 Times New Roman;}{\\f2 Evil\\'0a;position:fixed;}}" +
