@@ -1421,6 +1421,16 @@ type RotateNodeRequest struct {
 	// Children Every direct child, in the trash too.
 	Children []RotatedChild `json:"children"`
 
+	// DropGrants Grantees whose grant on this node the owner's client could not verify: no
+	// signature, or not the owner's. They are deleted instead of sealed to, and
+	// count as named. Absent means none.
+	DropGrants *[]string `json:"drop_grants,omitempty"`
+
+	// DropLinks Live links on this node whose owner copy of the key does not open for the
+	// owner. They are revoked instead of sealed again, and count as named. Absent
+	// means none.
+	DropLinks *[]string `json:"drop_links,omitempty"`
+
 	// Grants Every grant on this node. Grants above and below it are not affected.
 	Grants []RotatedGrant `json:"grants"`
 

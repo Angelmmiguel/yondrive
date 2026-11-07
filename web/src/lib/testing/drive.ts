@@ -778,11 +778,12 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 				throw fail(409, 'rotate_conflict');
 			}
 			const onNode = [...grants.values()].filter((g) => g.node_id === id);
-			if (onNode.length !== body.grants.length) throw fail(409, 'rotate_conflict');
-			for (const given of body.grants) {
-				if (!onNode.some((g) => g.grantee_id === given.grantee_id)) {
-					throw fail(409, 'rotate_conflict');
-				}
+			const dropGrants = body.drop_grants ?? [];
+			if (onNode.length !== body.grants.length + dropGrants.length) {
+				throw fail(409, 'rotate_conflict');
+			}
+			for (const given of [...body.grants.map((g) => g.grantee_id), ...dropGrants]) {
+				if (!onNode.some((g) => g.grantee_id === given)) throw fail(409, 'rotate_conflict');
 			}
 			const live = [...links.values()].filter(
 				(l) =>
@@ -791,8 +792,17 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 					(l.expires_at === undefined || Date.parse(l.expires_at) > state.now)
 			);
 			const givenLinks = body.links ?? [];
-			if (live.some((l) => !givenLinks.some((g) => g.id === l.id))) {
+			const dropLinks = body.drop_links ?? [];
+			if (live.some((l) => !givenLinks.some((g) => g.id === l.id) && !dropLinks.includes(l.id))) {
 				throw fail(409, 'rotate_conflict');
+			}
+			for (const grantee of dropGrants) {
+				const grant = onNode.find((g) => g.grantee_id === grantee) as Grant;
+				grants.delete(grant.id);
+			}
+			for (const linkId of dropLinks) {
+				const link = links.get(linkId);
+				if (link !== undefined) link.revoked_at ??= clock();
 			}
 			for (const child of body.children) {
 				const stored = need(child.id);

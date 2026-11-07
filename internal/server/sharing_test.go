@@ -1049,3 +1049,40 @@ func TestAnUploadCanBeAbortedWhereverItIs(t *testing.T) {
 		t.Errorf("reserved %d", reserved)
 	}
 }
+
+// A grant or link the owner's client cannot verify is named to be dropped: the
+// rotation deletes the grant and revokes the link instead of sealing to them,
+// and counts them as named, so it is not a conflict for good.
+func TestRotateDropsWhatTheOwnerCannotVerify(t *testing.T) {
+	eachMode(t, func(t *testing.T, mode string) {
+		_, alice, bob := driveEnv(t, mode)
+		_, folder, _ := sharedFolder(t, alice, bob, "viewer")
+		l := alice.link(folder.ID)
+		rotate := func(b obj) response {
+			t.Helper()
+			return alice.call(http.MethodPost, api+"/nodes/"+folder.ID+"/rotate", b)
+		}
+		b := rotateBody(alice, 1)
+		// Leaving them out is a conflict, as before.
+		rotate(b).wantError(t, http.StatusConflict, "rotate_conflict")
+		b["drop_grants"] = []string{"nothex"}
+		rotate(b).wantError(t, http.StatusBadRequest, "invalid_id")
+		// A grantee with no grant here is not something to drop.
+		b["drop_grants"] = []string{alice.id}
+		b["drop_links"] = []string{l.ID}
+		rotate(b).wantError(t, http.StatusConflict, "rotate_conflict")
+		b["drop_grants"] = []string{bob.id}
+		rotate(b).wantStatus(t, http.StatusOK)
+
+		bob.call(http.MethodGet, api+"/nodes/"+folder.ID, nil).wantError(t, http.StatusNotFound, "not_found")
+		var access struct {
+			Access []obj `json:"access"`
+		}
+		resp := alice.call(http.MethodGet, api+"/nodes/"+folder.ID+"/grants", nil)
+		resp.decode(t, &access)
+		if len(access.Access) != 0 {
+			t.Errorf("grants left: %s", resp.body)
+		}
+		alice.call(http.MethodGet, api+"/public/links/"+l.ID, nil).wantError(t, http.StatusGone, "link_revoked")
+	})
+}

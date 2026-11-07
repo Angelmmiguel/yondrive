@@ -667,7 +667,10 @@ storage bar, and only the owner can star or tag, since those live in the owner's
 
 **Revoking** writes a job down in `localStorage`, then deletes the grant, then rotates, parents first, noting the
 generation each node reached. A job left behind goes on at the next unlock, and a node at the noted generation is done.
-A rotation checks the owner's own signature on each grant it seals a new key for. It takes thumbnails away, and the
+A rotation checks the owner's own signature on each grant it seals a new key for, and opens each link's owner copy of
+its key. One that fails is named in `drop_grants` or `drop_links`, and the server deletes the grant or revokes the link in
+the same transaction, so the job neither seals to it nor fails on it for good; it is counted with the nodes that could
+not be re-keyed. It takes thumbnails away, and the
 client that rotated makes them again where the file is at most 128 MiB. Giving up a grant does not rotate: only the
 owner can, and nothing tells them to.
 

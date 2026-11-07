@@ -376,6 +376,20 @@ func (s *Server) RotateNode(ctx context.Context, req oapi.RotateNodeRequestObjec
 			rotation.Links = append(rotation.Links, store.RotatedLink{ID: l.Id, SealedKey: l.SealedKey})
 		}
 	}
+	for _, drop := range []struct {
+		ids  *[]string
+		into *[]string
+	}{{in.DropGrants, &rotation.DropGrants}, {in.DropLinks, &rotation.DropLinks}} {
+		if drop.ids == nil {
+			continue
+		}
+		for _, id := range *drop.ids {
+			if !blobs.ValidID(id) {
+				return nil, badRequest(codeInvalidID)
+			}
+		}
+		*drop.into = *drop.ids
+	}
 	if _, err := s.authorizeNode(ctx, req.Id, permOwn); err != nil {
 		return nil, err
 	}

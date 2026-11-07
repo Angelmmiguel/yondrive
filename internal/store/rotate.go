@@ -39,11 +39,18 @@ type Rotation struct {
 	Children            []RotatedChild
 	Grants              []RotatedGrant
 	Links               []RotatedLink
+	// DropGrants names, by grantee, grants on the node that the owner's client
+	// could not verify. They are deleted rather than sealed to.
+	DropGrants []string
+	// DropLinks names live links on the node whose key the owner's client could
+	// not open. They are revoked.
+	DropLinks []string
 }
 
 // RotateNode replaces a node's key in one transaction. A rotation must name every
 // direct child, trashed ones too, every grant and every live link the node has
-// now, or it fails with ErrRotateConflict and the client reads them again. The
+// now, or it fails with ErrRotateConflict and the client reads them again. A
+// grant or link it drops counts as named. The
 // thumbnail goes, since it is sealed under the old key and has no generation of
 // its own, and a client can make another.
 func (s *Store) RotateNode(ctx context.Context, id string, r Rotation, now time.Time) (Node, error) {
@@ -148,6 +155,22 @@ func rewrapChildren(ctx context.Context, tx *sql.Tx, parentID string, children [
 }
 
 func resealGrants(ctx context.Context, tx *sql.Tx, nodeID string, r Rotation, now time.Time) error {
+	// A dropped grant is gone without a word to the journal: the owner's client is
+	// what asked, and a "revoked" there would start another rotation.
+	for _, grantee := range r.DropGrants {
+		var ownerID string
+		err := tx.QueryRowContext(ctx, `DELETE FROM grants WHERE node_id = ? AND grantee_id = ? AND key_generation = ?
+			RETURNING granter_id`, nodeID, grantee, r.KeyGeneration).Scan(&ownerID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrRotateConflict
+		}
+		if err != nil {
+			return fmt.Errorf("store: drop grant: %w", err)
+		}
+		if err := dropLostUploads(ctx, tx, grantee, ownerID); err != nil {
+			return err
+		}
+	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM grants WHERE node_id = ?", nodeID).Scan(&count); err != nil {
 		return fmt.Errorf("store: count grants: %w", err)
@@ -196,7 +219,21 @@ func resealLinks(ctx context.Context, tx *sql.Tx, nodeID string, r Rotation, now
 	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
 		return fmt.Errorf("store: read links: %w", err)
 	}
-	seen := make(map[string]bool, len(r.Links))
+	seen := make(map[string]bool, len(r.Links)+len(r.DropLinks))
+	for _, id := range r.DropLinks {
+		isLive, ok := have[id]
+		if !ok || seen[id] {
+			return ErrRotateConflict
+		}
+		seen[id] = true
+		if !isLive {
+			continue
+		}
+		live--
+		if _, err := tx.ExecContext(ctx, "UPDATE links SET revoked_at = ? WHERE id = ?", now.Unix(), id); err != nil {
+			return fmt.Errorf("store: revoke link: %w", err)
+		}
+	}
 	for _, l := range r.Links {
 		isLive, ok := have[l.ID]
 		if !ok || seen[l.ID] {

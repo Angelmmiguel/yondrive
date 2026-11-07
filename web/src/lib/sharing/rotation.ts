@@ -5,7 +5,8 @@
  * generation as it goes, so a client that stops can go on: a node at or past the
  * generation noted is done. Nothing about the content is sealed again. A node below the
  * top whose wrap does not open is passed over and counted, since nobody can open it and
- * the rest still has to move.
+ * the rest still has to move. A grant this user did not sign, or a link whose copy of the key
+ * does not open for them, is not sealed to: the rotation removes it, and it is counted too.
  */
 import type { Api } from '$lib/api/client';
 import {
@@ -28,6 +29,12 @@ export interface RotationJob {
 	done: Record<string, number>;
 	/** The nodes passed over, as their wrap does not open. */
 	unreadable?: string[];
+	/**
+	 * The grants and links, as `<node>/grant/<user>` and `<node>/link/<link>`, that were
+	 * not this user's to keep: a grant without their signature, a link whose copy of the
+	 * key does not open. The rotation removed them instead of sealing the new key to them.
+	 */
+	unverified?: string[];
 }
 
 export interface RotationJobs {
@@ -82,7 +89,7 @@ export interface RotationProgress {
 	done: number;
 	/** What is known so far: it grows as folders are read. */
 	total: number;
-	/** Which job this is, and how many of its nodes could not be re-keyed so far. */
+	/** Which job this is, and how many of its nodes, grants and links could not be re-keyed so far. */
 	topId?: string;
 	unreadable?: number;
 }
@@ -272,7 +279,9 @@ async function liveLinks(id: string, reads: Reads, deps: RotationDeps): Promise<
 
 /**
  * The grants on the node, each checked first: a server could add a row of its own, and
- * this is about to seal a new key to whoever is listed. Only grants this user signed count.
+ * this is about to seal a new key to whoever is listed. Only grants this user signed
+ * count. One that does not verify is sealed to nobody: it is named to be dropped, which
+ * the server needs, as a rotation has to account for every grant on the node.
  */
 async function directGrants(id: string, deps: RotationDeps) {
 	const { sealer, userId } = deps;
@@ -280,8 +289,10 @@ async function directGrants(id: string, deps: RotationDeps) {
 	const direct = access.filter((entry: NodeAccess) => !entry.inherited);
 	const granterId = userId();
 	const own = await deps.keysOf(granterId);
-	return Promise.all(
-		direct.map(async (entry) => {
+	const kept: { granteeId: string; role: string; keys: PublicKeys }[] = [];
+	const dropped: string[] = [];
+	for (const entry of direct) {
+		try {
 			if (entry.sealed_key === undefined || entry.signature === undefined) {
 				throw new SealError('signature');
 			}
@@ -297,13 +308,17 @@ async function directGrants(id: string, deps: RotationDeps) {
 				decodeBase64(entry.signature),
 				own
 			);
-			return {
-				granteeId: entry.user_id,
-				role: entry.role as string,
-				keys: await deps.keysOf(entry.user_id)
-			};
-		})
-	);
+		} catch {
+			dropped.push(entry.user_id);
+			continue;
+		}
+		kept.push({
+			granteeId: entry.user_id,
+			role: entry.role,
+			keys: await deps.keysOf(entry.user_id)
+		});
+	}
+	return { kept, dropped };
 }
 
 /**
@@ -345,7 +360,26 @@ async function rotateOne(
 		const linkKeys: Bytes[] = [];
 		try {
 			const children = record.kind === 'folder' ? await childrenOf(item.id, reads, deps) : [];
-			const links = await liveLinks(item.id, reads, deps);
+			const grants = await directGrants(item.id, deps);
+			// A link whose owner copy does not open is not this user's: its key is not
+			// sealed again, and it is ended.
+			const links: { id: string; linkKey: Bytes }[] = [];
+			const droppedLinks: string[] = [];
+			for (const link of await liveLinks(item.id, reads, deps)) {
+				let linkKey: Bytes;
+				try {
+					linkKey = sealer.openLinkOwnerCopy(
+						decodeBase64(link.owner_sealed_key),
+						keys().masterKey,
+						link.id
+					);
+				} catch {
+					droppedLinks.push(link.id);
+					continue;
+				}
+				linkKeys.push(linkKey);
+				links.push({ id: link.id, linkKey });
+			}
 			const body = buildRotation(
 				{
 					node: record,
@@ -360,24 +394,25 @@ async function rotateOne(
 						wrappedKey: decodeBase64(child.wrapped_key),
 						sealedMetadata: decodeBase64(child.sealed_metadata)
 					})),
-					grants: await directGrants(item.id, deps),
-					links: links.map((link) => {
-						const linkKey = sealer.openLinkOwnerCopy(
-							decodeBase64(link.owner_sealed_key),
-							keys().masterKey,
-							link.id
-						);
-						linkKeys.push(linkKey);
-						return { id: link.id, linkKey };
-					}),
+					grants: grants.kept,
+					links,
 					granterId: userId()
 				},
 				sealer,
 				keys()
 			);
+			if (grants.dropped.length > 0) body.drop_grants = grants.dropped;
+			if (droppedLinks.length > 0) body.drop_links = droppedLinks;
 			const rotated = await api.rotateNode(item.id, body);
 			const reached = rotated.key_generation ?? generation + 1;
 			job.done[item.id] = reached;
+			const unverified = [
+				...grants.dropped.map((grantee) => `${item.id}/grant/${grantee}`),
+				...droppedLinks.map((link) => `${item.id}/link/${link}`)
+			];
+			if (unverified.length > 0) {
+				job.unverified = [...new Set([...(job.unverified ?? []), ...unverified])];
+			}
 			deps.jobs.save(job);
 			deps.onRotated?.(rotated, newKey, record.thumb_blob_id !== undefined);
 			zero(oldKey);
@@ -435,7 +470,7 @@ export async function runRotation(
 			done,
 			total: done + queue.length,
 			topId: job.topId,
-			unreadable: job.unreadable?.length ?? 0
+			unreadable: (job.unreadable?.length ?? 0) + (job.unverified?.length ?? 0)
 		});
 	report();
 	try {

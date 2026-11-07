@@ -858,10 +858,41 @@ describe('with keys', () => {
 			grantee_username: 'planted'
 		});
 
-		await expect(w.alice.drive.sharing.revoke(grant.id, w.folder.id)).rejects.toBeInstanceOf(
-			SealError
-		);
-		expect(w.server.nodes.get(w.folder.id)?.key_generation).toBe(1);
+		const progress: RotationProgress[] = [];
+		await w.alice.drive.sharing.revoke(grant.id, w.folder.id, (one) => progress.push(one));
+
+		// The rotation goes through, without sealing the new key to the planted row,
+		// which it asks the server to drop, and the owner hears of it.
+		expect(w.server.nodes.get(w.folder.id)?.key_generation).toBe(2);
+		expect(w.server.grants.has('e'.repeat(32))).toBe(false);
+		const left = [...w.server.grants.values()].filter((g) => g.node_id === w.folder.id);
+		expect(left.map((g) => g.grantee_username)).toEqual(['carol']);
+		expect(left[0].key_generation).toBe(2);
+		expect(progress.at(-1)?.unreadable).toBe(1);
+		expect(w.alice.jobs.list()).toEqual([]);
+	});
+
+	it('will not seal a new key to a link the owner cannot open, and ends it', async () => {
+		const w = await e2e();
+		const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+		const { link } = await w.alice.drive.sharing.createLink(w.folder.id, {});
+		const { link: other } = await w.alice.drive.sharing.createLink(w.folder.id, {});
+		// A link row whose owner copy of the key is not the owner's.
+		const stored = w.server.links.get(other.id) as NonNullable<
+			ReturnType<typeof w.server.links.get>
+		>;
+		const copy = decodeBase64(stored.owner_sealed_key);
+		copy[copy.length - 1] ^= 1;
+		w.server.links.set(other.id, { ...stored, owner_sealed_key: encodeBase64(copy) });
+		const progress: RotationProgress[] = [];
+
+		await w.alice.drive.sharing.revoke(grant.id, w.folder.id, (one) => progress.push(one));
+
+		expect(w.server.nodes.get(w.folder.id)?.key_generation).toBe(2);
+		expect(w.server.links.get(link.id)?.key_generation).toBe(2);
+		expect(w.server.links.get(other.id)?.revoked_at).toBeDefined();
+		expect(w.server.links.get(other.id)?.key_generation).toBe(1);
+		expect(progress.at(-1)?.unreadable).toBe(1);
 	});
 
 	describe('a child whose wrap opens for nobody', () => {

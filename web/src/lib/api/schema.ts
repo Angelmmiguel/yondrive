@@ -1436,6 +1436,9 @@ export interface paths {
          *
          *     Answers `rotate_conflict` if the list of children or grants is not what the
          *     node has now, because someone has just created or shared one; read them again.
+         *     A grant or link the owner did not make, which a server could add, is named in
+         *     `drop_grants` or `drop_links`: the rotation removes it rather than leaving it
+         *     holding the old key, or failing for good.
          *     Also `key_generation_conflict`, `invalid_rotation`, `name_conflict`,
          *     `root_immutable`, or `too_large` when a folder's children do not fit in 16 MiB.
          *     Works the same in `none` mode, where nothing is sealed, though nothing needs it.
@@ -2935,6 +2938,18 @@ export interface components {
              *     expired. One that has ended since is ignored. Absent means none.
              */
             links?: components["schemas"]["RotatedLink"][];
+            /**
+             * @description Grantees whose grant on this node the owner's client could not verify: no
+             *     signature, or not the owner's. They are deleted instead of sealed to, and
+             *     count as named. Absent means none.
+             */
+            drop_grants?: string[];
+            /**
+             * @description Live links on this node whose owner copy of the key does not open for the
+             *     owner. They are revoked instead of sealed again, and count as named. Absent
+             *     means none.
+             */
+            drop_links?: string[];
         };
         /**
          * @description Links only ever give read access.
