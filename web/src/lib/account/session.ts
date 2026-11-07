@@ -3,7 +3,7 @@
  * sign-out. Lock zeroes the keys in place, so anything still holding them fails,
  * since a zeroed key is refused by every construction.
  */
-import type { Account } from '$lib/api/types';
+import { isApiError, type Account } from '$lib/api/types';
 import type { Bytes } from '$lib/crypto/encoding';
 import { parseKdfParams } from '$lib/crypto/kdf';
 import { zero } from '$lib/crypto/random';
@@ -24,8 +24,9 @@ import { recordOf, sessionKeyApi } from './wire';
 export async function rememberSession(sealer: Sealer, keys: UserKeys, deps: Deps): Promise<void> {
 	try {
 		await sealer.persistSession(keys.masterKey, sessionKeyApi(deps));
-	} catch {
+	} catch (e) {
 		sealer.clearSession();
+		if (isApiError(e, 'unauthorized')) deps.session.signedOut();
 	}
 	if (deps.session.keys !== keys) {
 		sealer.clearSession();

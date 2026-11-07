@@ -20,7 +20,7 @@ import { ModeRefusedError, WrongCredentialsError, WrongPassphraseError } from '.
 import { newRecovery } from './recovery-key';
 import { completeSetup } from './setup';
 import { followOtherTabs, lock, resume, signIn, signOut, unlock } from './session';
-import type { Mode } from '$lib/api/types';
+import { ApiError, type Mode } from '$lib/api/types';
 
 const suites = { e2e: SUITE_E2E, none: SUITE_NONE } as const;
 let storage: Storage;
@@ -159,6 +159,18 @@ describe('split session key', () => {
 		await resume(await server.api.getMe(), reloaded);
 
 		expect(reloaded.session.status).toBe('locked');
+		expect(storage.getItem(STORAGE_KEY)).toBeNull();
+	});
+
+	it('signs the tab out when storing the server half finds the session gone', async () => {
+		const { server, deps } = await serverWithUser('e2e');
+		server.api.putSessionKey = async () => {
+			throw new ApiError(401, 'unauthorized');
+		};
+
+		await signIn({ username: 'admin', passphrase: PASSPHRASE }, deps);
+
+		expect(deps.session.status).not.toBe('unlocked');
 		expect(storage.getItem(STORAGE_KEY)).toBeNull();
 	});
 
