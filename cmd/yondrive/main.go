@@ -26,7 +26,10 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout      = 10 * time.Second
+	sessionPurgeInterval = time.Minute
+)
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] != "serve" {
@@ -150,6 +153,7 @@ func serve(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go srv.PurgeExpiredSessions(ctx, sessionPurgeInterval)
 
 	errc := make(chan error, 1)
 	go func() {

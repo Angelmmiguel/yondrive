@@ -28,8 +28,15 @@ type env struct {
 	t     *testing.T
 	ts    *httptest.Server
 	st    *store.Store
+	srv   *server.Server
 	mu    sync.Mutex
 	clock time.Time
+}
+
+func (e *env) advance(d time.Duration) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.clock = e.clock.Add(d)
 }
 
 func (e *env) now() time.Time {
@@ -65,6 +72,7 @@ func startEnv(t *testing.T, cfg server.Config, st *store.Store) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
+	e.srv = srv
 	e.ts = httptest.NewServer(srv)
 	t.Cleanup(e.ts.Close)
 	return e
@@ -216,4 +224,71 @@ func startEnvNoToken(t *testing.T, st *store.Store) *env {
 	e.ts = httptest.NewServer(srv)
 	t.Cleanup(e.ts.Close)
 	return e
+}
+
+// configured returns a server set up in mode, with the admin "root".
+func configured(t *testing.T, mode string, cfg server.Config) *env {
+	t.Helper()
+	e := newEnv(t, cfg)
+	e.call(http.MethodPost, "/api/v1/setup/complete", setupBody(mode), "X-Setup-Token", testSetupToken).wantStatus(t, http.StatusCreated)
+	return e
+}
+
+// client is one signed-in browser: it presents the session cookie it got.
+type client struct {
+	e      *env
+	cookie string
+	body   []byte
+}
+
+// loginWith signs in and returns the raw response.
+func (e *env) loginWith(username string, authKey []byte, extra ...any) response {
+	e.t.Helper()
+	body := obj{"username": username, "auth_key": b64(authKey)}
+	for i := 0; i+1 < len(extra); i += 2 {
+		body[extra[i].(string)] = extra[i+1]
+	}
+	return e.call(http.MethodPost, "/api/v1/auth/login", body)
+}
+
+// login signs in with the key that account() gave username.
+func (e *env) login(username string) *client {
+	e.t.Helper()
+	return e.loginKey(username, key(username))
+}
+
+func (e *env) loginKey(username string, authKey []byte, extra ...any) *client {
+	e.t.Helper()
+	resp := e.loginWith(username, authKey, extra...)
+	resp.wantStatus(e.t, http.StatusOK)
+	for _, c := range (&http.Response{Header: resp.header}).Cookies() {
+		if c.Name == "yondrive_session" {
+			return &client{e: e, cookie: c.Name + "=" + c.Value, body: resp.body}
+		}
+	}
+	e.t.Fatal("no session cookie")
+	return nil
+}
+
+func (c *client) call(method, path string, body any) response {
+	c.e.t.Helper()
+	return c.e.call(method, path, body, "Cookie", c.cookie)
+}
+
+// register creates an account through an open invite made by the given admin.
+func (e *env) register(admin *client, username, mode string) string {
+	e.t.Helper()
+	resp := admin.call(http.MethodPost, "/api/v1/admin/invites", obj{})
+	resp.wantStatus(e.t, http.StatusCreated)
+	var inv struct {
+		Token string `json:"token"`
+	}
+	resp.decode(e.t, &inv)
+	resp = e.call(http.MethodPost, "/api/v1/auth/register", obj{"invite_token": inv.Token, "account": account(username, mode)})
+	resp.wantStatus(e.t, http.StatusCreated)
+	var created struct {
+		UserID string `json:"user_id"`
+	}
+	resp.decode(e.t, &created)
+	return created.UserID
 }

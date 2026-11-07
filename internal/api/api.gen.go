@@ -9,9 +9,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/oapi-codegen/runtime"
 )
@@ -64,6 +66,40 @@ func (e Mode) Valid() bool {
 	}
 }
 
+// Defines values for Role.
+const (
+	Admin Role = "admin"
+	User  Role = "user"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case Admin:
+		return true
+	case User:
+		return true
+	default:
+		return false
+	}
+}
+
+// Account What a client needs to unlock an account.
+type Account struct {
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf KDF `json:"kdf"`
+
+	// Keys The account's keys as the client seals them. Opaque to the server, which
+	// checks only their encoding and size. Present in `e2e` mode, absent in
+	// `none`.
+	Keys *AccountKeys `json:"keys,omitempty"`
+
+	// Mode The encryption mode of the whole server, fixed at setup. Absent from
+	// health until then.
+	Mode Mode    `json:"mode"`
+	User Profile `json:"user"`
+}
+
 // AccountKeys The account's keys as the client seals them. Opaque to the server, which
 // checks only their encoding and size. Present in `e2e` mode, absent in
 // `none`.
@@ -81,6 +117,28 @@ type AccountKeys struct {
 
 	// WrappedMasterKeyRecovery The master key wrapped under the recovery KEK.
 	WrappedMasterKeyRecovery []byte `json:"wrapped_master_key_recovery"`
+}
+
+// CreateInviteRequest defines model for CreateInviteRequest.
+type CreateInviteRequest struct {
+	// Email Becomes the new user's address.
+	Email *string `json:"email,omitempty"`
+
+	// ExpiresInSeconds Between a minute and 90 days; a week if absent.
+	ExpiresInSeconds *int64 `json:"expires_in_seconds,omitempty"`
+	QuotaBytes       *int64 `json:"quota_bytes,omitempty"`
+	Role             *Role  `json:"role,omitempty"`
+}
+
+// CreatedInvite defines model for CreatedInvite.
+type CreatedInvite struct {
+	Invite Invite `json:"invite"`
+
+	// Link The address to send, with the token in the fragment.
+	Link string `json:"link"`
+
+	// Token The one-time token. Not stored; shown only now.
+	Token string `json:"token"`
 }
 
 // CreatedUser defines model for CreatedUser.
@@ -101,6 +159,12 @@ type Error struct {
 	//   `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
 	//   `invalid_public_url`, `invalid_mode`
 	// - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
+	// - `username_taken`, `email_taken`, `invite_invalid`, `signup_closed`
+	// - `invalid_credentials`: wrong username or auth key on sign-in
+	// - `wrong_credential`: wrong current auth key on a signed-in action
+	// - `invalid_rekey`: the groups of a rekey are incomplete
+	// - `user_disabled`: right credentials, disabled account
+	// - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
 	//
 	//
 	// Examples: not_found
@@ -126,6 +190,19 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// Invite defines model for Invite.
+type Invite struct {
+	CreatedAt time.Time `json:"created_at"`
+	Email     *string   `json:"email,omitempty"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Id        string    `json:"id"`
+
+	// QuotaBytes Absent means the server default.
+	QuotaBytes *int64 `json:"quota_bytes,omitempty"`
+	Role       Role   `json:"role"`
+	Used       bool   `json:"used"`
+}
+
 // KDF Argon2id parameters, which the client runs.
 type KDF struct {
 	// M Memory in KiB.
@@ -150,6 +227,13 @@ type KDF struct {
 
 // KDFName defines model for KDF.Name.
 type KDFName string
+
+// LoginRequest defines model for LoginRequest.
+type LoginRequest struct {
+	// AuthKey Either auth key, 32 bytes.
+	AuthKey  []byte `json:"auth_key"`
+	Username string `json:"username"`
+}
 
 // Mode The encryption mode of the whole server, fixed at setup. Absent from
 // health until then.
@@ -183,6 +267,20 @@ type NewAccount struct {
 	Username string `json:"username"`
 }
 
+// Profile defines model for Profile.
+type Profile struct {
+	CreatedAt time.Time `json:"created_at"`
+	Disabled  bool      `json:"disabled"`
+	Email     *string   `json:"email,omitempty"`
+	Id        string    `json:"id"`
+
+	// QuotaBytes Storage allowed; 0 means no limit.
+	QuotaBytes  int64  `json:"quota_bytes"`
+	Role        Role   `json:"role"`
+	TotpEnabled bool   `json:"totp_enabled"`
+	Username    string `json:"username"`
+}
+
 // PublicKeys defines model for PublicKeys.
 type PublicKeys struct {
 	// Ed25519 32 bytes.
@@ -191,6 +289,33 @@ type PublicKeys struct {
 	// X25519 32 bytes.
 	X25519 []byte `json:"x25519"`
 }
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	// Account Everything a new local account stores. In `e2e` mode `recovery_auth_key`
+	// and `keys` are required; in `none` they must be absent.
+	Account NewAccount `json:"account"`
+
+	// InviteToken Required unless the server allows open sign-up.
+	InviteToken *string `json:"invite_token,omitempty"`
+}
+
+// RekeyRequest defines model for RekeyRequest.
+type RekeyRequest struct {
+	AuthKey *[]byte `json:"auth_key,omitempty"`
+
+	// CurrentAuthKey Either current auth key.
+	CurrentAuthKey []byte `json:"current_auth_key"`
+
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf                      *KDF    `json:"kdf,omitempty"`
+	RecoveryAuthKey          *[]byte `json:"recovery_auth_key,omitempty"`
+	WrappedMasterKey         *[]byte `json:"wrapped_master_key,omitempty"`
+	WrappedMasterKeyRecovery *[]byte `json:"wrapped_master_key_recovery,omitempty"`
+}
+
+// Role defines model for Role.
+type Role string
 
 // ServerSettingsInput defines model for ServerSettingsInput.
 type ServerSettingsInput struct {
@@ -210,6 +335,12 @@ type ServerSettingsInput struct {
 
 	// TimeZone Examples: Europe/Madrid
 	TimeZone string `json:"time_zone"`
+}
+
+// SessionKey defines model for SessionKey.
+type SessionKey struct {
+	// Key 32 bytes.
+	Key []byte `json:"key"`
 }
 
 // SetupInfo defines model for SetupInfo.
@@ -233,6 +364,13 @@ type SetupRequest struct {
 	Settings ServerSettingsInput `json:"settings"`
 }
 
+// UserKeys defines model for UserKeys.
+type UserKeys struct {
+	PublicKeys PublicKeys `json:"public_keys"`
+	UserId     string     `json:"user_id"`
+	Username   string     `json:"username"`
+}
+
 // ValidateURLRequest defines model for ValidateURLRequest.
 type ValidateURLRequest struct {
 	Url string `json:"url"`
@@ -247,6 +385,29 @@ type ValidatedURL struct {
 	Url string `json:"url"`
 }
 
+// ID defines model for ID.
+type ID = string
+
+// GetKDFParams defines parameters for GetKDF.
+type GetKDFParams struct {
+	Username string `form:"username" json:"username"`
+}
+
+// CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
+type CreateInviteJSONRequestBody = CreateInviteRequest
+
+// LoginJSONRequestBody defines body for Login for application/json ContentType.
+type LoginJSONRequestBody = LoginRequest
+
+// RegisterJSONRequestBody defines body for Register for application/json ContentType.
+type RegisterJSONRequestBody = RegisterRequest
+
+// RekeyJSONRequestBody defines body for Rekey for application/json ContentType.
+type RekeyJSONRequestBody = RekeyRequest
+
+// PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
+type PutSessionKeyJSONRequestBody = SessionKey
+
 // CompleteSetupJSONRequestBody defines body for CompleteSetup for application/json ContentType.
 type CompleteSetupJSONRequestBody = SetupRequest
 
@@ -258,9 +419,45 @@ type ServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(w http.ResponseWriter, r *http.Request)
+	// ListInvites List invites
+	// (GET /api/v1/admin/invites)
+	ListInvites(w http.ResponseWriter, r *http.Request)
+	// CreateInvite Create a one-time invite
+	// (POST /api/v1/admin/invites)
+	CreateInvite(w http.ResponseWriter, r *http.Request)
+	// DeleteInvite Revoke an invite
+	// (DELETE /api/v1/admin/invites/{id})
+	DeleteInvite(w http.ResponseWriter, r *http.Request, id ID)
+	// GetKDF Fetch the parameters to derive an auth key with
+	// (GET /api/v1/auth/kdf)
+	GetKDF(w http.ResponseWriter, r *http.Request, params GetKDFParams)
+	// Login Sign in
+	// (POST /api/v1/auth/login)
+	Login(w http.ResponseWriter, r *http.Request)
+	// Logout Sign out
+	// (POST /api/v1/auth/logout)
+	Logout(w http.ResponseWriter, r *http.Request)
+	// Register Create an account
+	// (POST /api/v1/auth/register)
+	Register(w http.ResponseWriter, r *http.Request)
+	// Rekey Change the passphrase or the recovery key
+	// (POST /api/v1/auth/rekey)
+	Rekey(w http.ResponseWriter, r *http.Request)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// GetMe Fetch the signed-in account
+	// (GET /api/v1/me)
+	GetMe(w http.ResponseWriter, r *http.Request)
+	// DeleteSessionKey Forget the server half of the session key
+	// (DELETE /api/v1/session/key)
+	DeleteSessionKey(w http.ResponseWriter, r *http.Request)
+	// GetSessionKey Fetch the server half of the session key
+	// (GET /api/v1/session/key)
+	GetSessionKey(w http.ResponseWriter, r *http.Request)
+	// PutSessionKey Store the server half of the session key
+	// (PUT /api/v1/session/key)
+	PutSessionKey(w http.ResponseWriter, r *http.Request)
 	// CompleteSetup Finish the setup
 	// (POST /api/v1/setup/complete)
 	CompleteSetup(w http.ResponseWriter, r *http.Request)
@@ -270,6 +467,9 @@ type ServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(w http.ResponseWriter, r *http.Request)
+	// GetUserKeys Fetch a user's public keys
+	// (GET /api/v1/users/{id}/keys)
+	GetUserKeys(w http.ResponseWriter, r *http.Request, id ID)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -295,11 +495,210 @@ func (siw *ServerInterfaceWrapper) GetOpenAPISpec(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListInvites operation middleware
+func (siw *ServerInterfaceWrapper) ListInvites(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListInvites(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateInvite operation middleware
+func (siw *ServerInterfaceWrapper) CreateInvite(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateInvite(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteInvite operation middleware
+func (siw *ServerInterfaceWrapper) DeleteInvite(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteInvite(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetKDF operation middleware
+func (siw *ServerInterfaceWrapper) GetKDF(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetKDFParams
+
+	// ------------- Required query parameter "username" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "username", r.URL.Query(), &params.Username, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "username"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "username", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetKDF(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Login operation middleware
+func (siw *ServerInterfaceWrapper) Login(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Login(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Logout operation middleware
+func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Register operation middleware
+func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Register(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Rekey operation middleware
+func (siw *ServerInterfaceWrapper) Rekey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Rekey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSessionKey operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSessionKey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSessionKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionKey operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionKey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionKey(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutSessionKey operation middleware
+func (siw *ServerInterfaceWrapper) PutSessionKey(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutSessionKey(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -342,6 +741,32 @@ func (siw *ServerInterfaceWrapper) ValidateSetupURL(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ValidateSetupURL(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserKeys operation middleware
+func (siw *ServerInterfaceWrapper) GetUserKeys(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserKeys(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -476,6 +901,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/setup/info", wrapper.GetSetupInfo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/validate-url", wrapper.ValidateSetupURL)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/complete", wrapper.CompleteSetup)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/auth/kdf", wrapper.GetKDF)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/register", wrapper.Register)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/rekey", wrapper.Rekey)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/session/key", wrapper.DeleteSessionKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/session/key", wrapper.GetSessionKey)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/session/key", wrapper.PutSessionKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/users/{id}/keys", wrapper.GetUserKeys)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/invites", wrapper.ListInvites)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/admin/invites", wrapper.CreateInvite)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/admin/invites/{id}", wrapper.DeleteInvite)
 
 	return m
 }
@@ -526,6 +964,316 @@ func (response GetOpenAPISpecdefaultJSONResponse) VisitGetOpenAPISpecResponse(w 
 	return err
 }
 
+type ListInvitesRequestObject struct {
+}
+
+type ListInvitesResponseObject interface {
+	VisitListInvitesResponse(w http.ResponseWriter) error
+}
+
+type ListInvites200JSONResponse []Invite
+
+func (response ListInvites200JSONResponse) VisitListInvitesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListInvitesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListInvitesdefaultJSONResponse) VisitListInvitesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInviteRequestObject struct {
+	Body *CreateInviteJSONRequestBody
+}
+
+type CreateInviteResponseObject interface {
+	VisitCreateInviteResponse(w http.ResponseWriter) error
+}
+
+type CreateInvite201JSONResponse CreatedInvite
+
+func (response CreateInvite201JSONResponse) VisitCreateInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateInvitedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateInvitedefaultJSONResponse) VisitCreateInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteInviteRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type DeleteInviteResponseObject interface {
+	VisitDeleteInviteResponse(w http.ResponseWriter) error
+}
+
+type DeleteInvite204Response struct {
+}
+
+func (response DeleteInvite204Response) VisitDeleteInviteResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteInvitedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteInvitedefaultJSONResponse) VisitDeleteInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKDFRequestObject struct {
+	Params GetKDFParams
+}
+
+type GetKDFResponseObject interface {
+	VisitGetKDFResponse(w http.ResponseWriter) error
+}
+
+type GetKDF200JSONResponse KDF
+
+func (response GetKDF200JSONResponse) VisitGetKDFResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetKDFdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetKDFdefaultJSONResponse) VisitGetKDFResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginRequestObject struct {
+	Body *LoginJSONRequestBody
+}
+
+type LoginResponseObject interface {
+	VisitLoginResponse(w http.ResponseWriter) error
+}
+
+type Login200ResponseHeaders struct {
+	SetCookie *string
+}
+
+type Login200JSONResponse struct {
+	Body    Account
+	Headers Login200ResponseHeaders
+}
+
+func (response Login200JSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LogindefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response LogindefaultJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LogoutRequestObject struct {
+}
+
+type LogoutResponseObject interface {
+	VisitLogoutResponse(w http.ResponseWriter) error
+}
+
+type Logout204ResponseHeaders struct {
+	SetCookie *string
+}
+
+type Logout204Response struct {
+	Headers Logout204ResponseHeaders
+}
+
+func (response Logout204Response) VisitLogoutResponse(w http.ResponseWriter) error {
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(204)
+	return nil
+}
+
+type LogoutdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response LogoutdefaultJSONResponse) VisitLogoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterRequestObject struct {
+	Body *RegisterJSONRequestBody
+}
+
+type RegisterResponseObject interface {
+	VisitRegisterResponse(w http.ResponseWriter) error
+}
+
+type Register201JSONResponse CreatedUser
+
+func (response Register201JSONResponse) VisitRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RegisterdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RegisterdefaultJSONResponse) VisitRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RekeyRequestObject struct {
+	Body *RekeyJSONRequestBody
+}
+
+type RekeyResponseObject interface {
+	VisitRekeyResponse(w http.ResponseWriter) error
+}
+
+type Rekey204Response struct {
+}
+
+func (response Rekey204Response) VisitRekeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RekeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RekeydefaultJSONResponse) VisitRekeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetHealthRequestObject struct {
 }
 
@@ -553,6 +1301,147 @@ type GetHealthdefaultJSONResponse struct {
 }
 
 func (response GetHealthdefaultJSONResponse) VisitGetHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMeRequestObject struct {
+}
+
+type GetMeResponseObject interface {
+	VisitGetMeResponse(w http.ResponseWriter) error
+}
+
+type GetMe200JSONResponse Account
+
+func (response GetMe200JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetMedefaultJSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionKeyRequestObject struct {
+}
+
+type DeleteSessionKeyResponseObject interface {
+	VisitDeleteSessionKeyResponse(w http.ResponseWriter) error
+}
+
+type DeleteSessionKey204Response struct {
+}
+
+func (response DeleteSessionKey204Response) VisitDeleteSessionKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSessionKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSessionKeydefaultJSONResponse) VisitDeleteSessionKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionKeyRequestObject struct {
+}
+
+type GetSessionKeyResponseObject interface {
+	VisitGetSessionKeyResponse(w http.ResponseWriter) error
+}
+
+type GetSessionKey200JSONResponse SessionKey
+
+func (response GetSessionKey200JSONResponse) VisitGetSessionKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSessionKeydefaultJSONResponse) VisitGetSessionKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSessionKeyRequestObject struct {
+	Body *PutSessionKeyJSONRequestBody
+}
+
+type PutSessionKeyResponseObject interface {
+	VisitPutSessionKeyResponse(w http.ResponseWriter) error
+}
+
+type PutSessionKey204Response struct {
+}
+
+func (response PutSessionKey204Response) VisitPutSessionKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutSessionKeydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutSessionKeydefaultJSONResponse) VisitPutSessionKeyResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -680,14 +1569,89 @@ func (response ValidateSetupURLdefaultJSONResponse) VisitValidateSetupURLRespons
 	return err
 }
 
+type GetUserKeysRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type GetUserKeysResponseObject interface {
+	VisitGetUserKeysResponse(w http.ResponseWriter) error
+}
+
+type GetUserKeys200JSONResponse UserKeys
+
+func (response GetUserKeys200JSONResponse) VisitGetUserKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetUserKeysdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetUserKeysdefaultJSONResponse) VisitGetUserKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
 	// (GET /api/openapi.yaml)
 	GetOpenAPISpec(ctx context.Context, request GetOpenAPISpecRequestObject) (GetOpenAPISpecResponseObject, error)
+	// ListInvites List invites
+	// (GET /api/v1/admin/invites)
+	ListInvites(ctx context.Context, request ListInvitesRequestObject) (ListInvitesResponseObject, error)
+	// CreateInvite Create a one-time invite
+	// (POST /api/v1/admin/invites)
+	CreateInvite(ctx context.Context, request CreateInviteRequestObject) (CreateInviteResponseObject, error)
+	// DeleteInvite Revoke an invite
+	// (DELETE /api/v1/admin/invites/{id})
+	DeleteInvite(ctx context.Context, request DeleteInviteRequestObject) (DeleteInviteResponseObject, error)
+	// GetKDF Fetch the parameters to derive an auth key with
+	// (GET /api/v1/auth/kdf)
+	GetKDF(ctx context.Context, request GetKDFRequestObject) (GetKDFResponseObject, error)
+	// Login Sign in
+	// (POST /api/v1/auth/login)
+	Login(ctx context.Context, request LoginRequestObject) (LoginResponseObject, error)
+	// Logout Sign out
+	// (POST /api/v1/auth/logout)
+	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
+	// Register Create an account
+	// (POST /api/v1/auth/register)
+	Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error)
+	// Rekey Change the passphrase or the recovery key
+	// (POST /api/v1/auth/rekey)
+	Rekey(ctx context.Context, request RekeyRequestObject) (RekeyResponseObject, error)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// GetMe Fetch the signed-in account
+	// (GET /api/v1/me)
+	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// DeleteSessionKey Forget the server half of the session key
+	// (DELETE /api/v1/session/key)
+	DeleteSessionKey(ctx context.Context, request DeleteSessionKeyRequestObject) (DeleteSessionKeyResponseObject, error)
+	// GetSessionKey Fetch the server half of the session key
+	// (GET /api/v1/session/key)
+	GetSessionKey(ctx context.Context, request GetSessionKeyRequestObject) (GetSessionKeyResponseObject, error)
+	// PutSessionKey Store the server half of the session key
+	// (PUT /api/v1/session/key)
+	PutSessionKey(ctx context.Context, request PutSessionKeyRequestObject) (PutSessionKeyResponseObject, error)
 	// CompleteSetup Finish the setup
 	// (POST /api/v1/setup/complete)
 	CompleteSetup(ctx context.Context, request CompleteSetupRequestObject) (CompleteSetupResponseObject, error)
@@ -697,6 +1661,9 @@ type StrictServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(ctx context.Context, request ValidateSetupURLRequestObject) (ValidateSetupURLResponseObject, error)
+	// GetUserKeys Fetch a user's public keys
+	// (GET /api/v1/users/{id}/keys)
+	GetUserKeys(ctx context.Context, request GetUserKeysRequestObject) (GetUserKeysResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -762,6 +1729,230 @@ func (sh *strictHandler) GetOpenAPISpec(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// ListInvites operation middleware
+func (sh *strictHandler) ListInvites(w http.ResponseWriter, r *http.Request) {
+	var request ListInvitesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListInvites(ctx, request.(ListInvitesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListInvites")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListInvitesResponseObject); ok {
+		if err := validResponse.VisitListInvitesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateInvite operation middleware
+func (sh *strictHandler) CreateInvite(w http.ResponseWriter, r *http.Request) {
+	var request CreateInviteRequestObject
+
+	var body CreateInviteJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateInvite(ctx, request.(CreateInviteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateInvite")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateInviteResponseObject); ok {
+		if err := validResponse.VisitCreateInviteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteInvite operation middleware
+func (sh *strictHandler) DeleteInvite(w http.ResponseWriter, r *http.Request, id ID) {
+	var request DeleteInviteRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteInvite(ctx, request.(DeleteInviteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteInvite")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteInviteResponseObject); ok {
+		if err := validResponse.VisitDeleteInviteResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetKDF operation middleware
+func (sh *strictHandler) GetKDF(w http.ResponseWriter, r *http.Request, params GetKDFParams) {
+	var request GetKDFRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetKDF(ctx, request.(GetKDFRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetKDF")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetKDFResponseObject); ok {
+		if err := validResponse.VisitGetKDFResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Login operation middleware
+func (sh *strictHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var request LoginRequestObject
+
+	var body LoginJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Login(ctx, request.(LoginRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Login")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LoginResponseObject); ok {
+		if err := validResponse.VisitLoginResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Logout operation middleware
+func (sh *strictHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var request LogoutRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Logout(ctx, request.(LogoutRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Logout")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LogoutResponseObject); ok {
+		if err := validResponse.VisitLogoutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Register operation middleware
+func (sh *strictHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var request RegisterRequestObject
+
+	var body RegisterJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Register(ctx, request.(RegisterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Register")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterResponseObject); ok {
+		if err := validResponse.VisitRegisterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Rekey operation middleware
+func (sh *strictHandler) Rekey(w http.ResponseWriter, r *http.Request) {
+	var request RekeyRequestObject
+
+	var body RekeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Rekey(ctx, request.(RekeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Rekey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RekeyResponseObject); ok {
+		if err := validResponse.VisitRekeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetHealth operation middleware
 func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	var request GetHealthRequestObject
@@ -779,6 +1970,109 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMe operation middleware
+func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	var request GetMeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMe(ctx, request.(GetMeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMe")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMeResponseObject); ok {
+		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSessionKey operation middleware
+func (sh *strictHandler) DeleteSessionKey(w http.ResponseWriter, r *http.Request) {
+	var request DeleteSessionKeyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSessionKey(ctx, request.(DeleteSessionKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSessionKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSessionKeyResponseObject); ok {
+		if err := validResponse.VisitDeleteSessionKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionKey operation middleware
+func (sh *strictHandler) GetSessionKey(w http.ResponseWriter, r *http.Request) {
+	var request GetSessionKeyRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionKey(ctx, request.(GetSessionKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionKeyResponseObject); ok {
+		if err := validResponse.VisitGetSessionKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutSessionKey operation middleware
+func (sh *strictHandler) PutSessionKey(w http.ResponseWriter, r *http.Request) {
+	var request PutSessionKeyRequestObject
+
+	var body PutSessionKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutSessionKey(ctx, request.(PutSessionKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutSessionKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutSessionKeyResponseObject); ok {
+		if err := validResponse.VisitPutSessionKeyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -865,6 +2159,32 @@ func (sh *strictHandler) ValidateSetupURL(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ValidateSetupURLResponseObject); ok {
 		if err := validResponse.VisitValidateSetupURLResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetUserKeys operation middleware
+func (sh *strictHandler) GetUserKeys(w http.ResponseWriter, r *http.Request, id ID) {
+	var request GetUserKeysRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetUserKeys(ctx, request.(GetUserKeysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetUserKeys")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetUserKeysResponseObject); ok {
+		if err := validResponse.VisitGetUserKeysResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

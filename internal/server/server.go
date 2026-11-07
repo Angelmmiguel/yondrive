@@ -27,6 +27,9 @@ const (
 	DefaultMaxBodyBytes = 1 << 20
 )
 
+// kdfAttemptsFactor is how many times the sign-in limit the KDF route allows.
+const kdfAttemptsFactor = 6
+
 // SecureMode says when the server treats a request as arriving over HTTPS.
 type SecureMode string
 
@@ -64,6 +67,10 @@ type Config struct {
 	// SetupToken is the one-time token that the wizard's calls must carry on
 	// an unconfigured server. Empty means setup cannot be completed.
 	SetupToken string
+	// SessionTTL is how long a session lasts unused; SessionMaxAge how long it
+	// lasts however much it is used.
+	SessionTTL    time.Duration
+	SessionMaxAge time.Duration
 	// LoginAttempts and LoginWindow are the per-address rate limit on
 	// everything that checks a credential.
 	LoginAttempts int
@@ -82,6 +89,12 @@ type Server struct {
 	log     *slog.Logger
 	store   *store.Store
 	limiter *auth.RateLimiter
+	// kdfLimiter is apart from limiter: a sign-in takes one lookup too, and an
+	// answer from this route proves nothing.
+	kdfLimiter *auth.RateLimiter
+	keys       *auth.SessionKeys
+	// secret keys the fake KDF parameters.
+	secret  []byte
 	handler http.Handler
 
 	// mode is nil until setup completes. It never changes after that, and the
@@ -108,17 +121,33 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = DefaultMaxBodyBytes
 	}
+	if cfg.SessionTTL <= 0 {
+		cfg.SessionTTL = auth.DefaultSessionTTL
+	}
+	if cfg.SessionMaxAge <= 0 {
+		cfg.SessionMaxAge = auth.DefaultSessionMaxAge
+	}
+	if cfg.LoginAttempts <= 0 {
+		cfg.LoginAttempts = auth.DefaultLoginAttempts
+	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	secret, err := st.ServerSecret(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("server: read secret: %w", err)
+	}
 	s := &Server{
-		cfg:     cfg,
-		log:     cfg.Logger,
-		store:   st,
-		limiter: auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		cfg:        cfg,
+		log:        cfg.Logger,
+		store:      st,
+		limiter:    auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		kdfLimiter: auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		keys:       auth.NewSessionKeys(),
+		secret:     secret,
 	}
 	settings, err := st.Settings(context.Background())
 	switch {

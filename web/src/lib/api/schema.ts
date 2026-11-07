@@ -109,6 +109,224 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/kdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the parameters to derive an auth key with
+         * @description Open, as the client needs them before it can sign in. A username that
+         *     does not exist gets stable fake parameters of the same shape, so this
+         *     route cannot tell who has an account.
+         */
+        get: operations["getKDF"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in
+         * @description Takes either auth key, passphrase or recovery. Sets the session cookie
+         *     and returns the account, whose sealed keys are opaque to the server. A
+         *     wrong username and a wrong key answer the same `invalid_credentials`.
+         */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign out
+         * @description Ends this session and forgets its session key.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an account
+         * @description Needs a valid invite token, unless the server allows open sign-up. The
+         *     account and the burning of the invite are one transaction. The new
+         *     user signs in afterwards. Role and quota come from the invite or the
+         *     server default, and an email on the invite takes precedence.
+         */
+        post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/rekey": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change the passphrase or the recovery key
+         * @description A session alone is not enough: the caller must also present a current
+         *     auth key, passphrase or recovery. Atomically replaces the auth hash, KDF
+         *     parameters and wrapped key of each group present, and ends every other
+         *     session and every bearer token of the user but the one in use.
+         *
+         *     The passphrase group is `auth_key`, `kdf` and, in `e2e` mode,
+         *     `wrapped_master_key`. The recovery group, `e2e` mode only, is
+         *     `recovery_auth_key` and `wrapped_master_key_recovery`.
+         */
+        post: operations["rekey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/session/key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the server half of the session key
+         * @description Answers `no_session_key` if none was set, as after a server restart.
+         */
+        get: operations["getSessionKey"];
+        /**
+         * Store the server half of the session key
+         * @description Held in memory only, and never written to the database.
+         */
+        put: operations["putSessionKey"];
+        post?: never;
+        /**
+         * Forget the server half of the session key
+         * @description The client's lock. The session itself goes on.
+         */
+        delete: operations["deleteSessionKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch the signed-in account
+         * @description The same document login returns, so a locked client can unlock.
+         */
+        get: operations["getMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch a user's public keys
+         * @description Clients compute the safety number from these. Answers `no_keys` in
+         *     `none` mode.
+         */
+        get: operations["getUserKeys"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List invites */
+        get: operations["listInvites"];
+        put?: never;
+        /** Create a one-time invite */
+        post: operations["createInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invites/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke an invite */
+        delete: operations["deleteInvite"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -143,6 +361,12 @@ export interface components {
              *       `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
              *       `invalid_public_url`, `invalid_mode`
              *     - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
+             *     - `username_taken`, `email_taken`, `invite_invalid`, `signup_closed`
+             *     - `invalid_credentials`: wrong username or auth key on sign-in
+             *     - `wrong_credential`: wrong current auth key on a signed-in action
+             *     - `invalid_rekey`: the groups of a rekey are incomplete
+             *     - `user_disabled`: right credentials, disabled account
+             *     - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
              * @example not_found
              */
             code: string;
@@ -285,6 +509,105 @@ export interface components {
             settings: components["schemas"]["ServerSettingsInput"];
             admin: components["schemas"]["NewAccount"];
         };
+        /** @enum {string} */
+        Role: "admin" | "user";
+        Profile: {
+            id: string;
+            username: string;
+            email?: string;
+            role: components["schemas"]["Role"];
+            /**
+             * Format: int64
+             * @description Storage allowed; 0 means no limit.
+             */
+            quota_bytes: number;
+            totp_enabled: boolean;
+            disabled: boolean;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description What a client needs to unlock an account. */
+        Account: {
+            user: components["schemas"]["Profile"];
+            mode: components["schemas"]["Mode"];
+            kdf: components["schemas"]["KDF"];
+            keys?: components["schemas"]["AccountKeys"];
+        };
+        LoginRequest: {
+            username: string;
+            /**
+             * Format: byte
+             * @description Either auth key, 32 bytes.
+             */
+            auth_key: string;
+        };
+        RegisterRequest: {
+            /** @description Required unless the server allows open sign-up. */
+            invite_token?: string;
+            account: components["schemas"]["NewAccount"];
+        };
+        RekeyRequest: {
+            /**
+             * Format: byte
+             * @description Either current auth key.
+             */
+            current_auth_key: string;
+            /** Format: byte */
+            auth_key?: string;
+            kdf?: components["schemas"]["KDF"];
+            /** Format: byte */
+            wrapped_master_key?: string;
+            /** Format: byte */
+            recovery_auth_key?: string;
+            /** Format: byte */
+            wrapped_master_key_recovery?: string;
+        };
+        SessionKey: {
+            /**
+             * Format: byte
+             * @description 32 bytes.
+             */
+            key: string;
+        };
+        UserKeys: {
+            user_id: string;
+            username: string;
+            public_keys: components["schemas"]["PublicKeys"];
+        };
+        Invite: {
+            id: string;
+            email?: string;
+            role: components["schemas"]["Role"];
+            /**
+             * Format: int64
+             * @description Absent means the server default.
+             */
+            quota_bytes?: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            expires_at: string;
+            used: boolean;
+        };
+        CreateInviteRequest: {
+            /** @description Becomes the new user's address. */
+            email?: string;
+            role?: components["schemas"]["Role"];
+            /** Format: int64 */
+            quota_bytes?: number;
+            /**
+             * Format: int64
+             * @description Between a minute and 90 days; a week if absent.
+             */
+            expires_in_seconds?: number;
+        };
+        CreatedInvite: {
+            invite: components["schemas"]["Invite"];
+            /** @description The one-time token. Not stored; shown only now. */
+            token: string;
+            /** @description The address to send, with the token in the fragment. */
+            link: string;
+        };
     };
     responses: {
         /** @description The request failed. */
@@ -297,7 +620,10 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description A record id. */
+        ID: string;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -413,6 +739,301 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CreatedUser"];
                 };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getKDF: {
+        parameters: {
+            query: {
+                username: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The parameters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KDF"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in. */
+            200: {
+                headers: {
+                    /** @description The session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Signed out. */
+            204: {
+                headers: {
+                    /** @description Clears the session cookie. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description The account exists. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedUser"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    rekey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RekeyRequest"];
+            };
+        };
+        responses: {
+            /** @description The credentials are replaced. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getSessionKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The key. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionKey"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putSessionKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionKey"];
+            };
+        };
+        responses: {
+            /** @description Stored, replacing any previous key. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteSessionKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getMe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getUserKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The keys. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserKeys"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listInvites: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invites, newest first. Tokens are not kept. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"][];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateInviteRequest"];
+            };
+        };
+        responses: {
+            /** @description The invite. Its token is shown only here. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatedInvite"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Error"];
         };

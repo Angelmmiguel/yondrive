@@ -12,12 +12,6 @@ import (
 	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
-// The roles a user can have.
-const (
-	roleAdmin = "admin"
-	roleUser  = "user"
-)
-
 const auditSetupCompleted = "setup_completed"
 
 // GetSetupInfo describes the environment to the wizard.
@@ -67,7 +61,7 @@ func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupReques
 	if err != nil {
 		return nil, err
 	}
-	admin.Role = roleAdmin
+	admin.Role = string(oapi.Admin)
 	admin.QuotaBytes = in.DefaultQuotaBytes
 
 	s.accountMu.Lock()
@@ -89,21 +83,6 @@ func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupReques
 	s.setupHash = nil
 	s.mode.Store(&in.Mode)
 	s.audit(ctx, auditSetupCompleted, admin.ID, admin.ID)
-	s.log.Info("setup completed", "mode", in.Mode, "remote", s.clientAddr(ctx))
+	s.log.Info("setup completed", "mode", in.Mode, "remote", s.clientIP(requestFrom(ctx)))
 	return oapi.CompleteSetup201JSONResponse{UserId: admin.ID}, nil
-}
-
-// audit records a security event. A failed write is logged and does not undo
-// what already happened.
-func (s *Server) audit(ctx context.Context, action, actorID, targetID string) {
-	err := s.store.AppendAudit(context.WithoutCancel(ctx), store.AuditEntry{
-		At:       s.cfg.Now(),
-		Action:   action,
-		ActorID:  actorID,
-		TargetID: targetID,
-		Remote:   s.clientAddr(ctx),
-	})
-	if err != nil {
-		s.log.Error("audit write failed", "action", action, "error", err)
-	}
 }

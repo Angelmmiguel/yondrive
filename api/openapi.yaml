@@ -30,6 +30,12 @@ tags:
     description: Liveness and the state of the server.
   - name: setup
     description: The first-run wizard. Every call needs the one-time setup token.
+  - name: auth
+    description: Signing in and out, registering and changing credentials.
+  - name: account
+    description: The signed-in user, the session key and other users' public keys.
+  - name: admin
+    description: Server administration. Admins only.
 paths:
   /api/v1/health:
     get:
@@ -137,6 +143,250 @@ paths:
                 $ref: "#/components/schemas/CreatedUser"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/auth/kdf:
+    get:
+      operationId: getKDF
+      tags: [auth]
+      summary: Fetch the parameters to derive an auth key with
+      description: |
+        Open, as the client needs them before it can sign in. A username that
+        does not exist gets stable fake parameters of the same shape, so this
+        route cannot tell who has an account.
+      security: []
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The parameters.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KDF"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in
+      description: |
+        Takes either auth key, passphrase or recovery. Sets the session cookie
+        and returns the account, whose sealed keys are opaque to the server. A
+        wrong username and a wrong key answer the same `invalid_credentials`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              description: The session cookie.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out
+      description: Ends this session and forgets its session key.
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              description: Clears the session cookie.
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Create an account
+      description: |
+        Needs a valid invite token, unless the server allows open sign-up. The
+        account and the burning of the invite are one transaction. The new
+        user signs in afterwards. Role and quota come from the invite or the
+        server default, and an email on the invite takes precedence.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: The account exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedUser"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/rekey:
+    post:
+      operationId: rekey
+      tags: [auth]
+      summary: Change the passphrase or the recovery key
+      description: |
+        A session alone is not enough: the caller must also present a current
+        auth key, passphrase or recovery. Atomically replaces the auth hash, KDF
+        parameters and wrapped key of each group present, and ends every other
+        session and every bearer token of the user but the one in use.
+
+        The passphrase group is `auth_key`, `kdf` and, in `e2e` mode,
+        `wrapped_master_key`. The recovery group, `e2e` mode only, is
+        `recovery_auth_key` and `wrapped_master_key_recovery`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RekeyRequest"
+      responses:
+        "204":
+          description: The credentials are replaced.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/session/key:
+    get:
+      operationId: getSessionKey
+      tags: [account]
+      summary: Fetch the server half of the session key
+      description: Answers `no_session_key` if none was set, as after a server restart.
+      responses:
+        "200":
+          description: The key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionKey"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      operationId: putSessionKey
+      tags: [account]
+      summary: Store the server half of the session key
+      description: Held in memory only, and never written to the database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionKey"
+      responses:
+        "204":
+          description: Stored, replacing any previous key.
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteSessionKey
+      tags: [account]
+      summary: Forget the server half of the session key
+      description: The client's lock. The session itself goes on.
+      responses:
+        "204":
+          description: Forgotten.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me:
+    get:
+      operationId: getMe
+      tags: [account]
+      summary: Fetch the signed-in account
+      description: The same document login returns, so a locked client can unlock.
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/users/{id}/keys:
+    get:
+      operationId: getUserKeys
+      tags: [account]
+      summary: Fetch a user's public keys
+      description: |
+        Clients compute the safety number from these. Answers `no_keys` in
+        `none` mode.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: The keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserKeys"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/invites:
+    get:
+      operationId: listInvites
+      tags: [admin]
+      summary: List invites
+      responses:
+        "200":
+          description: The invites, newest first. Tokens are not kept.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invite"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createInvite
+      tags: [admin]
+      summary: Create a one-time invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInviteRequest"
+      responses:
+        "201":
+          description: The invite. Its token is shown only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatedInvite"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/invites/{id}:
+    delete:
+      operationId: deleteInvite
+      tags: [admin]
+      summary: Revoke an invite
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "204":
+          description: Revoked.
+        default:
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     sessionCookie:
@@ -193,6 +443,12 @@ components:
               `invalid_auth_key`, `invalid_keys`, `invalid_settings`,
               `invalid_public_url`, `invalid_mode`
             - `keys_required`, `keys_not_allowed`: the blobs do not fit the mode
+            - `username_taken`, `email_taken`, `invite_invalid`, `signup_closed`
+            - `invalid_credentials`: wrong username or auth key on sign-in
+            - `wrong_credential`: wrong current auth key on a signed-in action
+            - `invalid_rekey`: the groups of a rekey are incomplete
+            - `user_disabled`: right credentials, disabled account
+            - `invalid_session_key`, `no_session_key`, `no_keys`, `invalid_invite`
           examples: [not_found]
     KDF:
       type: object
@@ -364,6 +620,162 @@ components:
           $ref: "#/components/schemas/ServerSettingsInput"
         admin:
           $ref: "#/components/schemas/NewAccount"
+    Role:
+      type: string
+      enum: [admin, user]
+    Profile:
+      type: object
+      required: [id, username, role, quota_bytes, totp_enabled, disabled, created_at]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        quota_bytes:
+          type: integer
+          format: int64
+          description: Storage allowed; 0 means no limit.
+        totp_enabled:
+          type: boolean
+        disabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Account:
+      type: object
+      description: What a client needs to unlock an account.
+      required: [user, mode, kdf]
+      properties:
+        user:
+          $ref: "#/components/schemas/Profile"
+        mode:
+          $ref: "#/components/schemas/Mode"
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        keys:
+          $ref: "#/components/schemas/AccountKeys"
+    LoginRequest:
+      type: object
+      required: [username, auth_key]
+      properties:
+        username:
+          type: string
+        auth_key:
+          type: string
+          format: byte
+          description: Either auth key, 32 bytes.
+    RegisterRequest:
+      type: object
+      required: [account]
+      properties:
+        invite_token:
+          type: string
+          description: Required unless the server allows open sign-up.
+        account:
+          $ref: "#/components/schemas/NewAccount"
+    RekeyRequest:
+      type: object
+      required: [current_auth_key]
+      properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key.
+        auth_key:
+          type: string
+          format: byte
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        wrapped_master_key:
+          type: string
+          format: byte
+        recovery_auth_key:
+          type: string
+          format: byte
+        wrapped_master_key_recovery:
+          type: string
+          format: byte
+    SessionKey:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          format: byte
+          description: 32 bytes.
+    UserKeys:
+      type: object
+      required: [user_id, username, public_keys]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: string
+        public_keys:
+          $ref: "#/components/schemas/PublicKeys"
+    Invite:
+      type: object
+      required: [id, role, created_at, expires_at, used]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        quota_bytes:
+          type: integer
+          format: int64
+          description: Absent means the server default.
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        used:
+          type: boolean
+    CreateInviteRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Becomes the new user's address.
+        role:
+          $ref: "#/components/schemas/Role"
+        quota_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        expires_in_seconds:
+          type: integer
+          format: int64
+          description: Between a minute and 90 days; a week if absent.
+    CreatedInvite:
+      type: object
+      required: [invite, token, link]
+      properties:
+        invite:
+          $ref: "#/components/schemas/Invite"
+        token:
+          type: string
+          description: The one-time token. Not stored; shown only now.
+        link:
+          type: string
+          description: The address to send, with the token in the fragment.
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: A record id.
   responses:
     Error:
       description: The request failed.
