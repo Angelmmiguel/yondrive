@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"time"
 )
@@ -26,6 +27,18 @@ const (
 	keyLastBackup   = "last_backup_at"
 	keyAuditKeep    = "audit_retention_days"
 	keyJournalKeep  = "journal_retention_days"
+	keyLocal        = "local_accounts"
+	keyOIDCEnabled  = "oidc_enabled"
+	keyOIDCLabel    = "oidc_label"
+	keyOIDCIssuer   = "oidc_issuer"
+	keyOIDCClient   = "oidc_client_id"
+	keyOIDCSecret   = "oidc_client_secret" //nolint:gosec // the name of a setting
+	keyOIDCScopes   = "oidc_scopes"
+	keyOIDCGroup    = "oidc_admin_group"
+	keyOIDCClaim    = "oidc_admin_claim"
+	keyOIDCMatch    = "oidc_match_mode"
+	keyOIDCNewUsers = "oidc_new_users"
+	keyOIDCInsecure = "oidc_allow_insecure"
 )
 
 // Defaults of the settings that setup does not ask about.
@@ -44,6 +57,61 @@ const (
 // serverSecretLen is the size in bytes of the persisted server secret.
 const serverSecretLen = 32
 
+// How single sign-on links an identity, and what it does with one that links to
+// nothing.
+const (
+	MatchEmail    = "email"
+	MatchUsername = "preferred_username"
+	MatchSubject  = "sub"
+
+	NewUsersCreate  = "create"
+	NewUsersInvited = "invited"
+)
+
+// OIDCSettings is how the server signs people in through a provider. The client
+// secret is readable by the server because it has to send it. It protects sign-in
+// only, and decrypts nothing.
+type OIDCSettings struct {
+	Enabled       bool
+	Label         string
+	Issuer        string
+	ClientID      string
+	ClientSecret  string //nolint:gosec // stored by design, and no route returns it
+	Scopes        string
+	AdminGroup    string
+	AdminClaim    string
+	MatchMode     string
+	NewUsers      string
+	AllowInsecure bool
+}
+
+// DefaultOIDCSettings is what the settings are until someone changes them.
+func DefaultOIDCSettings() OIDCSettings {
+	return OIDCSettings{
+		Label:      "Single sign-on",
+		Scopes:     "openid profile email",
+		AdminClaim: "groups",
+		MatchMode:  MatchEmail,
+		NewUsers:   NewUsersCreate,
+	}
+}
+
+func (o OIDCSettings) values() map[string]string {
+	return map[string]string{
+		keyOIDCEnabled:  boolValue(o.Enabled),
+		keyOIDCLabel:    o.Label,
+		keyOIDCIssuer:   o.Issuer,
+		keyOIDCClient:   o.ClientID,
+		keyOIDCSecret:   o.ClientSecret,
+		keyOIDCScopes:   o.Scopes,
+		keyOIDCGroup:    o.AdminGroup,
+		keyOIDCClaim:    o.AdminClaim,
+		keyOIDCMatch:    o.MatchMode,
+		keyOIDCNewUsers: o.NewUsers,
+		keyOIDCInsecure: boolValue(o.AllowInsecure),
+	}
+}
+
 // Settings is the server-wide configuration chosen at setup.
 type Settings struct {
 	Mode              string
@@ -53,6 +121,10 @@ type Settings struct {
 	Language          string
 	TimeZone          string
 	OpenSignup        bool
+	// LocalAccounts says whether local sign-in and registration are on. The fallback
+	// admin can always sign in.
+	LocalAccounts bool
+	OIDC          OIDCSettings
 	// PurgeGraceDays is how long purged data stays before its bytes go.
 	PurgeGraceDays int
 	// TrashRetentionDays is how long the trash keeps a node before purging it.
@@ -81,6 +153,9 @@ type SettingsPatch struct {
 	TrashRetentionDays   *int
 	AuditRetentionDays   *int
 	JournalRetentionDays *int
+	LocalAccounts        *bool
+	// OIDC replaces all of the provider's settings.
+	OIDC *OIDCSettings
 }
 
 // Settings returns the configuration, or ErrNotConfigured before setup.
@@ -95,6 +170,8 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 		TrashRetentionDays:   DefaultTrashRetentionDays,
 		AuditRetentionDays:   DefaultAuditRetentionDays,
 		JournalRetentionDays: DefaultJournalRetentionDays,
+		LocalAccounts:        true,
+		OIDC:                 DefaultOIDCSettings(),
 	}
 	for rows.Next() {
 		var key, value string
@@ -126,6 +203,30 @@ func (s *Store) Settings(ctx context.Context) (Settings, error) {
 			if out.TrashRetentionDays, err = strconv.Atoi(value); err != nil {
 				return Settings{}, fmt.Errorf("store: read settings: %w", err)
 			}
+		case keyLocal:
+			out.LocalAccounts = value == "1"
+		case keyOIDCEnabled:
+			out.OIDC.Enabled = value == "1"
+		case keyOIDCLabel:
+			out.OIDC.Label = value
+		case keyOIDCIssuer:
+			out.OIDC.Issuer = value
+		case keyOIDCClient:
+			out.OIDC.ClientID = value
+		case keyOIDCSecret:
+			out.OIDC.ClientSecret = value
+		case keyOIDCScopes:
+			out.OIDC.Scopes = value
+		case keyOIDCGroup:
+			out.OIDC.AdminGroup = value
+		case keyOIDCClaim:
+			out.OIDC.AdminClaim = value
+		case keyOIDCMatch:
+			out.OIDC.MatchMode = value
+		case keyOIDCNewUsers:
+			out.OIDC.NewUsers = value
+		case keyOIDCInsecure:
+			out.OIDC.AllowInsecure = value == "1"
 		case keyAuditKeep:
 			if out.AuditRetentionDays, err = strconv.Atoi(value); err != nil {
 				return Settings{}, fmt.Errorf("store: read settings: %w", err)
@@ -171,7 +272,9 @@ func (s *Store) CompleteSetup(ctx context.Context, cfg Settings, admin User) err
 			keyLanguage:     cfg.Language,
 			keyTimeZone:     cfg.TimeZone,
 			keyOpenSignup:   boolValue(cfg.OpenSignup),
+			keyLocal:        boolValue(cfg.LocalAccounts),
 		}
+		maps.Copy(values, cfg.OIDC.values())
 		for key, value := range values {
 			if err := putSetting(ctx, tx, key, value); err != nil {
 				return err
@@ -190,7 +293,18 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			}
 			return putSetting(ctx, tx, key, *value)
 		}
-		var quota, signup *string
+		var quota, signup, local *string
+		if patch.LocalAccounts != nil {
+			v := boolValue(*patch.LocalAccounts)
+			local = &v
+		}
+		if patch.OIDC != nil {
+			for key, value := range patch.OIDC.values() {
+				if err := putSetting(ctx, tx, key, value); err != nil {
+					return err
+				}
+			}
+		}
 		days := func(v *int) *string {
 			if v == nil {
 				return nil
@@ -213,6 +327,7 @@ func (s *Store) UpdateSettings(ctx context.Context, patch SettingsPatch) (Settin
 			put(keyLanguage, patch.Language),
 			put(keyTimeZone, patch.TimeZone),
 			put(keyOpenSignup, signup),
+			put(keyLocal, local),
 			put(keyPurgeGrace, days(patch.PurgeGraceDays)),
 			put(keyTrashKeep, days(patch.TrashRetentionDays)),
 			put(keyAuditKeep, days(patch.AuditRetentionDays)),

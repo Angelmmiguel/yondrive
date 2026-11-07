@@ -71,7 +71,7 @@ func addToken(t *testing.T, st *Store, userID, name string) Token {
 }
 
 func settings() Settings {
-	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC", PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays, AuditRetentionDays: DefaultAuditRetentionDays, JournalRetentionDays: DefaultJournalRetentionDays}
+	return Settings{Mode: "e2e", Name: "Home", PublicURL: "http://x", DefaultQuotaBytes: 5, Language: "en", TimeZone: "UTC", PurgeGraceDays: DefaultPurgeGraceDays, TrashRetentionDays: DefaultTrashRetentionDays, AuditRetentionDays: DefaultAuditRetentionDays, JournalRetentionDays: DefaultJournalRetentionDays, LocalAccounts: true, OIDC: DefaultOIDCSettings()}
 }
 
 func TestOpenAppliesPragmasAndPermissions(t *testing.T) {

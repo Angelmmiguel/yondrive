@@ -1017,7 +1017,7 @@ func TestTheMigrationChargesNodesThatAreThere(t *testing.T) {
 		t.Fatal(err)
 	}
 	// And without what later migrations add.
-	for _, stmt := range []string{"DROP INDEX changes_at", "DROP INDEX audit_at", "ALTER TABLE users DROP COLUMN journal_floor", "PRAGMA user_version = 3"} {
+	for _, stmt := range []string{"DROP INDEX changes_at", "DROP INDEX audit_at", "ALTER TABLE users DROP COLUMN journal_floor", "ALTER TABLE users DROP COLUMN unlock_auth_key_hash", "PRAGMA user_version = 3"} {
 		if _, err := st.write.Exec(stmt); err != nil {
 			t.Fatal(err)
 		}

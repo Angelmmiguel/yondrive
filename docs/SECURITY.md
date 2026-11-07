@@ -64,11 +64,70 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 | --- | --- | --- |
 | **The server hands out a false public key** when you share, and reads everything shared after. | Fingerprints are pinned on first use, per device and sealed under a key from the master key. A change raises a blocking warning, and nothing is shared until someone answers it. Two people can compare a safety number over another channel. | First use is trusted unless the number is compared, and a new device is a first use again. |
 | **Username probing** through the KDF endpoint. | Unknown usernames get stable fake parameters derived from a server secret. | The parameters cannot hide everything. An account with non-default KDF parameters stands out, as fake answers carry the new-account defaults. A real salt changes on rekey and a fake one never does, so watching a username over time can tell them apart. With open sign-up on, registering reveals taken names, within the rate limit. Sign-in timing is not measured. |
-| **SSO compromise** gives access to a user's wrapped key, to attack offline. | A minimum passphrase strength, and Argon2id sets the price of each guess. Nothing derived from the unlock passphrase reaches the server. | Weak passphrases can still fall. |
+| **SSO compromise** gives access to a user's wrapped key, to attack offline. | A minimum passphrase strength, and Argon2id sets the price of each guess. The provider never sees the unlock passphrase, and a session from it cannot replace keys. See [Single sign-on](#single-sign-on). | Weak passphrases can still fall. |
 | **Removing someone from a shared folder.** They may have kept the keys. | The node key rotates on revoke, for future content, from the top of the share down. The app says plainly that earlier content may have been copied. | What they already hold stays readable to them. |
 | **A false "shared with you".** A server can make a folder whose key it knows and present it as shared, then read what is uploaded there. | Each grant is signed by its granter, over the node, both users, the role, the key generation and the sealed key. A client verifies it against the granter's pinned key, and that the granter owns the node. What does not verify shows as a warning, with no name, and is never opened. | A server can also make an account, and share from it. That shows as a share from someone the user does not know, which is where the safety number matters. |
 | **A stolen session can delete files.** | Trash, version history and a grace period enforced by the server before anything is purged. | An honest server is assumed for the grace period. |
 | **Malicious documents from other users** run in the same origin as the keys. | Parsers run in workers and output a typed model, never HTML. Sanitising, a strict CSP, and SVG and HTML are downloaded rather than rendered inline, whether the name or the type says so. A service worker stream is never served as anything but media or an attachment. | A parser bug that escapes the model. |
+
+## Single sign-on
+
+With a provider, whoever controls the provider can sign in as anyone it can name. What that
+gets them depends on the mode.
+
+**A compromised provider, in `e2e` mode,** gets a session on any account that has an identity,
+and on any it can link. That is:
+
+- the wrapped master key and KDF parameters, to attack **offline**. Every guess costs one
+  Argon2id run, and the stored hash of the unlock auth key offers nothing cheaper. A strong
+  passphrase holds, and a weak one falls. Nothing the provider sees helps, as the passphrase
+  is never typed there.
+- what any session can do: see the folder structure as anonymous ids, trash files, within
+  the grace period, and fill the quota.
+- **not** the content, and not the power to replace keys, make a device token or turn off
+  anything that needs a current credential.
+- for an account with no keys yet, the first enrolment. It can enrol keys of its own, and the
+  real user then finds an account that their passphrase does not open and that they did not
+  fill. Nothing that was the user's is exposed, as there was nothing there.
+
+**In `none` mode** it reads and changes everything those accounts can reach, as there is no key
+between a session and the content.
+
+**Becoming an admin.** With an admin group set, the provider decides who is an admin, at each
+sign-in. An admin session sees no content in `e2e` mode, but it can delete users and change
+settings, subject to the current credential on the worst of those. The first local admin is
+never demoted, and can always sign in with a passphrase, whatever the provider says.
+
+**Linking.** Link modes trust the provider's claims about who someone is. `email` needs
+`email_verified` to be true. `preferred_username` trusts a name that many providers let users
+choose, so it suits only a provider whose usernames an admin assigns. `sub` links nothing. An
+account linked to one identity is never moved to another by signing in: that takes an admin
+with a current credential. Linking applies to local admins too, whose account then opens to
+the provider, and to the keys only with its passphrase.
+
+**A stolen admin session and the issuer.** Whoever can name the issuer can sign in as anyone it
+can match, so changing it, or anything else about sign-in, needs a current credential.
+
+**The second factor** of an SSO sign-in is the provider's. TOTP guards local sign-in alone, so a
+local account that is linked and has TOTP on is reached through the provider without it.
+
+**Sessions outlive the provider's word.** Disabling someone at the provider stops their next
+sign-in, not a session they have, which lasts up to seven days unless an admin disables them
+here. There is no back-channel logout.
+
+**The sign-in itself.** The state, nonce and PKCE verifier are sealed in a short-lived, HttpOnly,
+host-only cookie, so that a forged callback or a stolen code goes nowhere. ID tokens are verified
+with an allow-list of RS256, ES256 and EdDSA, against keys published by the issuer, which
+discovery has to name exactly. The session is a cookie, and no token appears in any URL. The
+authorization code does pass through the proxy's logs, which is why it is bound by PKCE and
+single use. A sealed flow can be replayed only with a code the provider has not yet used.
+
+**The client secret and the server fetching URLs.** The client secret is stored readable by the
+server and is in every backup. It lets someone act as this server toward the provider, and
+decrypts nothing. Discovery fetches an address an admin or setup token holder typed, so it uses
+bounded requests, follows no redirect to another host, refuses link-local addresses such as a
+cloud metadata service, and returns codes rather than what it found. Private addresses stay
+allowed, since a provider on the LAN is normal, so an admin can tell which hosts answer.
 
 ## What tampering is detected
 

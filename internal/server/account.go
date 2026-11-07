@@ -34,20 +34,27 @@ func (s *Server) GetKDF(ctx context.Context, req oapi.GetKDFRequestObject) (oapi
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	if user.KDF == nil {
-		return oapi.GetKDF200JSONResponse{
-			Name: oapi.Argon2id,
-			M:    auth.KDFMemoryKiB,
-			T:    auth.KDFIterations,
-			P:    auth.KDFParallelism,
-			Salt: auth.FakeSalt(s.secret, username),
-		}, nil
+	// A single sign-on account does not sign in here, and gets its real parameters
+	// from GET /me: to anyone asking here it looks like nobody at all.
+	if user.KDF == nil || user.SSOOnly() {
+		return oapi.GetKDF200JSONResponse(s.fakeKDF(username)), nil
 	}
 	kdf, err := decodeKDF(user.KDF)
 	if err != nil {
 		return nil, err
 	}
 	return oapi.GetKDF200JSONResponse(kdf), nil
+}
+
+// fakeKDF is parameters of the right shape, for a name with none to show.
+func (s *Server) fakeKDF(username string) oapi.KDF {
+	return oapi.KDF{
+		Name: oapi.Argon2id,
+		M:    auth.KDFMemoryKiB,
+		T:    auth.KDFIterations,
+		P:    auth.KDFParallelism,
+		Salt: auth.FakeSalt(s.secret, username),
+	}
 }
 
 func decodeKDF(stored []byte) (oapi.KDF, error) {
@@ -85,6 +92,10 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 		s.audit(ctx, auditLoginFailed, "", user.ID)
 		return nil, fail(http.StatusForbidden, codeUserDisabled)
 	}
+	if err := s.checkLocalSignIn(ctx, user); err != nil {
+		s.audit(ctx, auditLoginFailed, "", user.ID)
+		return nil, err
+	}
 	if user.TOTPEnabled {
 		if req.Body.TotpCode == nil && req.Body.TotpRecoveryCode == nil {
 			return nil, fail(http.StatusUnauthorized, codeTOTPRequired)
@@ -94,15 +105,7 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 		}
 	}
 
-	token := auth.NewToken()
-	now := s.cfg.Now()
-	err = s.store.CreateSession(ctx, store.Session{
-		Hash:       auth.HashToken(token),
-		UserID:     user.ID,
-		CreatedAt:  now,
-		ExpiresAt:  now.Add(s.cfg.SessionTTL),
-		AbsoluteAt: now.Add(s.cfg.SessionMaxAge),
-	})
+	token, err := s.openSession(ctx, user)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +118,20 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 		Body:    account,
 		Headers: oapi.Login200ResponseHeaders{SetCookie: s.sessionCookieHeader(ctx, token)},
 	}, nil
+}
+
+// openSession makes a session and returns its token. The caller holds accountMu.
+func (s *Server) openSession(ctx context.Context, user store.User) (string, error) {
+	token := auth.NewToken()
+	now := s.cfg.Now()
+	err := s.store.CreateSession(ctx, store.Session{
+		Hash:       auth.HashToken(token),
+		UserID:     user.ID,
+		CreatedAt:  now,
+		ExpiresAt:  now.Add(s.cfg.SessionTTL),
+		AbsoluteAt: now.Add(s.cfg.SessionMaxAge),
+	})
+	return token, err
 }
 
 // Logout ends the session and forgets its key.
@@ -147,6 +164,9 @@ func (s *Server) Register(ctx context.Context, req oapi.RegisterRequestObject) (
 	settings, err := s.store.Settings(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if !settings.LocalAccounts {
+		return nil, fail(http.StatusForbidden, codeLocalDisabled)
 	}
 	now := s.cfg.Now()
 	var invite store.Invite
@@ -209,6 +229,13 @@ func (s *Server) Rekey(ctx context.Context, req oapi.RekeyRequestObject) (oapi.R
 	user, err := s.verifyCurrentKey(ctx, req.Body.CurrentAuthKey)
 	if err != nil {
 		return nil, err
+	}
+	if user.SSOOnly() {
+		if *s.mode.Load() == oapi.ModeNone {
+			return nil, fail(http.StatusConflict, codeSSOOnly)
+		}
+		// The new key goes where it proves a credential and cannot sign in.
+		up.UnlockAuthKeyHash, up.AuthKeyHash = up.AuthKeyHash, nil
 	}
 	revoked, err := s.store.UpdateCredentials(ctx, user.ID, up, p.sessionHash, p.tokenID)
 	if err != nil {
@@ -279,11 +306,18 @@ func (s *Server) GetMe(ctx context.Context, _ oapi.GetMeRequestObject) (oapi.Get
 
 // account is what a client needs to unlock: the blobs exactly as stored.
 func (s *Server) account(u store.User) (oapi.Account, error) {
-	kdf, err := decodeKDF(u.KDF)
-	if err != nil {
-		return oapi.Account{}, err
+	kdf := s.fakeKDF(u.Username)
+	if u.KDF != nil {
+		var err error
+		if kdf, err = decodeKDF(u.KDF); err != nil {
+			return oapi.Account{}, err
+		}
 	}
 	out := oapi.Account{User: profile(u), Mode: *s.mode.Load(), Kdf: kdf}
+	if out.Mode == oapi.ModeE2e && u.WrappedMasterKey == nil {
+		required := true
+		out.EnrolmentRequired = &required
+	}
 	if u.WrappedMasterKey != nil {
 		out.Keys = &oapi.AccountKeys{
 			WrappedMasterKey:         u.WrappedMasterKey,
@@ -309,6 +343,14 @@ func profile(u store.User) oapi.Profile {
 	if u.Email != "" {
 		p.Email = &u.Email
 	}
+	method := oapi.Local
+	switch {
+	case u.SSOOnly():
+		method = oapi.Sso
+	case u.HasIdentity():
+		method = oapi.Both
+	}
+	p.SignInMethod = &method
 	return p
 }
 

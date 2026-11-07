@@ -32,8 +32,12 @@ func (s *Server) GetSetupInfo(context.Context, oapi.GetSetupInfoRequestObject) (
 	}
 	info := oapi.GetSetupInfo200JSONResponse{DataDir: dir, Version: s.cfg.Version}
 	info.FreeBytes = freeBytes(dir)
+	path := oidcCallbackPath
+	info.OidcRedirectPath = &path
 	if s.cfg.PublicURL != "" {
 		info.PublicUrl = &s.cfg.PublicURL
+		uri := s.cfg.PublicURL + oidcCallbackPath
+		info.OidcRedirectUri = &uri
 	}
 	return info, nil
 }
@@ -45,6 +49,31 @@ func (s *Server) ValidateSetupURL(_ context.Context, req oapi.ValidateSetupURLRe
 		return nil, badRequest(codeInvalidPublicURL)
 	}
 	return oapi.ValidateSetupURL200JSONResponse{Url: u, Insecure: strings.HasPrefix(u, "http://")}, nil
+}
+
+// setupSignIn reads the wizard's choices on signing in. The first admin is always
+// local, so turning local accounts off here only needs a provider to be on.
+func setupSignIn(in *oapi.SignInSettingsInput) (store.Settings, error) {
+	out := store.Settings{LocalAccounts: true, OIDC: store.DefaultOIDCSettings()}
+	if in == nil {
+		return out, nil
+	}
+	if in.OpenSignup != nil {
+		out.OpenSignup = *in.OpenSignup
+	}
+	if in.LocalAccounts != nil {
+		out.LocalAccounts = *in.LocalAccounts
+	}
+	if in.Oidc != nil {
+		var err error
+		if out.OIDC, err = mergeOIDCSettings(out.OIDC, *in.Oidc); err != nil {
+			return out, err
+		}
+	}
+	if !out.LocalAccounts && !out.OIDC.Enabled {
+		return out, fail(http.StatusConflict, codeLocalLockout)
+	}
+	return out, nil
 }
 
 // CompleteSetup stores the settings, creates the first admin and burns the
@@ -63,6 +92,10 @@ func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupReques
 		!languagePattern.MatchString(in.Language) || !timeZonePattern.MatchString(in.TimeZone) {
 		return nil, badRequest(codeInvalidSettings)
 	}
+	signIn, err := setupSignIn(req.Body.SignIn)
+	if err != nil {
+		return nil, err
+	}
 	admin, err := newUser(req.Body.Admin, in.Mode, s.cfg.Now())
 	if err != nil {
 		return nil, err
@@ -79,6 +112,9 @@ func (s *Server) CompleteSetup(ctx context.Context, req oapi.CompleteSetupReques
 		DefaultQuotaBytes: in.DefaultQuotaBytes,
 		Language:          in.Language,
 		TimeZone:          in.TimeZone,
+		OpenSignup:        signIn.OpenSignup,
+		LocalAccounts:     signIn.LocalAccounts,
+		OIDC:              signIn.OIDC,
 	}, admin)
 	if errors.Is(err, store.ErrAlreadyConfigured) {
 		return nil, fail(http.StatusConflict, codeAlreadySetup)

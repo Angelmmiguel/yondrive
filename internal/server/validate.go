@@ -87,6 +87,12 @@ func encodeKDF(kdf oapi.KDF) ([]byte, error) {
 
 func validSealed(b []byte) bool { return len(b) >= minSealedSize && len(b) <= maxSealedSize }
 
+func validAccountKeys(keys oapi.AccountKeys) bool {
+	return validSealed(keys.WrappedMasterKey) && validSealed(keys.WrappedMasterKeyRecovery) &&
+		validSealed(keys.SealedX25519) && validSealed(keys.SealedEd25519) &&
+		len(keys.PublicKeys.X25519) == publicKeyLen && len(keys.PublicKeys.Ed25519) == publicKeyLen
+}
+
 // newUser checks an account against the mode and the size limits and returns
 // the record to store. The caller fills in the role and quota.
 func newUser(account oapi.NewAccount, mode oapi.Mode, now time.Time) (store.User, error) {
@@ -131,9 +137,7 @@ func newUser(account oapi.NewAccount, mode oapi.Mode, now time.Time) (store.User
 		return store.User{}, badRequest(codeInvalidAuthKey)
 	}
 	keys := account.Keys
-	if !validSealed(keys.WrappedMasterKey) || !validSealed(keys.WrappedMasterKeyRecovery) ||
-		!validSealed(keys.SealedX25519) || !validSealed(keys.SealedEd25519) ||
-		len(keys.PublicKeys.X25519) != publicKeyLen || len(keys.PublicKeys.Ed25519) != publicKeyLen {
+	if !validAccountKeys(*keys) {
 		return store.User{}, badRequest(codeInvalidKeys)
 	}
 	u.RecoveryAuthKeyHash = auth.HashKey(*account.RecoveryAuthKey)

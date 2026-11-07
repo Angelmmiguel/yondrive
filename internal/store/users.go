@@ -12,7 +12,10 @@ import (
 // holds it: hashes of the auth keys, the KDF parameters, and blobs it cannot
 // read. In no-encryption mode everything after KDF is empty.
 type Credentials struct {
-	AuthKeyHash              []byte
+	AuthKeyHash []byte
+	// UnlockAuthKeyHash is that of a single sign-on account's unlock passphrase. It
+	// proves a current credential and never signs in.
+	UnlockAuthKeyHash        []byte
 	KDF                      []byte
 	RecoveryAuthKeyHash      []byte
 	WrappedMasterKey         []byte
@@ -36,11 +39,31 @@ type User struct {
 	TOTPLastStep int64
 	Disabled     bool
 	CreatedAt    time.Time
+	// OIDCIssuer and OIDCSubject are the identity at a provider, if linked.
+	OIDCIssuer  string
+	OIDCSubject string
+}
+
+// HasIdentity reports whether the account is linked to a provider identity.
+func (u User) HasIdentity() bool { return u.OIDCSubject != "" }
+
+// SSOOnly reports whether the account has no passphrase to sign in with. It stays so
+// while its identity is unlinked, as it has still only ever had a provider.
+func (u User) SSOOnly() bool { return u.AuthKeyHash == nil }
+
+// CurrentCredentialHash is the hash of the passphrase's auth key, whichever kind the
+// account has. The recovery auth key's is apart.
+func (u User) CurrentCredentialHash() []byte {
+	if u.AuthKeyHash != nil {
+		return u.AuthKeyHash
+	}
+	return u.UnlockAuthKeyHash
 }
 
 // CredentialUpdate replaces the credentials whose fields are not nil.
 type CredentialUpdate struct {
 	AuthKeyHash              []byte
+	UnlockAuthKeyHash        []byte
 	KDF                      []byte
 	WrappedMasterKey         []byte
 	RecoveryAuthKeyHash      []byte
@@ -50,7 +73,7 @@ type CredentialUpdate struct {
 const userColumns = `id, username, coalesce(email, ''), role, quota_bytes, kdf, auth_key_hash,
 	recovery_auth_key_hash, wrapped_master_key, wrapped_master_key_recovery, sealed_x25519, sealed_ed25519,
 	public_key_x25519, public_key_ed25519, totp_secret, totp_enabled_at IS NOT NULL, totp_last_step,
-	disabled_at IS NOT NULL, created_at`
+	disabled_at IS NOT NULL, created_at, unlock_auth_key_hash, coalesce(oidc_issuer, ''), coalesce(oidc_subject, '')`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
@@ -58,7 +81,7 @@ func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.QuotaBytes, &u.KDF, &u.AuthKeyHash,
 		&u.RecoveryAuthKeyHash, &u.WrappedMasterKey, &u.WrappedMasterKeyRecovery, &u.SealedX25519, &u.SealedEd25519,
 		&u.PublicKeyX25519, &u.PublicKeyEd25519, &u.TOTPSecret, &u.TOTPEnabled, &u.TOTPLastStep,
-		&u.Disabled, &created)
+		&u.Disabled, &created, &u.UnlockAuthKeyHash, &u.OIDCIssuer, &u.OIDCSubject)
 	u.CreatedAt = time.Unix(created, 0).UTC()
 	return u, err
 }
@@ -83,13 +106,22 @@ func insertUser(ctx context.Context, tx *sql.Tx, u User) error {
 			return fmt.Errorf("store: check email: %w", err)
 		}
 	}
+	if u.HasIdentity() {
+		err := tx.QueryRowContext(ctx, "SELECT 1 FROM users WHERE oidc_issuer = ? AND oidc_subject = ?", u.OIDCIssuer, u.OIDCSubject).Scan(&exists)
+		if err == nil {
+			return ErrIdentityTaken
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("store: check identity: %w", err)
+		}
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO users (id, username, email, role, quota_bytes, kdf, auth_key_hash,
 		recovery_auth_key_hash, wrapped_master_key, wrapped_master_key_recovery, sealed_x25519, sealed_ed25519,
-		public_key_x25519, public_key_ed25519, created_at)
-		VALUES (?, ?, nullif(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		public_key_x25519, public_key_ed25519, created_at, oidc_issuer, oidc_subject)
+		VALUES (?, ?, nullif(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, nullif(?, ''), nullif(?, ''))`,
 		u.ID, u.Username, u.Email, u.Role, u.QuotaBytes, u.KDF, u.AuthKeyHash,
 		u.RecoveryAuthKeyHash, u.WrappedMasterKey, u.WrappedMasterKeyRecovery, u.SealedX25519, u.SealedEd25519,
-		u.PublicKeyX25519, u.PublicKeyEd25519, u.CreatedAt.Unix())
+		u.PublicKeyX25519, u.PublicKeyEd25519, u.CreatedAt.Unix(), u.OIDCIssuer, u.OIDCSubject)
 	if err != nil {
 		return fmt.Errorf("store: insert user: %w", err)
 	}
@@ -233,12 +265,13 @@ func (s *Store) UpdateCredentials(ctx context.Context, userID string, up Credent
 func updateCredentials(ctx context.Context, tx *sql.Tx, userID string, up CredentialUpdate) error {
 	res, err := tx.ExecContext(ctx, `UPDATE users SET
 		auth_key_hash = coalesce(?, auth_key_hash),
+		unlock_auth_key_hash = coalesce(?, unlock_auth_key_hash),
 		kdf = coalesce(?, kdf),
 		wrapped_master_key = coalesce(?, wrapped_master_key),
 		recovery_auth_key_hash = coalesce(?, recovery_auth_key_hash),
 		wrapped_master_key_recovery = coalesce(?, wrapped_master_key_recovery)
 		WHERE id = ?`,
-		up.AuthKeyHash, up.KDF, up.WrappedMasterKey, up.RecoveryAuthKeyHash, up.WrappedMasterKeyRecovery, userID)
+		up.AuthKeyHash, up.UnlockAuthKeyHash, up.KDF, up.WrappedMasterKey, up.RecoveryAuthKeyHash, up.WrappedMasterKeyRecovery, userID)
 	if err != nil {
 		return fmt.Errorf("store: update credentials: %w", err)
 	}

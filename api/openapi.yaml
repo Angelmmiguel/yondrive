@@ -153,6 +153,175 @@ paths:
                 $ref: "#/components/schemas/CreatedUser"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/auth/methods:
+    get:
+      operationId: getAuthMethods
+      tags: [auth]
+      summary: Say how people can sign in here
+      description: |
+        What the sign-in page shows. With `local_accounts` off the form still has a
+        use: the first local admin can always sign in with it, as the way back in when
+        the provider is down.
+      security: []
+      responses:
+        "200":
+          description: The methods.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthMethods"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/oidc/start:
+    get:
+      operationId: startOIDC
+      tags: [auth]
+      summary: Leave for the identity provider
+      description: |
+        A browser navigates here, top level, and comes back at
+        `/auth/oidc/callback`. A failure redirects to `/signin?sso_error=<code>`.
+      security: []
+      parameters:
+        - name: fresh
+          in: query
+          schema:
+            type: boolean
+          description: Ask the provider to authenticate again, for `reauth_required`.
+      responses:
+        "302":
+          description: To the provider, or to `/signin?sso_error=<code>`.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+            Set-Cookie:
+              description: The sealed state of this sign-in. HttpOnly, host-only, for ten minutes.
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: startOIDCWithInvite
+      tags: [auth]
+      summary: Start signing in with an invite
+      description: |
+        The same, for someone holding an invite link, whose token must stay out of a
+        URL. The client calls this and then sets `location` to `authorize_url`. An
+        invite with an email is only good for that verified address.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OIDCStartRequest"
+      responses:
+        "200":
+          description: Where to go.
+          headers:
+            Set-Cookie:
+              description: The sealed state of this sign-in.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OIDCStart"
+        default:
+          $ref: "#/components/responses/Error"
+  /auth/oidc/callback:
+    get:
+      operationId: finishOIDC
+      tags: [auth]
+      summary: Come back from the identity provider
+      description: |
+        The redirect URI to register at the provider: the public URL plus this path,
+        outside `/api/v1` so that it reads as the address it is. It creates a session
+        and redirects to `/`, where the app asks `GET /me` what comes next, with no
+        token in any URL. A failure redirects to `/signin?sso_error=<code>`.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: error
+          in: query
+          schema:
+            type: string
+      responses:
+        "302":
+          description: To the app.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+            Set-Cookie:
+              description: The session cookie, and the state of the sign-in cleared.
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/auth/oidc/enrol:
+    post:
+      operationId: enrolOIDC
+      tags: [auth]
+      summary: Store the keys of a single sign-on account, once
+      description: |
+        `e2e` mode only, on a first sign-in through the provider, when the account
+        document says `enrolment_required`. The session is enough this once, as there
+        is nothing yet to protect. Afterwards this answers `already_enrolled`, and
+        `POST /auth/rekey` with a current credential is the only way to replace them.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnrolRequest"
+      responses:
+        "200":
+          description: The account, with its keys.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/oidc/test:
+    post:
+      operationId: testOIDC
+      tags: [setup, admin]
+      summary: Test an identity provider
+      description: |
+        The server fetches the issuer's discovery document and keys, and reports what
+        it found. Since this makes the server fetch a URL someone typed, it takes the
+        setup token before setup and an admin afterwards, and it answers with stable
+        codes and endpoints, never with what a failing address sent back.
+      security:
+        - setupToken: []
+        - sessionCookie: []
+        - bearerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OIDCTestRequest"
+      responses:
+        "200":
+          description: Discovery and keys are in order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OIDCTestResult"
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/auth/kdf:
     get:
       operationId: getKDF
@@ -187,7 +356,9 @@ paths:
         Takes either auth key, passphrase or recovery. Sets the session cookie
         and returns the account, whose sealed keys are opaque to the server. A
         wrong username and a wrong key answer the same `invalid_credentials`.
-        With TOTP on and no code, the right key answers `totp_required`.
+        With TOTP on and no code, the right key answers `totp_required`. Only a right
+        key learns `sso_required`, for an account that signs in through the provider, or
+        `local_accounts_disabled`. The unlock auth key of such an account never signs in.
       security: []
       requestBody:
         required: true
@@ -262,6 +433,10 @@ paths:
         parameters and wrapped key of each group present, and ends every other
         session and every bearer token of the user but the one in use.
 
+        For a single sign-on account the current auth key is its unlock auth key or its
+        recovery auth key, and `auth_key` is the new unlock auth key. In `none` mode such
+        an account has no credentials to change, and the answer is `sso_only`.
+
         The passphrase group is `auth_key`, `kdf` and, in `e2e` mode,
         `wrapped_master_key`. The recovery group, `e2e` mode only, is
         `recovery_auth_key` and `wrapped_master_key_recovery`.
@@ -283,7 +458,8 @@ paths:
       summary: Start enrolling in TOTP
       description: |
         Needs a current auth key, so that a stolen session cannot lock the owner
-        out. The secret is not in force until confirmed. Secrets are stored on
+        out. TOTP guards local sign-in, so an account that signs in only through a
+        provider answers `totp_local_only`. The secret is not in force until confirmed. Secrets are stored on
         the server, readable by it: they protect sign-in only and decrypt
         nothing.
       requestBody:
@@ -596,6 +772,28 @@ paths:
       responses:
         "204":
           description: Deleted.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/admin/users/{id}/identity:
+    delete:
+      operationId: unlinkIdentity
+      tags: [admin]
+      summary: Forget which provider identity an account is
+      description: |
+        Sign-in never moves an account to another identity by itself. After a provider
+        migration, this lets the next sign-in link it again under the match mode. It
+        ends the user's sessions and tokens, and needs a current credential.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentCredential"
+      responses:
+        "204":
+          description: Forgotten.
         default:
           $ref: "#/components/responses/Error"
   /api/v1/admin/users/{id}/password-reset:
@@ -1906,6 +2104,20 @@ components:
             - `storage_full`: the server's disk has no room (507)
             - `invalid_blob`: the kind and node of a small blob do not agree
             - `blob_in_use`: content goes with its versions
+            - `sso_disabled`: single sign-on is not turned on
+            - `sso_required`: this account signs in through the provider (the right key learns this)
+            - `sso_only`: the action needs a local password, which this account does not have
+            - `local_accounts_disabled`: local sign-in and registration are off
+            - `local_accounts_lockout`: the change would leave nobody able to sign in
+            - `already_enrolled`: the account has its keys; `POST /auth/rekey` replaces them
+            - `totp_local_only`: the identity provider handles the second factor of this account
+            - `reauth_required`: sign in through the provider again, within five minutes, and retry
+            - `invalid_issuer`: not a usable issuer address; https unless `allow_insecure`
+            - `invalid_oidc_settings`
+            - `oidc_discovery_failed`, `oidc_issuer_mismatch`, `oidc_keys_failed`: testing a provider (502)
+            - `sso_state_invalid`, `sso_denied`, `sso_provider_error`, `sso_token_invalid`,
+              `sso_identity_conflict`, `sso_email_unverified`, `sso_not_invited`: a failed
+              sign-in, given in `?sso_error=` on `/signin` rather than as a response body
             - `invalid_cursor`
             - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
               the tree again, then start over with no cursor
@@ -2043,6 +2255,13 @@ components:
         public_url:
           type: string
           description: The address given through the environment, if any.
+        oidc_redirect_path:
+          type: string
+          description: Added to the public URL, this is the redirect URI to give a provider.
+          examples: [/auth/oidc/callback]
+        oidc_redirect_uri:
+          type: string
+          description: The whole redirect URI, if the public URL is known.
         version:
           type: string
     ValidateURLRequest:
@@ -2091,6 +2310,8 @@ components:
           $ref: "#/components/schemas/ServerSettingsInput"
         admin:
           $ref: "#/components/schemas/NewAccount"
+        sign_in:
+          $ref: "#/components/schemas/SignInSettingsInput"
     Role:
       type: string
       enum: [admin, user]
@@ -2110,6 +2331,12 @@ components:
           type: integer
           format: int64
           description: Storage allowed; 0 means no limit.
+        sign_in_method:
+          type: string
+          description: |
+            `local` signs in with a passphrase, `sso` only through the provider, and
+            `both` is a local account linked to a provider identity.
+          enum: [local, sso, both]
         totp_enabled:
           type: boolean
         disabled:
@@ -2119,9 +2346,18 @@ components:
           format: date-time
     Account:
       type: object
-      description: What a client needs to unlock an account.
+      description: |
+        What a client needs to unlock an account. For an account that has no KDF
+        parameters of its own, a single sign-on account before enrolment or any in
+        `none` mode, `kdf` is placeholder parameters that nothing is derived with.
       required: [user, mode, kdf]
       properties:
+        enrolment_required:
+          type: boolean
+          description: |
+            Only in `e2e` mode: this account has no keys yet. The client asks for an
+            unlock passphrase, makes the keys and the recovery key, and calls
+            `POST /auth/oidc/enrol`, before anything else.
         user:
           $ref: "#/components/schemas/Profile"
         mode:
@@ -2389,6 +2625,11 @@ components:
         trash_retention_days:
           type: integer
           description: How many days the trash keeps a node before purging it; 0 keeps it until someone does.
+        local_accounts:
+          type: boolean
+          description: Whether local sign-in and registration are on. The first local admin can always sign in.
+        oidc:
+          $ref: "#/components/schemas/OIDCSettings"
         audit_retention_days:
           type: integer
           description: How many days the audit trail keeps an entry; 0 keeps it for good.
@@ -2412,8 +2653,17 @@ components:
           format: byte
           description: |
             Either current auth key. Required to shorten the grace period, as a
-            stolen admin session must not be able to bring removal closer, and to
-            shorten the audit retention, as it must not be able to erase its tracks.
+            stolen admin session must not be able to bring removal closer, to shorten
+            the audit retention, as it must not be able to erase its tracks, and to change
+            `oidc` or `local_accounts`, as whoever names the issuer can sign in as
+            anyone it can match.
+        local_accounts:
+          type: boolean
+          description: |
+            Turning this off answers `local_accounts_lockout` unless single sign-on is on
+            and a local admin remains, who can always still sign in.
+        oidc:
+          $ref: "#/components/schemas/OIDCSettingsInput"
         purge_grace_days:
           type: integer
           description: 1 to 3650. Applies to what is purged from now on.
@@ -2448,6 +2698,174 @@ components:
           type: string
         open_signup:
           type: boolean
+    OIDCMatchMode:
+      type: string
+      description: |
+        Which existing local account a new identity links to. `email` needs
+        `email_verified` to be true. `sub` links nothing. An account linked to another
+        identity is never moved, and that sign-in answers `sso_identity_conflict`.
+      enum: [email, preferred_username, sub]
+    OIDCNewUsers:
+      type: string
+      description: |
+        What an identity that links to nothing gets: `create` makes an account at first
+        sign-in, and `invited` needs an invite, by token or for its verified email.
+      enum: [create, invited]
+    OIDCSettings:
+      type: object
+      description: The settings as read. The client secret is never sent back.
+      required: [enabled, label, issuer, client_id, client_secret_set, scopes, admin_group, admin_claim, match_mode, new_users, allow_insecure, redirect_uri]
+      properties:
+        enabled:
+          type: boolean
+        label:
+          type: string
+          description: The text of the sign-in button.
+        issuer:
+          type: string
+        client_id:
+          type: string
+        client_secret_set:
+          type: boolean
+        scopes:
+          type: string
+          description: Separated by spaces.
+        admin_group:
+          type: string
+          description: Empty means that sign-in never changes anyone's role.
+        admin_claim:
+          type: string
+          description: The claim holding the groups.
+        match_mode:
+          $ref: "#/components/schemas/OIDCMatchMode"
+        new_users:
+          $ref: "#/components/schemas/OIDCNewUsers"
+        allow_insecure:
+          type: boolean
+          description: Allow an issuer over plain http.
+        redirect_uri:
+          type: string
+          description: What to register at the provider.
+    OIDCSettingsInput:
+      type: object
+      description: |
+        Fields left out stay as they are. With `enabled` true, `issuer`, `client_id` and
+        a client secret must be known by now, or the answer is `invalid_oidc_settings`.
+      properties:
+        enabled:
+          type: boolean
+        label:
+          type: string
+          description: 1 to 128 characters.
+        issuer:
+          type: string
+          description: Exactly as the provider spells it, trailing slash included.
+        client_id:
+          type: string
+        client_secret:
+          type: string
+          description: Write-only. Absent keeps the one stored.
+        scopes:
+          type: string
+          description: Separated by spaces, including `openid`.
+        admin_group:
+          type: string
+        admin_claim:
+          type: string
+        match_mode:
+          $ref: "#/components/schemas/OIDCMatchMode"
+        new_users:
+          $ref: "#/components/schemas/OIDCNewUsers"
+        allow_insecure:
+          type: boolean
+    SignInSettingsInput:
+      type: object
+      description: How people sign in, chosen in the wizard. Everything is optional.
+      properties:
+        local_accounts:
+          type: boolean
+          description: Defaults to true.
+        open_signup:
+          type: boolean
+          description: Defaults to false.
+        oidc:
+          $ref: "#/components/schemas/OIDCSettingsInput"
+    AuthMethods:
+      type: object
+      required: [local_accounts, open_signup]
+      properties:
+        local_accounts:
+          type: boolean
+        open_signup:
+          type: boolean
+        oidc:
+          type: object
+          description: Present when single sign-on is on.
+          required: [label]
+          properties:
+            label:
+              type: string
+    OIDCStartRequest:
+      type: object
+      required: [invite_token]
+      properties:
+        invite_token:
+          type: string
+    OIDCStart:
+      type: object
+      required: [authorize_url]
+      properties:
+        authorize_url:
+          type: string
+    EnrolRequest:
+      type: object
+      required: [kdf, unlock_auth_key, recovery_auth_key, keys]
+      properties:
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        unlock_auth_key:
+          type: string
+          format: byte
+          description: |
+            32 bytes, derived from the unlock passphrase. It never signs in: it only
+            proves a current credential. See CRYPTO.md, section 3.
+        recovery_auth_key:
+          type: string
+          format: byte
+          description: 32 bytes, derived from the recovery key.
+        keys:
+          $ref: "#/components/schemas/AccountKeys"
+    OIDCTestRequest:
+      type: object
+      required: [issuer]
+      properties:
+        issuer:
+          type: string
+        allow_insecure:
+          type: boolean
+    OIDCTestResult:
+      type: object
+      required: [issuer, authorization_endpoint, token_endpoint, jwks_uri, token_auth_method, pkce_s256, keys]
+      properties:
+        issuer:
+          type: string
+        authorization_endpoint:
+          type: string
+        token_endpoint:
+          type: string
+        userinfo_endpoint:
+          type: string
+        jwks_uri:
+          type: string
+        token_auth_method:
+          type: string
+          description: How this server will authenticate at the token endpoint.
+        pkce_s256:
+          type: boolean
+          description: The provider says it supports S256. It is used either way.
+        keys:
+          type: integer
+          description: How many of its signing keys this server can use.
     Suite:
       type: string
       description: |
@@ -3502,6 +3920,12 @@ components:
           type: string
           format: date-time
           description: When `yondrive backup` last finished, if ever.
+        oidc_enabled:
+          type: boolean
+        sso_users:
+          type: integer
+          format: int64
+          description: Accounts linked to a provider identity.
         audit_entries:
           type: integer
           format: int64

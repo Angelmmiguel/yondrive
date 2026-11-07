@@ -34,6 +34,8 @@ const (
 	accessOpen
 	// accessAdmin needs a signed-in admin.
 	accessAdmin
+	// accessAdminOrSetup needs the setup token before setup, and an admin after it.
+	accessAdminOrSetup
 )
 
 // operationAccess lists every operation that does not need just a signed-in
@@ -47,6 +49,12 @@ var operationAccess = map[string]access{
 	"GetKDF":                accessOpen,
 	"Login":                 accessOpen,
 	"Register":              accessOpen,
+	"GetAuthMethods":        accessOpen,
+	"StartOIDC":             accessOpen,
+	"StartOIDCWithInvite":   accessOpen,
+	"FinishOIDC":            accessOpen,
+	"TestOIDC":              accessAdminOrSetup,
+	"UnlinkIdentity":        accessAdmin,
 	"CompletePasswordReset": accessOpen,
 	"GetPublicLink":         accessOpen,
 	"UnlockPublicLink":      accessOpen,
@@ -79,6 +87,8 @@ type principal struct {
 	sessionHash []byte
 	// tokenID names the bearer token it came through, if it did.
 	tokenID string
+	// sessionCreatedAt is when the session was made, if there is one.
+	sessionCreatedAt time.Time
 }
 
 // guard enforces operationAccess before a handler runs, and makes the request
@@ -87,6 +97,13 @@ func (s *Server) guard(next oapi.StrictHandlerFunc, operation string) oapi.Stric
 	level := operationAccess[operation]
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 		ctx = context.WithValue(ctx, requestKey{}, r)
+		level := level
+		if level == accessAdminOrSetup {
+			level = accessAdmin
+			if s.mode.Load() == nil {
+				level = accessSetup
+			}
+		}
 		switch level {
 		case accessPublic:
 		case accessSetup:
@@ -206,7 +223,7 @@ func (s *Server) authenticateSession(ctx context.Context, r *http.Request) (prin
 			s.log.Error("session not extended", "error", err)
 		}
 	}
-	return principal{user: user, sessionHash: hash}, nil
+	return principal{user: user, sessionHash: hash, sessionCreatedAt: sess.CreatedAt}, nil
 }
 
 // activeUser loads the user behind a session or token. Disabling a user ends

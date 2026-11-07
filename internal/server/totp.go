@@ -65,7 +65,10 @@ func (s *Server) verifyCurrentKey(ctx context.Context, key []byte) (store.User, 
 	if err != nil {
 		return store.User{}, err
 	}
-	if !auth.VerifyKey(key, user.AuthKeyHash, user.RecoveryAuthKeyHash) {
+	if user.SSOOnly() && *s.mode.Load() == oapi.ModeNone {
+		return user, s.checkRecentSignIn(ctx, user)
+	}
+	if !auth.VerifyKey(key, user.CurrentCredentialHash(), user.RecoveryAuthKeyHash) {
 		s.audit(ctx, auditCredentialRejected, user.ID, user.ID)
 		return store.User{}, fail(http.StatusUnauthorized, codeWrongCredential)
 	}
@@ -79,6 +82,9 @@ func (s *Server) EnrolTOTP(ctx context.Context, req oapi.EnrolTOTPRequestObject)
 	user, err := s.verifyCurrentKey(ctx, req.Body.CurrentAuthKey)
 	if err != nil {
 		return nil, err
+	}
+	if user.SSOOnly() {
+		return nil, fail(http.StatusConflict, codeTOTPLocalOnly)
 	}
 	if user.TOTPEnabled {
 		return nil, fail(http.StatusConflict, codeTOTPAlreadyEnabled)
@@ -105,6 +111,9 @@ func (s *Server) ConfirmTOTP(ctx context.Context, req oapi.ConfirmTOTPRequestObj
 	user, err := s.store.UserByID(ctx, principalFrom(ctx).user.ID)
 	if err != nil {
 		return nil, err
+	}
+	if user.SSOOnly() {
+		return nil, fail(http.StatusConflict, codeTOTPLocalOnly)
 	}
 	if user.TOTPEnabled {
 		return nil, fail(http.StatusConflict, codeTOTPAlreadyEnabled)

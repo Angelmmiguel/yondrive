@@ -121,6 +121,7 @@ func TestCompleteSetupBurnsTheTokenAndWritesTheMode(t *testing.T) {
 				Mode: mode, Name: "Home", PublicURL: "https://drive.example.com", DefaultQuotaBytes: 1000, Language: "en", TimeZone: "Europe/Madrid",
 				PurgeGraceDays: store.DefaultPurgeGraceDays, TrashRetentionDays: store.DefaultTrashRetentionDays,
 				AuditRetentionDays: store.DefaultAuditRetentionDays, JournalRetentionDays: store.DefaultJournalRetentionDays,
+				LocalAccounts: true, OIDC: store.DefaultOIDCSettings(),
 			}
 			if got != want {
 				t.Errorf("settings = %+v", got)

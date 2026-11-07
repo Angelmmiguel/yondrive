@@ -109,6 +109,124 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Say how people can sign in here
+         * @description What the sign-in page shows. With `local_accounts` off the form still has a
+         *     use: the first local admin can always sign in with it, as the way back in when
+         *     the provider is down.
+         */
+        get: operations["getAuthMethods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Leave for the identity provider
+         * @description A browser navigates here, top level, and comes back at
+         *     `/auth/oidc/callback`. A failure redirects to `/signin?sso_error=<code>`.
+         */
+        get: operations["startOIDC"];
+        put?: never;
+        /**
+         * Start signing in with an invite
+         * @description The same, for someone holding an invite link, whose token must stay out of a
+         *     URL. The client calls this and then sets `location` to `authorize_url`. An
+         *     invite with an email is only good for that verified address.
+         */
+        post: operations["startOIDCWithInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/oidc/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Come back from the identity provider
+         * @description The redirect URI to register at the provider: the public URL plus this path,
+         *     outside `/api/v1` so that it reads as the address it is. It creates a session
+         *     and redirects to `/`, where the app asks `GET /me` what comes next, with no
+         *     token in any URL. A failure redirects to `/signin?sso_error=<code>`.
+         */
+        get: operations["finishOIDC"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/oidc/enrol": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Store the keys of a single sign-on account, once
+         * @description `e2e` mode only, on a first sign-in through the provider, when the account
+         *     document says `enrolment_required`. The session is enough this once, as there
+         *     is nothing yet to protect. Afterwards this answers `already_enrolled`, and
+         *     `POST /auth/rekey` with a current credential is the only way to replace them.
+         */
+        post: operations["enrolOIDC"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/oidc/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an identity provider
+         * @description The server fetches the issuer's discovery document and keys, and reports what
+         *     it found. Since this makes the server fetch a URL someone typed, it takes the
+         *     setup token before setup and an admin afterwards, and it answers with stable
+         *     codes and endpoints, never with what a failing address sent back.
+         */
+        post: operations["testOIDC"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/kdf": {
         parameters: {
             query?: never;
@@ -145,7 +263,9 @@ export interface paths {
          * @description Takes either auth key, passphrase or recovery. Sets the session cookie
          *     and returns the account, whose sealed keys are opaque to the server. A
          *     wrong username and a wrong key answer the same `invalid_credentials`.
-         *     With TOTP on and no code, the right key answers `totp_required`.
+         *     With TOTP on and no code, the right key answers `totp_required`. Only a right
+         *     key learns `sso_required`, for an account that signs in through the provider, or
+         *     `local_accounts_disabled`. The unlock auth key of such an account never signs in.
          */
         post: operations["login"];
         delete?: never;
@@ -213,6 +333,10 @@ export interface paths {
          *     parameters and wrapped key of each group present, and ends every other
          *     session and every bearer token of the user but the one in use.
          *
+         *     For a single sign-on account the current auth key is its unlock auth key or its
+         *     recovery auth key, and `auth_key` is the new unlock auth key. In `none` mode such
+         *     an account has no credentials to change, and the answer is `sso_only`.
+         *
          *     The passphrase group is `auth_key`, `kdf` and, in `e2e` mode,
          *     `wrapped_master_key`. The recovery group, `e2e` mode only, is
          *     `recovery_auth_key` and `wrapped_master_key_recovery`.
@@ -236,7 +360,8 @@ export interface paths {
         /**
          * Start enrolling in TOTP
          * @description Needs a current auth key, so that a stolen session cannot lock the owner
-         *     out. The secret is not in force until confirmed. Secrets are stored on
+         *     out. TOTP guards local sign-in, so an account that signs in only through a
+         *     provider answers `totp_local_only`. The secret is not in force until confirmed. Secrets are stored on
          *     the server, readable by it: they protect sign-in only and decrypt
          *     nothing.
          */
@@ -499,6 +624,28 @@ export interface paths {
          *     themselves, so a server always keeps an admin who can sign in.
          */
         patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/api/v1/admin/users/{id}/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Forget which provider identity an account is
+         * @description Sign-in never moves an account to another identity by itself. After a provider
+         *     migration, this lets the next sign-in link it again under the match mode. It
+         *     ends the user's sessions and tokens, and needs a current credential.
+         */
+        delete: operations["unlinkIdentity"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/admin/users/{id}/password-reset": {
@@ -1602,6 +1749,20 @@ export interface components {
              *     - `storage_full`: the server's disk has no room (507)
              *     - `invalid_blob`: the kind and node of a small blob do not agree
              *     - `blob_in_use`: content goes with its versions
+             *     - `sso_disabled`: single sign-on is not turned on
+             *     - `sso_required`: this account signs in through the provider (the right key learns this)
+             *     - `sso_only`: the action needs a local password, which this account does not have
+             *     - `local_accounts_disabled`: local sign-in and registration are off
+             *     - `local_accounts_lockout`: the change would leave nobody able to sign in
+             *     - `already_enrolled`: the account has its keys; `POST /auth/rekey` replaces them
+             *     - `totp_local_only`: the identity provider handles the second factor of this account
+             *     - `reauth_required`: sign in through the provider again, within five minutes, and retry
+             *     - `invalid_issuer`: not a usable issuer address; https unless `allow_insecure`
+             *     - `invalid_oidc_settings`
+             *     - `oidc_discovery_failed`, `oidc_issuer_mismatch`, `oidc_keys_failed`: testing a provider (502)
+             *     - `sso_state_invalid`, `sso_denied`, `sso_provider_error`, `sso_token_invalid`,
+             *       `sso_identity_conflict`, `sso_email_unverified`, `sso_not_invited`: a failed
+             *       sign-in, given in `?sso_error=` on `/signin` rather than as a response body
              *     - `invalid_cursor`
              *     - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
              *       the tree again, then start over with no cursor
@@ -1725,6 +1886,13 @@ export interface components {
             free_bytes?: number;
             /** @description The address given through the environment, if any. */
             public_url?: string;
+            /**
+             * @description Added to the public URL, this is the redirect URI to give a provider.
+             * @example /auth/oidc/callback
+             */
+            oidc_redirect_path?: string;
+            /** @description The whole redirect URI, if the public URL is known. */
+            oidc_redirect_uri?: string;
             version: string;
         };
         ValidateURLRequest: {
@@ -1757,6 +1925,7 @@ export interface components {
         SetupRequest: {
             settings: components["schemas"]["ServerSettingsInput"];
             admin: components["schemas"]["NewAccount"];
+            sign_in?: components["schemas"]["SignInSettingsInput"];
         };
         /** @enum {string} */
         Role: "admin" | "user";
@@ -1770,13 +1939,29 @@ export interface components {
              * @description Storage allowed; 0 means no limit.
              */
             quota_bytes: number;
+            /**
+             * @description `local` signs in with a passphrase, `sso` only through the provider, and
+             *     `both` is a local account linked to a provider identity.
+             * @enum {string}
+             */
+            sign_in_method?: "local" | "sso" | "both";
             totp_enabled: boolean;
             disabled: boolean;
             /** Format: date-time */
             created_at: string;
         };
-        /** @description What a client needs to unlock an account. */
+        /**
+         * @description What a client needs to unlock an account. For an account that has no KDF
+         *     parameters of its own, a single sign-on account before enrolment or any in
+         *     `none` mode, `kdf` is placeholder parameters that nothing is derived with.
+         */
         Account: {
+            /**
+             * @description Only in `e2e` mode: this account has no keys yet. The client asks for an
+             *     unlock passphrase, makes the keys and the recovery key, and calls
+             *     `POST /auth/oidc/enrol`, before anything else.
+             */
+            enrolment_required?: boolean;
             user: components["schemas"]["Profile"];
             mode: components["schemas"]["Mode"];
             kdf: components["schemas"]["KDF"];
@@ -1954,6 +2139,9 @@ export interface components {
             purge_grace_days: number;
             /** @description How many days the trash keeps a node before purging it; 0 keeps it until someone does. */
             trash_retention_days: number;
+            /** @description Whether local sign-in and registration are on. The first local admin can always sign in. */
+            local_accounts?: boolean;
+            oidc?: components["schemas"]["OIDCSettings"];
             /** @description How many days the audit trail keeps an entry; 0 keeps it for good. */
             audit_retention_days?: number;
             /**
@@ -1973,10 +2161,18 @@ export interface components {
             /**
              * Format: byte
              * @description Either current auth key. Required to shorten the grace period, as a
-             *     stolen admin session must not be able to bring removal closer, and to
-             *     shorten the audit retention, as it must not be able to erase its tracks.
+             *     stolen admin session must not be able to bring removal closer, to shorten
+             *     the audit retention, as it must not be able to erase its tracks, and to change
+             *     `oidc` or `local_accounts`, as whoever names the issuer can sign in as
+             *     anyone it can match.
              */
             current_auth_key?: string;
+            /**
+             * @description Turning this off answers `local_accounts_lockout` unless single sign-on is on
+             *     and a local admin remains, who can always still sign in.
+             */
+            local_accounts?: boolean;
+            oidc?: components["schemas"]["OIDCSettingsInput"];
             /** @description 1 to 3650. Applies to what is purged from now on. */
             purge_grace_days?: number;
             /** @description 0 to 3650. */
@@ -1992,6 +2188,115 @@ export interface components {
             language?: string;
             time_zone?: string;
             open_signup?: boolean;
+        };
+        /**
+         * @description Which existing local account a new identity links to. `email` needs
+         *     `email_verified` to be true. `sub` links nothing. An account linked to another
+         *     identity is never moved, and that sign-in answers `sso_identity_conflict`.
+         * @enum {string}
+         */
+        OIDCMatchMode: "email" | "preferred_username" | "sub";
+        /**
+         * @description What an identity that links to nothing gets: `create` makes an account at first
+         *     sign-in, and `invited` needs an invite, by token or for its verified email.
+         * @enum {string}
+         */
+        OIDCNewUsers: "create" | "invited";
+        /** @description The settings as read. The client secret is never sent back. */
+        OIDCSettings: {
+            enabled: boolean;
+            /** @description The text of the sign-in button. */
+            label: string;
+            issuer: string;
+            client_id: string;
+            client_secret_set: boolean;
+            /** @description Separated by spaces. */
+            scopes: string;
+            /** @description Empty means that sign-in never changes anyone's role. */
+            admin_group: string;
+            /** @description The claim holding the groups. */
+            admin_claim: string;
+            match_mode: components["schemas"]["OIDCMatchMode"];
+            new_users: components["schemas"]["OIDCNewUsers"];
+            /** @description Allow an issuer over plain http. */
+            allow_insecure: boolean;
+            /** @description What to register at the provider. */
+            redirect_uri: string;
+        };
+        /**
+         * @description Fields left out stay as they are. With `enabled` true, `issuer`, `client_id` and
+         *     a client secret must be known by now, or the answer is `invalid_oidc_settings`.
+         */
+        OIDCSettingsInput: {
+            enabled?: boolean;
+            /** @description 1 to 128 characters. */
+            label?: string;
+            /** @description Exactly as the provider spells it, trailing slash included. */
+            issuer?: string;
+            client_id?: string;
+            /** @description Write-only. Absent keeps the one stored. */
+            client_secret?: string;
+            /** @description Separated by spaces, including `openid`. */
+            scopes?: string;
+            admin_group?: string;
+            admin_claim?: string;
+            match_mode?: components["schemas"]["OIDCMatchMode"];
+            new_users?: components["schemas"]["OIDCNewUsers"];
+            allow_insecure?: boolean;
+        };
+        /** @description How people sign in, chosen in the wizard. Everything is optional. */
+        SignInSettingsInput: {
+            /** @description Defaults to true. */
+            local_accounts?: boolean;
+            /** @description Defaults to false. */
+            open_signup?: boolean;
+            oidc?: components["schemas"]["OIDCSettingsInput"];
+        };
+        AuthMethods: {
+            local_accounts: boolean;
+            open_signup: boolean;
+            /** @description Present when single sign-on is on. */
+            oidc?: {
+                label: string;
+            };
+        };
+        OIDCStartRequest: {
+            invite_token: string;
+        };
+        OIDCStart: {
+            authorize_url: string;
+        };
+        EnrolRequest: {
+            kdf: components["schemas"]["KDF"];
+            /**
+             * Format: byte
+             * @description 32 bytes, derived from the unlock passphrase. It never signs in: it only
+             *     proves a current credential. See CRYPTO.md, section 3.
+             */
+            unlock_auth_key: string;
+            /**
+             * Format: byte
+             * @description 32 bytes, derived from the recovery key.
+             */
+            recovery_auth_key: string;
+            keys: components["schemas"]["AccountKeys"];
+        };
+        OIDCTestRequest: {
+            issuer: string;
+            allow_insecure?: boolean;
+        };
+        OIDCTestResult: {
+            issuer: string;
+            authorization_endpoint: string;
+            token_endpoint: string;
+            userinfo_endpoint?: string;
+            jwks_uri: string;
+            /** @description How this server will authenticate at the token endpoint. */
+            token_auth_method: string;
+            /** @description The provider says it supports S256. It is used either way. */
+            pkce_s256: boolean;
+            /** @description How many of its signing keys this server can use. */
+            keys: number;
         };
         /**
          * @description How an item is protected. It is recorded on every item, and must be the
@@ -2771,6 +3076,12 @@ export interface components {
              * @description When `yondrive backup` last finished, if ever.
              */
             last_backup_at?: string;
+            oidc_enabled?: boolean;
+            /**
+             * Format: int64
+             * @description Accounts linked to a provider identity.
+             */
+            sso_users?: number;
             /**
              * Format: int64
              * @description Entries in the audit trail.
@@ -2950,6 +3261,155 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreatedUser"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getAuthMethods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The methods. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMethods"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    startOIDC: {
+        parameters: {
+            query?: {
+                /** @description Ask the provider to authenticate again, for `reauth_required`. */
+                fresh?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the provider, or to `/signin?sso_error=<code>`. */
+            302: {
+                headers: {
+                    Location: string;
+                    /** @description The sealed state of this sign-in. HttpOnly, host-only, for ten minutes. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    startOIDCWithInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OIDCStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Where to go. */
+            200: {
+                headers: {
+                    /** @description The sealed state of this sign-in. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OIDCStart"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    finishOIDC: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description To the app. */
+            302: {
+                headers: {
+                    Location: string;
+                    /** @description The session cookie, and the state of the sign-in cleared. */
+                    "Set-Cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    enrolOIDC: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrolRequest"];
+            };
+        };
+        responses: {
+            /** @description The account, with its keys. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    testOIDC: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OIDCTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Discovery and keys are in order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OIDCTestResult"];
                 };
             };
             default: components["responses"]["Error"];
@@ -3485,6 +3945,32 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Profile"];
                 };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    unlinkIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurrentCredential"];
+            };
+        };
+        responses: {
+            /** @description Forgotten. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Error"];
         };

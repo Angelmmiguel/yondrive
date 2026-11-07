@@ -192,6 +192,66 @@ func (e NodeRole) Valid() bool {
 	}
 }
 
+// Defines values for OIDCMatchMode.
+const (
+	Email             OIDCMatchMode = "email"
+	PreferredUsername OIDCMatchMode = "preferred_username"
+	Sub               OIDCMatchMode = "sub"
+)
+
+// Valid indicates whether the value is a known member of the OIDCMatchMode enum.
+func (e OIDCMatchMode) Valid() bool {
+	switch e {
+	case Email:
+		return true
+	case PreferredUsername:
+		return true
+	case Sub:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OIDCNewUsers.
+const (
+	Create  OIDCNewUsers = "create"
+	Invited OIDCNewUsers = "invited"
+)
+
+// Valid indicates whether the value is a known member of the OIDCNewUsers enum.
+func (e OIDCNewUsers) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case Invited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProfileSignInMethod.
+const (
+	Both  ProfileSignInMethod = "both"
+	Local ProfileSignInMethod = "local"
+	Sso   ProfileSignInMethod = "sso"
+)
+
+// Valid indicates whether the value is a known member of the ProfileSignInMethod enum.
+func (e ProfileSignInMethod) Valid() bool {
+	switch e {
+	case Both:
+		return true
+	case Local:
+		return true
+	case Sso:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PublicLinkState.
 const (
 	Open             PublicLinkState = "open"
@@ -264,8 +324,15 @@ func (e Suite) Valid() bool {
 	}
 }
 
-// Account What a client needs to unlock an account.
+// Account What a client needs to unlock an account. For an account that has no KDF
+// parameters of its own, a single sign-on account before enrolment or any in
+// `none` mode, `kdf` is placeholder parameters that nothing is derived with.
 type Account struct {
+	// EnrolmentRequired Only in `e2e` mode: this account has no keys yet. The client asks for an
+	// unlock passphrase, makes the keys and the recovery key, and calls
+	// `POST /auth/oidc/enrol`, before anything else.
+	EnrolmentRequired *bool `json:"enrolment_required,omitempty"`
+
 	// Kdf Argon2id parameters, which the client runs.
 	Kdf KDF `json:"kdf"`
 
@@ -316,14 +383,18 @@ type AdminHealth struct {
 
 	// Mode The encryption mode of the whole server, fixed at setup. Absent from
 	// health until then.
-	Mode Mode `json:"mode"`
+	Mode        Mode  `json:"mode"`
+	OidcEnabled *bool `json:"oidc_enabled,omitempty"`
 
 	// PendingRemovals Files whose records are gone and which the sweeper has yet to unlink.
-	PendingRemovals int64  `json:"pending_removals"`
-	ReservedBytes   int64  `json:"reserved_bytes"`
-	StoredBytes     int64  `json:"stored_bytes"`
-	Uploads         int64  `json:"uploads"`
-	Version         string `json:"version"`
+	PendingRemovals int64 `json:"pending_removals"`
+	ReservedBytes   int64 `json:"reserved_bytes"`
+
+	// SsoUsers Accounts linked to a provider identity.
+	SsoUsers    *int64 `json:"sso_users,omitempty"`
+	StoredBytes int64  `json:"stored_bytes"`
+	Uploads     int64  `json:"uploads"`
+	Version     string `json:"version"`
 }
 
 // AuditEntry defines model for AuditEntry.
@@ -351,6 +422,17 @@ type AuditPage struct {
 
 	// NextCursor Older entries are read from here. Absent on the last page.
 	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// AuthMethods defines model for AuthMethods.
+type AuthMethods struct {
+	LocalAccounts bool `json:"local_accounts"`
+
+	// Oidc Present when single sign-on is on.
+	Oidc *struct {
+		Label string `json:"label"`
+	} `json:"oidc,omitempty"`
+	OpenSignup bool `json:"open_signup"`
 }
 
 // Change defines model for Change.
@@ -602,6 +684,24 @@ type EmptiedTrash struct {
 	Marked int `json:"marked"`
 }
 
+// EnrolRequest defines model for EnrolRequest.
+type EnrolRequest struct {
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf KDF `json:"kdf"`
+
+	// Keys The account's keys as the client seals them. Opaque to the server, which
+	// checks only their encoding and size. Present in `e2e` mode, absent in
+	// `none`.
+	Keys AccountKeys `json:"keys"`
+
+	// RecoveryAuthKey 32 bytes, derived from the recovery key.
+	RecoveryAuthKey []byte `json:"recovery_auth_key"`
+
+	// UnlockAuthKey 32 bytes, derived from the unlock passphrase. It never signs in: it only
+	// proves a current credential. See CRYPTO.md, section 3.
+	UnlockAuthKey []byte `json:"unlock_auth_key"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	// Code Stable machine-readable identifier, never a free-form message:
@@ -643,6 +743,20 @@ type Error struct {
 	// - `storage_full`: the server's disk has no room (507)
 	// - `invalid_blob`: the kind and node of a small blob do not agree
 	// - `blob_in_use`: content goes with its versions
+	// - `sso_disabled`: single sign-on is not turned on
+	// - `sso_required`: this account signs in through the provider (the right key learns this)
+	// - `sso_only`: the action needs a local password, which this account does not have
+	// - `local_accounts_disabled`: local sign-in and registration are off
+	// - `local_accounts_lockout`: the change would leave nobody able to sign in
+	// - `already_enrolled`: the account has its keys; `POST /auth/rekey` replaces them
+	// - `totp_local_only`: the identity provider handles the second factor of this account
+	// - `reauth_required`: sign in through the provider again, within five minutes, and retry
+	// - `invalid_issuer`: not a usable issuer address; https unless `allow_insecure`
+	// - `invalid_oidc_settings`
+	// - `oidc_discovery_failed`, `oidc_issuer_mismatch`, `oidc_keys_failed`: testing a provider (502)
+	// - `sso_state_invalid`, `sso_denied`, `sso_provider_error`, `sso_token_invalid`,
+	//   `sso_identity_conflict`, `sso_email_unverified`, `sso_not_invited`: a failed
+	//   sign-in, given in `?sso_error=` on `/signin` rather than as a response body
 	// - `invalid_cursor`
 	// - `cursor_expired`: the journal has been trimmed past this cursor (410). Read
 	//   the tree again, then start over with no cursor
@@ -997,6 +1111,114 @@ type NotificationList struct {
 	Notifications []Notification `json:"notifications"`
 }
 
+// OIDCMatchMode Which existing local account a new identity links to. `email` needs
+// `email_verified` to be true. `sub` links nothing. An account linked to another
+// identity is never moved, and that sign-in answers `sso_identity_conflict`.
+type OIDCMatchMode string
+
+// OIDCNewUsers What an identity that links to nothing gets: `create` makes an account at first
+// sign-in, and `invited` needs an invite, by token or for its verified email.
+type OIDCNewUsers string
+
+// OIDCSettings The settings as read. The client secret is never sent back.
+type OIDCSettings struct {
+	// AdminClaim The claim holding the groups.
+	AdminClaim string `json:"admin_claim"`
+
+	// AdminGroup Empty means that sign-in never changes anyone's role.
+	AdminGroup string `json:"admin_group"`
+
+	// AllowInsecure Allow an issuer over plain http.
+	AllowInsecure   bool   `json:"allow_insecure"`
+	ClientId        string `json:"client_id"`
+	ClientSecretSet bool   `json:"client_secret_set"`
+	Enabled         bool   `json:"enabled"`
+	Issuer          string `json:"issuer"`
+
+	// Label The text of the sign-in button.
+	Label string `json:"label"`
+
+	// MatchMode Which existing local account a new identity links to. `email` needs
+	// `email_verified` to be true. `sub` links nothing. An account linked to another
+	// identity is never moved, and that sign-in answers `sso_identity_conflict`.
+	MatchMode OIDCMatchMode `json:"match_mode"`
+
+	// NewUsers What an identity that links to nothing gets: `create` makes an account at first
+	// sign-in, and `invited` needs an invite, by token or for its verified email.
+	NewUsers OIDCNewUsers `json:"new_users"`
+
+	// RedirectUri What to register at the provider.
+	RedirectUri string `json:"redirect_uri"`
+
+	// Scopes Separated by spaces.
+	Scopes string `json:"scopes"`
+}
+
+// OIDCSettingsInput Fields left out stay as they are. With `enabled` true, `issuer`, `client_id` and
+// a client secret must be known by now, or the answer is `invalid_oidc_settings`.
+type OIDCSettingsInput struct {
+	AdminClaim    *string `json:"admin_claim,omitempty"`
+	AdminGroup    *string `json:"admin_group,omitempty"`
+	AllowInsecure *bool   `json:"allow_insecure,omitempty"`
+	ClientId      *string `json:"client_id,omitempty"`
+
+	// ClientSecret Write-only. Absent keeps the one stored.
+	ClientSecret *string `json:"client_secret,omitempty"`
+	Enabled      *bool   `json:"enabled,omitempty"`
+
+	// Issuer Exactly as the provider spells it, trailing slash included.
+	Issuer *string `json:"issuer,omitempty"`
+
+	// Label 1 to 128 characters.
+	Label *string `json:"label,omitempty"`
+
+	// MatchMode Which existing local account a new identity links to. `email` needs
+	// `email_verified` to be true. `sub` links nothing. An account linked to another
+	// identity is never moved, and that sign-in answers `sso_identity_conflict`.
+	MatchMode *OIDCMatchMode `json:"match_mode,omitempty"`
+
+	// NewUsers What an identity that links to nothing gets: `create` makes an account at first
+	// sign-in, and `invited` needs an invite, by token or for its verified email.
+	NewUsers *OIDCNewUsers `json:"new_users,omitempty"`
+
+	// Scopes Separated by spaces, including `openid`.
+	Scopes *string `json:"scopes,omitempty"`
+}
+
+// OIDCStart defines model for OIDCStart.
+type OIDCStart struct {
+	AuthorizeUrl string `json:"authorize_url"`
+}
+
+// OIDCStartRequest defines model for OIDCStartRequest.
+type OIDCStartRequest struct {
+	InviteToken string `json:"invite_token"`
+}
+
+// OIDCTestRequest defines model for OIDCTestRequest.
+type OIDCTestRequest struct {
+	AllowInsecure *bool  `json:"allow_insecure,omitempty"`
+	Issuer        string `json:"issuer"`
+}
+
+// OIDCTestResult defines model for OIDCTestResult.
+type OIDCTestResult struct {
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
+	Issuer                string `json:"issuer"`
+	JwksUri               string `json:"jwks_uri"`
+
+	// Keys How many of its signing keys this server can use.
+	Keys int `json:"keys"`
+
+	// PkceS256 The provider says it supports S256. It is used either way.
+	PkceS256 bool `json:"pkce_s256"`
+
+	// TokenAuthMethod How this server will authenticate at the token endpoint.
+	TokenAuthMethod  string  `json:"token_auth_method"`
+	TokenEndpoint    string  `json:"token_endpoint"`
+	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
+}
+
 // Profile defines model for Profile.
 type Profile struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -1005,11 +1227,19 @@ type Profile struct {
 	Id        string    `json:"id"`
 
 	// QuotaBytes Storage allowed; 0 means no limit.
-	QuotaBytes  int64  `json:"quota_bytes"`
-	Role        Role   `json:"role"`
-	TotpEnabled bool   `json:"totp_enabled"`
-	Username    string `json:"username"`
+	QuotaBytes int64 `json:"quota_bytes"`
+	Role       Role  `json:"role"`
+
+	// SignInMethod `local` signs in with a passphrase, `sso` only through the provider, and
+	// `both` is a local account linked to a provider identity.
+	SignInMethod *ProfileSignInMethod `json:"sign_in_method,omitempty"`
+	TotpEnabled  bool                 `json:"totp_enabled"`
+	Username     string               `json:"username"`
 }
+
+// ProfileSignInMethod `local` signs in with a passphrase, `sso` only through the provider, and
+// `both` is a local account linked to a provider identity.
+type ProfileSignInMethod string
 
 // PublicKeys defines model for PublicKeys.
 type PublicKeys struct {
@@ -1217,10 +1447,16 @@ type ServerSettings struct {
 	JournalRetentionDays *int   `json:"journal_retention_days,omitempty"`
 	Language             string `json:"language"`
 
+	// LocalAccounts Whether local sign-in and registration are on. The first local admin can always sign in.
+	LocalAccounts *bool `json:"local_accounts,omitempty"`
+
 	// Mode The encryption mode of the whole server, fixed at setup. Absent from
 	// health until then.
 	Mode Mode   `json:"mode"`
 	Name string `json:"name"`
+
+	// Oidc The settings as read. The client secret is never sent back.
+	Oidc *OIDCSettings `json:"oidc,omitempty"`
 
 	// OpenSignup Whether anyone can register without an invite.
 	OpenSignup bool `json:"open_signup"`
@@ -1273,6 +1509,14 @@ type SetupInfo struct {
 	// FreeBytes Free space in the data directory, if it can be told.
 	FreeBytes *int64 `json:"free_bytes,omitempty"`
 
+	// OidcRedirectPath Added to the public URL, this is the redirect URI to give a provider.
+	//
+	// Examples: /auth/oidc/callback
+	OidcRedirectPath *string `json:"oidc_redirect_path,omitempty"`
+
+	// OidcRedirectUri The whole redirect URI, if the public URL is known.
+	OidcRedirectUri *string `json:"oidc_redirect_uri,omitempty"`
+
 	// PublicUrl The address given through the environment, if any.
 	PublicUrl *string `json:"public_url,omitempty"`
 	Version   string  `json:"version"`
@@ -1284,6 +1528,22 @@ type SetupRequest struct {
 	// and `keys` are required; in `none` they must be absent.
 	Admin    NewAccount          `json:"admin"`
 	Settings ServerSettingsInput `json:"settings"`
+
+	// SignIn How people sign in, chosen in the wizard. Everything is optional.
+	SignIn *SignInSettingsInput `json:"sign_in,omitempty"`
+}
+
+// SignInSettingsInput How people sign in, chosen in the wizard. Everything is optional.
+type SignInSettingsInput struct {
+	// LocalAccounts Defaults to true.
+	LocalAccounts *bool `json:"local_accounts,omitempty"`
+
+	// Oidc Fields left out stay as they are. With `enabled` true, `issuer`, `client_id` and
+	// a client secret must be known by now, or the answer is `invalid_oidc_settings`.
+	Oidc *OIDCSettingsInput `json:"oidc,omitempty"`
+
+	// OpenSignup Defaults to false.
+	OpenSignup *bool `json:"open_signup,omitempty"`
 }
 
 // SmallBlob defines model for SmallBlob.
@@ -1372,17 +1632,27 @@ type UpdateSettingsRequest struct {
 	AuditRetentionDays *int `json:"audit_retention_days,omitempty"`
 
 	// CurrentAuthKey Either current auth key. Required to shorten the grace period, as a
-	// stolen admin session must not be able to bring removal closer, and to
-	// shorten the audit retention, as it must not be able to erase its tracks.
+	// stolen admin session must not be able to bring removal closer, to shorten
+	// the audit retention, as it must not be able to erase its tracks, and to change
+	// `oidc` or `local_accounts`, as whoever names the issuer can sign in as
+	// anyone it can match.
 	CurrentAuthKey    *[]byte `json:"current_auth_key,omitempty"`
 	DefaultQuotaBytes *int64  `json:"default_quota_bytes,omitempty"`
 
 	// JournalRetentionDays 0 to 3650.
 	JournalRetentionDays *int    `json:"journal_retention_days,omitempty"`
 	Language             *string `json:"language,omitempty"`
-	Name                 *string `json:"name,omitempty"`
-	OpenSignup           *bool   `json:"open_signup,omitempty"`
-	PublicUrl            *string `json:"public_url,omitempty"`
+
+	// LocalAccounts Turning this off answers `local_accounts_lockout` unless single sign-on is on
+	// and a local admin remains, who can always still sign in.
+	LocalAccounts *bool   `json:"local_accounts,omitempty"`
+	Name          *string `json:"name,omitempty"`
+
+	// Oidc Fields left out stay as they are. With `enabled` true, `issuer`, `client_id` and
+	// a client secret must be known by now, or the answer is `invalid_oidc_settings`.
+	Oidc       *OIDCSettingsInput `json:"oidc,omitempty"`
+	OpenSignup *bool              `json:"open_signup,omitempty"`
+	PublicUrl  *string            `json:"public_url,omitempty"`
 
 	// PurgeGraceDays 1 to 3650. Applies to what is purged from now on.
 	PurgeGraceDays *int    `json:"purge_grace_days,omitempty"`
@@ -1595,6 +1865,12 @@ type GetKDFParams struct {
 	Username string `form:"username" json:"username"`
 }
 
+// StartOIDCParams defines parameters for StartOIDC.
+type StartOIDCParams struct {
+	// Fresh Ask the provider to authenticate again, for `reauth_required`.
+	Fresh *bool `form:"fresh,omitempty" json:"fresh,omitempty"`
+}
+
 // GetBlobParams defines parameters for GetBlob.
 type GetBlobParams struct {
 	Range *string `json:"Range,omitempty"`
@@ -1755,6 +2031,13 @@ type LookupUserParams struct {
 	Username string `form:"username" json:"username"`
 }
 
+// FinishOIDCParams defines parameters for FinishOIDC.
+type FinishOIDCParams struct {
+	Code  *string `form:"code,omitempty" json:"code,omitempty"`
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
+}
+
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
 type CreateInviteJSONRequestBody = CreateInviteRequest
 
@@ -1767,11 +2050,20 @@ type DeleteUserJSONRequestBody = CurrentCredential
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UpdateUserRequest
 
+// UnlinkIdentityJSONRequestBody defines body for UnlinkIdentity for application/json ContentType.
+type UnlinkIdentityJSONRequestBody = CurrentCredential
+
 // CreatePasswordResetJSONRequestBody defines body for CreatePasswordReset for application/json ContentType.
 type CreatePasswordResetJSONRequestBody = CurrentCredential
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// EnrolOIDCJSONRequestBody defines body for EnrolOIDC for application/json ContentType.
+type EnrolOIDCJSONRequestBody = EnrolRequest
+
+// StartOIDCWithInviteJSONRequestBody defines body for StartOIDCWithInvite for application/json ContentType.
+type StartOIDCWithInviteJSONRequestBody = OIDCStartRequest
 
 // CompletePasswordResetJSONRequestBody defines body for CompletePasswordReset for application/json ContentType.
 type CompletePasswordResetJSONRequestBody = CompletePasswordResetRequest
@@ -1823,6 +2115,9 @@ type RestoreVersionJSONRequestBody = RestoreVersionRequest
 
 // MarkNotificationsReadJSONRequestBody defines body for MarkNotificationsRead for application/json ContentType.
 type MarkNotificationsReadJSONRequestBody = MarkNotificationsReadRequest
+
+// TestOIDCJSONRequestBody defines body for TestOIDC for application/json ContentType.
+type TestOIDCJSONRequestBody = OIDCTestRequest
 
 // UnlockPublicLinkJSONRequestBody defines body for UnlockPublicLink for application/json ContentType.
 type UnlockPublicLinkJSONRequestBody = UnlockLinkRequest
@@ -1877,6 +2172,9 @@ type ServerInterface interface {
 	// UpdateUser Disable or enable a user, or set their quota
 	// (PATCH /api/v1/admin/users/{id})
 	UpdateUser(w http.ResponseWriter, r *http.Request, id ID)
+	// UnlinkIdentity Forget which provider identity an account is
+	// (DELETE /api/v1/admin/users/{id}/identity)
+	UnlinkIdentity(w http.ResponseWriter, r *http.Request, id ID)
 	// CreatePasswordReset Issue a one-time password reset link
 	// (POST /api/v1/admin/users/{id}/password-reset)
 	CreatePasswordReset(w http.ResponseWriter, r *http.Request, id ID)
@@ -1889,6 +2187,18 @@ type ServerInterface interface {
 	// Logout Sign out
 	// (POST /api/v1/auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// GetAuthMethods Say how people can sign in here
+	// (GET /api/v1/auth/methods)
+	GetAuthMethods(w http.ResponseWriter, r *http.Request)
+	// EnrolOIDC Store the keys of a single sign-on account, once
+	// (POST /api/v1/auth/oidc/enrol)
+	EnrolOIDC(w http.ResponseWriter, r *http.Request)
+	// StartOIDC Leave for the identity provider
+	// (GET /api/v1/auth/oidc/start)
+	StartOIDC(w http.ResponseWriter, r *http.Request, params StartOIDCParams)
+	// StartOIDCWithInvite Start signing in with an invite
+	// (POST /api/v1/auth/oidc/start)
+	StartOIDCWithInvite(w http.ResponseWriter, r *http.Request)
 	// CompletePasswordReset Set a new password from a reset link
 	// (POST /api/v1/auth/password-reset)
 	CompletePasswordReset(w http.ResponseWriter, r *http.Request)
@@ -2018,6 +2328,9 @@ type ServerInterface interface {
 	// MarkNotificationsRead Mark notifications as read
 	// (POST /api/v1/notifications/read)
 	MarkNotificationsRead(w http.ResponseWriter, r *http.Request)
+	// TestOIDC Test an identity provider
+	// (POST /api/v1/oidc/test)
+	TestOIDC(w http.ResponseWriter, r *http.Request)
 	// GetPublicLink Open a public link
 	// (GET /api/v1/public/links/{id})
 	GetPublicLink(w http.ResponseWriter, r *http.Request, id ID, params GetPublicLinkParams)
@@ -2087,6 +2400,9 @@ type ServerInterface interface {
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(w http.ResponseWriter, r *http.Request, id ID)
+	// FinishOIDC Come back from the identity provider
+	// (GET /auth/oidc/callback)
+	FinishOIDC(w http.ResponseWriter, r *http.Request, params FinishOIDCParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -2320,6 +2636,32 @@ func (siw *ServerInterfaceWrapper) UpdateUser(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// UnlinkIdentity operation middleware
+func (siw *ServerInterfaceWrapper) UnlinkIdentity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlinkIdentity(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreatePasswordReset operation middleware
 func (siw *ServerInterfaceWrapper) CreatePasswordReset(w http.ResponseWriter, r *http.Request) {
 
@@ -2398,6 +2740,81 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetAuthMethods operation middleware
+func (siw *ServerInterfaceWrapper) GetAuthMethods(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetAuthMethods(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EnrolOIDC operation middleware
+func (siw *ServerInterfaceWrapper) EnrolOIDC(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EnrolOIDC(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOIDC operation middleware
+func (siw *ServerInterfaceWrapper) StartOIDC(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StartOIDCParams
+
+	// ------------- Optional query parameter "fresh" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fresh", r.URL.Query(), &params.Fresh, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fresh"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fresh", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOIDC(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOIDCWithInvite operation middleware
+func (siw *ServerInterfaceWrapper) StartOIDCWithInvite(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOIDCWithInvite(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3584,6 +4001,20 @@ func (siw *ServerInterfaceWrapper) MarkNotificationsRead(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// TestOIDC operation middleware
+func (siw *ServerInterfaceWrapper) TestOIDC(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TestOIDC(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPublicLink operation middleware
 func (siw *ServerInterfaceWrapper) GetPublicLink(w http.ResponseWriter, r *http.Request) {
 
@@ -4410,6 +4841,65 @@ func (siw *ServerInterfaceWrapper) GetUserKeys(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// FinishOIDC operation middleware
+func (siw *ServerInterfaceWrapper) FinishOIDC(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params FinishOIDCParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.FinishOIDC(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -4535,6 +5025,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/setup/info", wrapper.GetSetupInfo)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/validate-url", wrapper.ValidateSetupURL)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/setup/complete", wrapper.CompleteSetup)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/auth/methods", wrapper.GetAuthMethods)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/auth/oidc/start", wrapper.StartOIDC)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/oidc/start", wrapper.StartOIDCWithInvite)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/auth/oidc/callback", wrapper.FinishOIDC)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/oidc/enrol", wrapper.EnrolOIDC)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/oidc/test", wrapper.TestOIDC)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/auth/kdf", wrapper.GetKDF)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/login", wrapper.Login)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
@@ -4558,6 +5054,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/users", wrapper.ListUsers)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/admin/users/{id}", wrapper.DeleteUser)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/admin/users/{id}", wrapper.UpdateUser)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/admin/users/{id}/identity", wrapper.UnlinkIdentity)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/admin/users/{id}/password-reset", wrapper.CreatePasswordReset)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.GetSettings)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/admin/settings", wrapper.UpdateSettings)
@@ -5037,6 +5534,40 @@ func (response UpdateUserdefaultJSONResponse) VisitUpdateUserResponse(w http.Res
 	return err
 }
 
+type UnlinkIdentityRequestObject struct {
+	Id   ID `json:"id"`
+	Body *UnlinkIdentityJSONRequestBody
+}
+
+type UnlinkIdentityResponseObject interface {
+	VisitUnlinkIdentityResponse(w http.ResponseWriter) error
+}
+
+type UnlinkIdentity204Response struct {
+}
+
+func (response UnlinkIdentity204Response) VisitUnlinkIdentityResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type UnlinkIdentitydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UnlinkIdentitydefaultJSONResponse) VisitUnlinkIdentityResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreatePasswordResetRequestObject struct {
 	Id   ID `json:"id"`
 	Body *CreatePasswordResetJSONRequestBody
@@ -5194,6 +5725,175 @@ type LogoutdefaultJSONResponse struct {
 }
 
 func (response LogoutdefaultJSONResponse) VisitLogoutResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAuthMethodsRequestObject struct {
+}
+
+type GetAuthMethodsResponseObject interface {
+	VisitGetAuthMethodsResponse(w http.ResponseWriter) error
+}
+
+type GetAuthMethods200JSONResponse AuthMethods
+
+func (response GetAuthMethods200JSONResponse) VisitGetAuthMethodsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetAuthMethodsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetAuthMethodsdefaultJSONResponse) VisitGetAuthMethodsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EnrolOIDCRequestObject struct {
+	Body *EnrolOIDCJSONRequestBody
+}
+
+type EnrolOIDCResponseObject interface {
+	VisitEnrolOIDCResponse(w http.ResponseWriter) error
+}
+
+type EnrolOIDC200JSONResponse Account
+
+func (response EnrolOIDC200JSONResponse) VisitEnrolOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EnrolOIDCdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response EnrolOIDCdefaultJSONResponse) VisitEnrolOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartOIDCRequestObject struct {
+	Params StartOIDCParams
+}
+
+type StartOIDCResponseObject interface {
+	VisitStartOIDCResponse(w http.ResponseWriter) error
+}
+
+type StartOIDC302ResponseHeaders struct {
+	Location  string
+	SetCookie *string
+}
+
+type StartOIDC302Response struct {
+	Headers StartOIDC302ResponseHeaders
+}
+
+func (response StartOIDC302Response) VisitStartOIDCResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type StartOIDCdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartOIDCdefaultJSONResponse) VisitStartOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartOIDCWithInviteRequestObject struct {
+	Body *StartOIDCWithInviteJSONRequestBody
+}
+
+type StartOIDCWithInviteResponseObject interface {
+	VisitStartOIDCWithInviteResponse(w http.ResponseWriter) error
+}
+
+type StartOIDCWithInvite200ResponseHeaders struct {
+	SetCookie *string
+}
+
+type StartOIDCWithInvite200JSONResponse struct {
+	Body    OIDCStart
+	Headers StartOIDCWithInvite200ResponseHeaders
+}
+
+func (response StartOIDCWithInvite200JSONResponse) VisitStartOIDCWithInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartOIDCWithInvitedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartOIDCWithInvitedefaultJSONResponse) VisitStartOIDCWithInviteResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -6922,6 +7622,45 @@ func (response MarkNotificationsReaddefaultJSONResponse) VisitMarkNotificationsR
 	return err
 }
 
+type TestOIDCRequestObject struct {
+	Body *TestOIDCJSONRequestBody
+}
+
+type TestOIDCResponseObject interface {
+	VisitTestOIDCResponse(w http.ResponseWriter) error
+}
+
+type TestOIDC200JSONResponse OIDCTestResult
+
+func (response TestOIDC200JSONResponse) VisitTestOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type TestOIDCdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response TestOIDCdefaultJSONResponse) VisitTestOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPublicLinkRequestObject struct {
 	Id     ID `json:"id"`
 	Params GetPublicLinkParams
@@ -7872,6 +8611,49 @@ func (response GetUserKeysdefaultJSONResponse) VisitGetUserKeysResponse(w http.R
 	return err
 }
 
+type FinishOIDCRequestObject struct {
+	Params FinishOIDCParams
+}
+
+type FinishOIDCResponseObject interface {
+	VisitFinishOIDCResponse(w http.ResponseWriter) error
+}
+
+type FinishOIDC302ResponseHeaders struct {
+	Location  string
+	SetCookie *string
+}
+
+type FinishOIDC302Response struct {
+	Headers FinishOIDC302ResponseHeaders
+}
+
+func (response FinishOIDC302Response) VisitFinishOIDCResponse(w http.ResponseWriter) error {
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	if response.Headers.SetCookie != nil {
+		w.Header().Set("Set-Cookie", fmt.Sprint(*response.Headers.SetCookie))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type FinishOIDCdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response FinishOIDCdefaultJSONResponse) VisitFinishOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetOpenAPISpec Fetch this specification
@@ -7907,6 +8689,9 @@ type StrictServerInterface interface {
 	// UpdateUser Disable or enable a user, or set their quota
 	// (PATCH /api/v1/admin/users/{id})
 	UpdateUser(ctx context.Context, request UpdateUserRequestObject) (UpdateUserResponseObject, error)
+	// UnlinkIdentity Forget which provider identity an account is
+	// (DELETE /api/v1/admin/users/{id}/identity)
+	UnlinkIdentity(ctx context.Context, request UnlinkIdentityRequestObject) (UnlinkIdentityResponseObject, error)
 	// CreatePasswordReset Issue a one-time password reset link
 	// (POST /api/v1/admin/users/{id}/password-reset)
 	CreatePasswordReset(ctx context.Context, request CreatePasswordResetRequestObject) (CreatePasswordResetResponseObject, error)
@@ -7919,6 +8704,18 @@ type StrictServerInterface interface {
 	// Logout Sign out
 	// (POST /api/v1/auth/logout)
 	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
+	// GetAuthMethods Say how people can sign in here
+	// (GET /api/v1/auth/methods)
+	GetAuthMethods(ctx context.Context, request GetAuthMethodsRequestObject) (GetAuthMethodsResponseObject, error)
+	// EnrolOIDC Store the keys of a single sign-on account, once
+	// (POST /api/v1/auth/oidc/enrol)
+	EnrolOIDC(ctx context.Context, request EnrolOIDCRequestObject) (EnrolOIDCResponseObject, error)
+	// StartOIDC Leave for the identity provider
+	// (GET /api/v1/auth/oidc/start)
+	StartOIDC(ctx context.Context, request StartOIDCRequestObject) (StartOIDCResponseObject, error)
+	// StartOIDCWithInvite Start signing in with an invite
+	// (POST /api/v1/auth/oidc/start)
+	StartOIDCWithInvite(ctx context.Context, request StartOIDCWithInviteRequestObject) (StartOIDCWithInviteResponseObject, error)
 	// CompletePasswordReset Set a new password from a reset link
 	// (POST /api/v1/auth/password-reset)
 	CompletePasswordReset(ctx context.Context, request CompletePasswordResetRequestObject) (CompletePasswordResetResponseObject, error)
@@ -8048,6 +8845,9 @@ type StrictServerInterface interface {
 	// MarkNotificationsRead Mark notifications as read
 	// (POST /api/v1/notifications/read)
 	MarkNotificationsRead(ctx context.Context, request MarkNotificationsReadRequestObject) (MarkNotificationsReadResponseObject, error)
+	// TestOIDC Test an identity provider
+	// (POST /api/v1/oidc/test)
+	TestOIDC(ctx context.Context, request TestOIDCRequestObject) (TestOIDCResponseObject, error)
 	// GetPublicLink Open a public link
 	// (GET /api/v1/public/links/{id})
 	GetPublicLink(ctx context.Context, request GetPublicLinkRequestObject) (GetPublicLinkResponseObject, error)
@@ -8117,6 +8917,9 @@ type StrictServerInterface interface {
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(ctx context.Context, request GetUserKeysRequestObject) (GetUserKeysResponseObject, error)
+	// FinishOIDC Come back from the identity provider
+	// (GET /auth/oidc/callback)
+	FinishOIDC(ctx context.Context, request FinishOIDCRequestObject) (FinishOIDCResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -8458,6 +9261,39 @@ func (sh *strictHandler) UpdateUser(w http.ResponseWriter, r *http.Request, id I
 	}
 }
 
+// UnlinkIdentity operation middleware
+func (sh *strictHandler) UnlinkIdentity(w http.ResponseWriter, r *http.Request, id ID) {
+	var request UnlinkIdentityRequestObject
+
+	request.Id = id
+
+	var body UnlinkIdentityJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnlinkIdentity(ctx, request.(UnlinkIdentityRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnlinkIdentity")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnlinkIdentityResponseObject); ok {
+		if err := validResponse.VisitUnlinkIdentityResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CreatePasswordReset operation middleware
 func (sh *strictHandler) CreatePasswordReset(w http.ResponseWriter, r *http.Request, id ID) {
 	var request CreatePasswordResetRequestObject
@@ -8565,6 +9401,118 @@ func (sh *strictHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(LogoutResponseObject); ok {
 		if err := validResponse.VisitLogoutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetAuthMethods operation middleware
+func (sh *strictHandler) GetAuthMethods(w http.ResponseWriter, r *http.Request) {
+	var request GetAuthMethodsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetAuthMethods(ctx, request.(GetAuthMethodsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetAuthMethods")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetAuthMethodsResponseObject); ok {
+		if err := validResponse.VisitGetAuthMethodsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EnrolOIDC operation middleware
+func (sh *strictHandler) EnrolOIDC(w http.ResponseWriter, r *http.Request) {
+	var request EnrolOIDCRequestObject
+
+	var body EnrolOIDCJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EnrolOIDC(ctx, request.(EnrolOIDCRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EnrolOIDC")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EnrolOIDCResponseObject); ok {
+		if err := validResponse.VisitEnrolOIDCResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOIDC operation middleware
+func (sh *strictHandler) StartOIDC(w http.ResponseWriter, r *http.Request, params StartOIDCParams) {
+	var request StartOIDCRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOIDC(ctx, request.(StartOIDCRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOIDC")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOIDCResponseObject); ok {
+		if err := validResponse.VisitStartOIDCResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartOIDCWithInvite operation middleware
+func (sh *strictHandler) StartOIDCWithInvite(w http.ResponseWriter, r *http.Request) {
+	var request StartOIDCWithInviteRequestObject
+
+	var body StartOIDCWithInviteJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartOIDCWithInvite(ctx, request.(StartOIDCWithInviteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartOIDCWithInvite")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartOIDCWithInviteResponseObject); ok {
+		if err := validResponse.VisitStartOIDCWithInviteResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9782,6 +10730,37 @@ func (sh *strictHandler) MarkNotificationsRead(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// TestOIDC operation middleware
+func (sh *strictHandler) TestOIDC(w http.ResponseWriter, r *http.Request) {
+	var request TestOIDCRequestObject
+
+	var body TestOIDCJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.TestOIDC(ctx, request.(TestOIDCRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "TestOIDC")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(TestOIDCResponseObject); ok {
+		if err := validResponse.VisitTestOIDCResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetPublicLink operation middleware
 func (sh *strictHandler) GetPublicLink(w http.ResponseWriter, r *http.Request, id ID, params GetPublicLinkParams) {
 	var request GetPublicLinkRequestObject
@@ -10412,6 +11391,32 @@ func (sh *strictHandler) GetUserKeys(w http.ResponseWriter, r *http.Request, id 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetUserKeysResponseObject); ok {
 		if err := validResponse.VisitGetUserKeysResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// FinishOIDC operation middleware
+func (sh *strictHandler) FinishOIDC(w http.ResponseWriter, r *http.Request, params FinishOIDCParams) {
+	var request FinishOIDCRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.FinishOIDC(ctx, request.(FinishOIDCRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "FinishOIDC")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(FinishOIDCResponseObject); ok {
+		if err := validResponse.VisitFinishOIDCResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

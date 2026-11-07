@@ -98,6 +98,9 @@ func (s *Server) setDisabled(ctx context.Context, actor, target string, disabled
 		s.audit(ctx, auditUserEnabled, actor, target)
 		return nil
 	}
+	if err := s.checkKeepsLocalAdmin(ctx, target); err != nil {
+		return err
+	}
 	revoked, err := s.store.DisableUser(ctx, target, s.cfg.Now())
 	if err != nil {
 		return err
@@ -126,6 +129,9 @@ func (s *Server) deleteUser(ctx context.Context, id string, currentAuthKey []byt
 	}
 	actor, err := s.checkModifiable(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := s.checkKeepsLocalAdmin(ctx, id); err != nil {
 		return err
 	}
 	revoked, err := s.store.DeleteUser(ctx, id)
@@ -157,8 +163,14 @@ func (s *Server) CreatePasswordReset(ctx context.Context, req oapi.CreatePasswor
 	if _, err := s.verifyCurrentKey(ctx, req.Body.CurrentAuthKey); err != nil {
 		return nil, err
 	}
-	if _, err := s.store.UserByID(ctx, req.Id); err != nil {
+	target, err := s.store.UserByID(ctx, req.Id)
+	if err != nil {
 		return nil, notFound(err)
+	}
+	// A link would give a local password to an account that only signs in through the
+	// provider, where the provider's policies then do not apply.
+	if target.SSOOnly() {
+		return nil, fail(http.StatusConflict, codeSSOOnly)
 	}
 	settings, err := s.store.Settings(ctx)
 	if err != nil {
@@ -232,6 +244,10 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 	if err := s.checkSensitiveSettings(ctx, in); err != nil {
 		return nil, err
 	}
+	signIn, err := s.signInPatch(ctx, in)
+	if err != nil {
+		return nil, err
+	}
 	publicURL := in.PublicUrl
 	if publicURL != nil {
 		u, err := ParsePublicURL(*publicURL)
@@ -251,6 +267,8 @@ func (s *Server) UpdateSettings(ctx context.Context, req oapi.UpdateSettingsRequ
 		TrashRetentionDays:   in.TrashRetentionDays,
 		AuditRetentionDays:   in.AuditRetentionDays,
 		JournalRetentionDays: in.JournalRetentionDays,
+		LocalAccounts:        in.LocalAccounts,
+		OIDC:                 signIn,
 	})
 	if err != nil {
 		return nil, err
@@ -272,14 +290,16 @@ func shortensRetention(to *int, from int) bool {
 
 // checkSensitiveSettings asks for a current auth key for what a stolen admin session
 // must not do alone: shorten the grace period, which is what stands between it and
-// the data, or the audit retention, which would erase its tracks.
+// the data, or the audit retention, which would erase its tracks, or how people sign
+// in: whoever names the issuer can sign in as anyone it can match.
 func (s *Server) checkSensitiveSettings(ctx context.Context, in *oapi.UpdateSettingsJSONRequestBody) error {
 	current, err := s.store.Settings(ctx)
 	if err != nil {
 		return err
 	}
 	shorterGrace := in.PurgeGraceDays != nil && *in.PurgeGraceDays < current.PurgeGraceDays
-	if !shorterGrace && !shortensRetention(in.AuditRetentionDays, current.AuditRetentionDays) {
+	signIn := in.Oidc != nil || (in.LocalAccounts != nil && *in.LocalAccounts != current.LocalAccounts)
+	if !shorterGrace && !signIn && !shortensRetention(in.AuditRetentionDays, current.AuditRetentionDays) {
 		return nil
 	}
 	s.accountMu.Lock()
@@ -353,6 +373,8 @@ func (s *Server) GetAdminHealth(ctx context.Context, _ oapi.GetAdminHealthReques
 		LastBackupAt:    optionalTime(settings.LastBackupAt),
 		AuditEntries:    &stats.AuditEntries,
 		JournalEntries:  &stats.JournalEntries,
+		OidcEnabled:     &settings.OIDC.Enabled,
+		SsoUsers:        &stats.SSOUsers,
 	}, nil
 }
 
@@ -370,5 +392,7 @@ func (s *Server) settingsView(ctx context.Context, in store.Settings) oapi.Serve
 		TrashRetentionDays:   in.TrashRetentionDays,
 		AuditRetentionDays:   &in.AuditRetentionDays,
 		JournalRetentionDays: &in.JournalRetentionDays,
+		LocalAccounts:        &in.LocalAccounts,
+		Oidc:                 oidcSettingsView(in),
 	}
 }

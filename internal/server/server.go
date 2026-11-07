@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,7 @@ import (
 	"github.com/Angelmmiguel/yondrive/internal/api"
 	"github.com/Angelmmiguel/yondrive/internal/auth"
 	"github.com/Angelmmiguel/yondrive/internal/blobs"
+	"github.com/Angelmmiguel/yondrive/internal/oidc"
 	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
@@ -96,6 +98,9 @@ type Config struct {
 	// everything that checks a credential.
 	LoginAttempts int
 	LoginWindow   time.Duration
+	// OIDCRoots are the certificate authorities trusted for an identity provider.
+	// Nil uses the system's.
+	OIDCRoots *x509.CertPool
 	// Now is the clock. Nil uses time.Now.
 	Now func() time.Time
 	// UI serves the web app. Nil disables it and every non-API path 404s.
@@ -128,6 +133,12 @@ type Server struct {
 	// secret keys the fake KDF parameters.
 	secret  []byte
 	handler http.Handler
+
+	// oidcHTTP is the one client that talks to identity providers, oidcFlowKey
+	// seals the state of a sign-in, and providers holds the discovered provider.
+	oidcHTTP    *http.Client
+	oidcFlowKey []byte
+	providers   providerCache
 
 	// frames keeps two writers off the same frame.
 	frames *frameLocks
@@ -206,6 +217,8 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		linkTokenKey:        deriveLinkTokenKey(secret),
 		keys:                auth.NewSessionKeys(),
 		secret:              secret,
+		oidcHTTP:            oidc.NewHTTPClient(cfg.OIDCRoots),
+		oidcFlowKey:         deriveOIDCFlowKey(secret),
 	}
 	settings, err := st.Settings(context.Background())
 	switch {

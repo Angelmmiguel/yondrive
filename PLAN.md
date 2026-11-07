@@ -147,8 +147,8 @@ hybrid key exchange (the format has a version field for this).
 
 **Language and dependencies.** Go 1.26, `net/http`, `log/slog`, `crypto/*`. Dependencies
 stay few and deliberate. The expected list is a pure Go SQLite driver (`modernc.org/sqlite`)
-and the runtime that generated OpenAPI code needs. TOTP and OIDC verification can likely be
-done with the standard library.
+and the runtime that generated OpenAPI code needs. TOTP and OIDC verification are done with the
+standard library.
 
 **Why SQLite.** YonDrive needs users, invitations, a mutable tree, grants, versions, quotas, a journal
 and transactions spanning them. Hand-rolling that on files would be riskier than a dependency. The
@@ -199,7 +199,8 @@ any future client must pass.
 passphrase (NFKC)
   └─ Argon2id(salt, m=64 MiB, t=3, p=1) ─► root
        ├─ HKDF "yondrive/kek/v1"   ─► KEK       never leaves the device
-       └─ HKDF "yondrive/auth/v1"  ─► auth key  local accounts only, sent to server
+       └─ HKDF "yondrive/auth/v1"  ─► auth key  sent to server: signs in a local account;
+                                                 for SSO, only proves a current credential
 
 recovery key (32 random bytes, shown once as 24 BIP39 words)
   ├─ HKDF "yondrive/kek/v1"   ─► recovery KEK
@@ -220,7 +221,9 @@ node key (32 random bytes, per file or folder)
 
 - **Local accounts** derive both the KEK and the auth key from one passphrase. HKDF is one-way, so
   the server that receives the auth key learns nothing about the KEK. **SSO accounts** use the same
-  derivation for the KEK only, so nothing derived from the unlock passphrase reaches the server.
+  derivation from a separate unlock passphrase. They send the auth key only to prove a current
+  credential, never to sign in, and its hash is in a column sign-in does not read. See
+  [`docs/CRYPTO.md`](docs/CRYPTO.md), section 3.
 - **Content** is framed in 4 MiB chunks of XChaCha20-Poly1305, with the node, version, frame index
   and a final-frame flag bound in the AAD. The server cannot reorder, swap or truncate frames without
   detection.
@@ -327,6 +330,7 @@ service worker streaming.
 ```
 /api/v1/health, /setup/*                       First-run wizard, setup token
 /api/v1/auth/*                                 KDF params, login, logout, TOTP, OIDC, rekey, recover
+/auth/oidc/callback                            The redirect URI to give a provider
 /api/v1/session/key                            Server half of the split session key
 /api/v1/me, /me/tokens, /users/{id}/keys       Profile, device tokens, public keys
 /api/v1/nodes, /nodes/{id}, /nodes/{id}/...    Tree, move, trash, versions
@@ -386,7 +390,7 @@ web/
 
 ### 5.9 Outbound connections
 
-The server makes outbound connections only for OIDC and, if configured, SMTP for invitation emails, so the image carries a CA bundle.
+The server makes outbound connections only for OIDC and, if configured, SMTP for invitation emails, so the image carries a CA bundle. `YONDRIVE_CA_FILE` adds an authority for an internal issuer.
 Invitation links can always be copied by hand, so SMTP stays optional.
 
 ### 5.10 Third-party licences

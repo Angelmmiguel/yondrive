@@ -11,6 +11,7 @@ the threat model in [SECURITY.md](SECURITY.md). The contract is
 | --- | --- |
 | `internal/store` | SQLite and migrations. Reads and writes records atomically and decides nothing. |
 | `internal/blobs` | Stored files: ids to paths, frames at offsets, atomic moves. No database and no HTTP. |
+| `internal/oidc` | The client of an identity provider: discovery, PKCE, the code exchange and ID token verification, on the standard library. `oidctest` is a fake provider for tests. No database and no routes. |
 | `internal/auth` | Hashing, tokens, fake KDF salts, session keys, rate limits, TOTP. No database and no HTTP. |
 | `internal/api` | Generated from the spec. Never edited. |
 | `internal/server` | Handlers, middleware, and what each route is allowed to do. |
@@ -44,8 +45,8 @@ lock              advisory lock against a second process
 
 | Table | Holds |
 | --- | --- |
-| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, grace period, trash retention, audit and journal retention, last backup, the mode and the server secret. Triggers refuse any change to `mode` once written. |
-| `users` | Identity, role, quota, KDF parameters, auth key hashes, opaque blobs, TOTP state. The KDF and auth columns are nullable and `oidc_issuer` and `oidc_subject` are present for accounts that will sign in through a provider. |
+| `settings` | Key and value: name, public URL, default quota, language, time zone, open sign-up, grace period, trash retention, audit and journal retention, whether local accounts are on, the provider's settings with its client secret, last backup, the mode and the server secret. Triggers refuse any change to `mode` once written. |
+| `users` | Identity, role, quota, KDF parameters, auth key hashes, opaque blobs, TOTP state. `oidc_issuer` and `oidc_subject` are the identity at a provider. An account that signs in only that way has no `auth_key_hash`, and `unlock_auth_key_hash` proves its current credential. |
 | `recovery_codes` | SHA-256 of each unused TOTP recovery code. |
 | `sessions` | SHA-256 of the cookie, user, idle and absolute deadlines. |
 | `tokens` | SHA-256 of each device's bearer token, its name and last use. |
@@ -79,6 +80,12 @@ POST   /setup/validate-url              setup token: normalise, warn on http
 POST   /setup/complete                  setup token: settings, first admin, mode
 GET    /auth/kdf?username=              stored or fake parameters
 POST   /auth/login                      either auth key, TOTP if on -> cookie, account
+GET    /auth/methods                    what the sign-in page offers
+GET    /auth/oidc/start?fresh=          -> the provider, with the flow cookie
+POST   /auth/oidc/start                 invite token -> where to go, with the flow cookie
+GET    /auth/oidc/callback              at the root, not under /api/v1 -> session, /
+POST   /auth/oidc/enrol                 once, with the session: the keys of an SSO account
+POST   /oidc/test                       setup token or admin: discovery and keys of an issuer
 POST   /auth/logout                     ends the session, or revokes the token
 POST   /auth/register                   invite or open sign-up
 POST   /auth/rekey                      current auth key + new credentials
@@ -97,6 +104,7 @@ GET    /users/{id}/keys                 public keys
 GET    /admin/users
 PATCH  /admin/users/{id}                disable, enable, quota
 DELETE /admin/users/{id}
+DELETE /admin/users/{id}/identity       current auth key: forget the provider identity
 POST   /admin/users/{id}/password-reset none mode, current auth key
 GET    /admin/invites
 POST   /admin/invites                   -> token and link, once; admin role needs
@@ -435,6 +443,61 @@ admin session could otherwise keep or widen its reach, or destroy what it has no
 invite with the `admin` role, which mints an admin that outlives the session, a password
 reset link, which takes over an account, and deleting a user, which removes their bytes at
 once, with none of the purge grace. Ordinary invites do not.
+
+## Single sign-on
+
+**Settings.** In the settings table, changed through `PATCH /admin/settings` or chosen at
+setup. The client secret is write-only. Any change needs a current credential, because
+whoever names the issuer can sign in as anyone it can match. An issuer is https unless
+`allow_insecure` is set, and it is stored as typed, since it has to equal the provider's
+spelling. The redirect URI is the public URL plus `/auth/oidc/callback`, never derived from a
+request's `Host`. The callback is outside `/api/v1` to be the address that a person registers,
+and the Vite dev server needs `/auth` proxied as well as `/api`.
+
+**The flow.** `GET /auth/oidc/start` draws state, nonce and a PKCE verifier and seals them
+with AES-GCM into a cookie, under a key derived from the server secret, so that the server keeps
+nothing per sign-in and an anonymous flood costs it no memory. The cookie is HttpOnly, has no
+Domain, lasts ten minutes and is `__Host-` over HTTPS. It is SameSite=Lax, since a Strict cookie
+would not come back with a navigation from another site. The session cookie stays Strict: the
+redirect's own document load goes without it, and the app's `fetch` to `GET /me` from that
+document is same-site and carries it.
+
+**The callback.** State comes first, so that nobody else's link can say anything to this browser.
+Then the code exchange, ID token verification and, for claims the token left out, userinfo. Those
+are all done before taking `accountMu`, as a provider may be slow. Any failure redirects to
+`/signin?sso_error=<code>` and is audited. Success makes a session and redirects to `/`, with no
+token in any URL.
+
+**Finding the account,** under `accountMu`:
+
+1. An account with this exact `(issuer, sub)`.
+2. Otherwise, by the match mode, a local account with the verified `email` or the
+   `preferred_username`, which must have no identity yet, or the answer is
+   `sso_identity_conflict`. A matching address that is not verified is `sso_email_unverified`.
+3. Otherwise a new account, if `new_users` is `create`, or with an invite: its token from `POST
+   /auth/oidc/start`, or one open for the verified address. The invite is burnt with the account.
+   A taken username gets a suffix, and only a verified address is stored.
+
+Nothing moves an account to another identity but `DELETE /admin/users/{id}/identity`.
+
+**Roles.** With `admin_group` set, the claim decides the role at each sign-in, and a missing claim
+is not membership. Otherwise sign-in never changes a role. The oldest enabled admin with a
+passphrase is the **fallback admin**. They are never demoted, nor is the last admin of any kind.
+
+**Local accounts off.** Local sign-in and registration are refused for all but the fallback admin,
+who is the way back in when the provider is down. It is refused with `local_accounts_lockout`
+while no provider is on or no local admin exists, and so are turning off the provider or removing
+the last local admin while they are off.
+
+**Credentials.** An SSO account has no `auth_key_hash`. Login reads only that and the recovery hash,
+so the unlock auth key signs nobody in, and the right recovery key learns `sso_required`. The KDF
+route gives such an account's name fake parameters, as `GET /me` has the real ones. In `e2e` mode
+`enrolment_required` says it has no keys yet, and `POST /auth/oidc/enrol` stores them once.
+After that, rekey with its unlock or recovery auth key replaces them. Recovery is that rekey,
+in a session from the provider. In `none` mode it has no credentials at all, so a session under five
+minutes old stands in where a current auth key is asked for, `GET /auth/oidc/start?fresh=true` gets
+one, and everything else answers `reauth_required`. TOTP answers `totp_local_only` and a reset
+link `sso_only`, as either would give a local way in to an account that has none.
 
 ## Keeping history bounded
 

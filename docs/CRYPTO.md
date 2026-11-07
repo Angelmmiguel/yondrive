@@ -72,8 +72,9 @@ A client MUST refuse any other value, and an item whose suite differs from the s
 2. `root = Argon2id(utf8(normalized), salt, m, t, p, tag length 32)` (RFC 9106), with no
    secret and no associated data.
 3. `KEK = HKDF(root, "yondrive/kek/v1")`, which never leaves the device.
-4. `auth key = HKDF(root, "yondrive/auth/v1")`, sent to the server, for local accounts
-   only. An SSO account MUST NOT derive or send it for the unlock passphrase.
+4. `auth key = HKDF(root, "yondrive/auth/v1")`, sent to the server. A local account signs
+   in with it. An SSO account derives it from its unlock passphrase in the same way, and
+   MUST send it only to prove a current credential, never to sign in.
 
 | Parameter | New accounts | Accepted from the server |
 | --- | --- | --- |
@@ -84,6 +85,34 @@ A client MUST refuse any other value, and an item whose suite differs from the s
 
 Stored as `{"name":"argon2id","m":…,"t":…,"p":…,"salt":"<base64>"}`. A client MUST refuse
 parameters outside the bounds, and any other `name`.
+
+### SSO accounts
+
+An account that signs in through an identity provider has a separate unlock passphrase
+(PLAN.md, D2), and runs the same derivation with it. The provider's word gives a session.
+It opens nothing, and it must not be enough to replace keys, or a compromised provider
+could lock a user out of their data or plant keys of its own. So those actions need
+something the provider never sees: a **current credential**, which is either the unlock
+auth key or the recovery auth key. It is asked for when rekeying, making a device token,
+changing TOTP and for the admin actions that need one, as for a local account.
+
+The unlock auth key is sent for those actions alone, and never at sign-in. The server stores
+its SHA-256 in `unlock_auth_key_hash`, a column the sign-in route does not read, so it signs
+nobody in even by mistake.
+
+This costs nothing against the keys. HKDF is one-way, so the server that receives the auth
+key learns nothing about the KEK, as with a local account. The stored hash gives someone with
+the database a way to test a guess at the Argon2id price, which the wrapped master key gives
+them already.
+
+**Enrolment.** A new SSO account in `e2e` mode has no keys. Its client draws the master key,
+identity keys and recovery key, and stores them with `POST /auth/oidc/enrol`, which works once
+on the strength of the session, when there is nothing yet to protect. Replacing them after
+that takes `POST /auth/rekey` with a current credential. Recovery works as for a local account,
+but in a session from the provider, since the recovery auth key does not sign an SSO account in.
+
+In mode `none` an SSO account has no passphrase and no recovery key, and no enrolment. A sign-in
+through the provider in the last five minutes stands in for a current credential.
 
 ## 4. Recovery key
 

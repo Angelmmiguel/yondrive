@@ -185,6 +185,7 @@ type StorageStats struct {
 	PendingRemovals int64
 	AuditEntries    int64
 	JournalEntries  int64
+	SSOUsers        int64
 }
 
 // Stats returns the server-wide storage figures.
@@ -194,8 +195,9 @@ func (s *Store) Stats(ctx context.Context) (StorageStats, error) {
 		(SELECT count(*) FROM blobs), (SELECT coalesce(sum(size), 0) FROM blobs),
 		(SELECT count(*) FROM uploads), (SELECT coalesce(sum(stored_size), 0) FROM uploads),
 		(SELECT count(*) FROM file_removals),
-		(SELECT count(*) FROM audit), (SELECT count(*) FROM changes)`).
-		Scan(&st.Blobs, &st.StoredBytes, &st.Uploads, &st.ReservedBytes, &st.PendingRemovals, &st.AuditEntries, &st.JournalEntries)
+		(SELECT count(*) FROM audit), (SELECT count(*) FROM changes),
+		(SELECT count(*) FROM users WHERE oidc_subject IS NOT NULL)`).
+		Scan(&st.Blobs, &st.StoredBytes, &st.Uploads, &st.ReservedBytes, &st.PendingRemovals, &st.AuditEntries, &st.JournalEntries, &st.SSOUsers)
 	if err != nil {
 		return StorageStats{}, fmt.Errorf("store: read stats: %w", err)
 	}
