@@ -959,7 +959,15 @@ class Writer {
 			if (data === undefined) return null;
 			const ext = extensionOfImage(data.mime);
 			if (IMAGE_TYPES[ext] === undefined) return null;
-			const name = `${dirOf(this.p.docPath)}media/yd-image-${this.media.length + 1}.${ext}`;
+			// A file saved before already holds yd-image-1, so the next name is the first free one.
+			let n = this.media.length + 1;
+			const nameOf = (i: number) => `${dirOf(this.p.docPath)}media/yd-image-${i}.${ext}`;
+			while (
+				this.p.zip.get(nameOf(n)) !== undefined ||
+				this.media.some((m) => m.name === nameOf(n))
+			)
+				n++;
+			const name = nameOf(n);
 			this.media.push({ name, data: data.bytes });
 			this.contentTypes.ensureDefault(ext, IMAGE_TYPES[ext]);
 			target = relativeTo(this.p.docPath, name);

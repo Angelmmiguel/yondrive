@@ -252,6 +252,33 @@ describe('odt', () => {
 		expect(out).toContain('<text:p>Date <text:date>today</text:date></text:p>');
 	});
 
+	it('names a picture added to a saved file apart from those already there', async () => {
+		const a = fixture('docs/pixel.png');
+		const b = new Uint8Array([...a, 0]);
+		const para = (image: string): Paragraph => ({
+			type: 'paragraph',
+			style: 'normal',
+			content: [{ type: 'image', image, alt: image }]
+		});
+		const saved = await writeOdt({
+			blocks: [para('new:1')],
+			images: { 'new:1': { mime: 'image/png', bytes: a } }
+		});
+		const back = (await readOdt(saved)).model;
+		back.blocks.push(para('new:2'));
+		back.images['new:2'] = { mime: 'image/png', bytes: b };
+		const again = await writeOdt(back, saved);
+		const read = (await readOdt(again)).model;
+		const keys = paras(read).flatMap((p) =>
+			p.content.flatMap((i) => (i.type === 'image' ? [i.image] : []))
+		);
+		expect(new Set(keys).size).toBe(2);
+		expect(keys.map((k) => read.images[k].bytes)).toEqual([a, b]);
+		const manifest = decodeXml(await entryData(readZip(again).get('META-INF/manifest.xml')!));
+		const paths = [...manifest.matchAll(/full-path="([^"]+)"/g)].map((m) => m[1]);
+		expect(new Set(paths).size).toBe(paths.length);
+	});
+
 	it('makes a template that reads back empty', async () => {
 		expect((await readOdt(await odtTemplate())).model.blocks).toEqual([]);
 	});

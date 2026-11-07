@@ -244,6 +244,30 @@ describe('docx', () => {
 		expectUntouched(out, again, []);
 	});
 
+	it('names a picture added to a saved file apart from those already there', async () => {
+		const a = fixture('docs/pixel.png');
+		const b = new Uint8Array([...a, 0]);
+		const para = (image: string): Paragraph => ({
+			type: 'paragraph',
+			style: 'normal',
+			content: [{ type: 'image', image, alt: image }]
+		});
+		const saved = await writeDocx({
+			blocks: [para('new:1')],
+			images: { 'new:1': { mime: 'image/png', bytes: a } }
+		});
+		const back = (await readDocx(saved)).model;
+		back.blocks.push(para('new:2'));
+		back.images['new:2'] = { mime: 'image/png', bytes: b };
+		const again = await writeDocx(back, saved);
+		const read = (await readDocx(again)).model;
+		const keys = paras(read).flatMap((p) =>
+			p.content.flatMap((i) => (i.type === 'image' ? [i.image] : []))
+		);
+		expect(new Set(keys).size).toBe(2);
+		expect(keys.map((k) => read.images[k].bytes)).toEqual([a, b]);
+	});
+
 	it('makes a minimal document that reads back empty', async () => {
 		const t = await docxTemplate();
 		expect((await readDocx(t)).model.blocks).toEqual([]);

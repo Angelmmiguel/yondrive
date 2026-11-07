@@ -1012,7 +1012,11 @@ function genImage(img: Extract<Inline, { type: 'image' }>, w: Writer): string {
 		if (data === undefined) return '';
 		const ext = extensionOfImage(data.mime);
 		if (ext === 'bin') return '';
-		href = `Pictures/yd-image-${w.media.length + 1}.${ext}`;
+		// A file saved before already holds yd-image-1, so the next name is the first free one.
+		let n = w.media.length + 1;
+		const nameOf = (i: number) => `Pictures/yd-image-${i}.${ext}`;
+		while (w.p.zip.get(nameOf(n)) !== undefined || w.media.some((m) => m.name === nameOf(n))) n++;
+		href = nameOf(n);
 		w.media.push({ name: href, data: data.bytes, mime: data.mime });
 	}
 	const data = w.model.images[img.image];
