@@ -83,6 +83,11 @@ export interface EditResult {
 	changed: CellRef[];
 	/** Styles added to the table, from index `from`. */
 	newStyles?: { from: number; styles: CellStyle[] };
+	/**
+	 * Only the cells with content were formatted: the area was too large to give
+	 * every empty cell a style. Whole rows and columns are formatted in full.
+	 */
+	partial?: true;
 }
 
 /** Changes to a style; `null` takes a setting off. */
@@ -407,7 +412,8 @@ export class SheetService {
 				const next = b.styleId(patched(b.styles[current] ?? b.styles[0], patch));
 				if (next !== current) e.setStyle(sheet, row, col, next);
 			};
-			const size = (area.bottom - area.top + 1) * (area.right - area.left + 1);
+			const rows = area.bottom - area.top + 1;
+			const size = rows * (area.right - area.left + 1);
 			if (size <= 200_000) {
 				for (let r = area.top; r <= area.bottom; r++) {
 					for (let c = area.left; c <= area.right; c++)
@@ -420,24 +426,24 @@ export class SheetService {
 				);
 				for (const c of inside) restyle(c.row, c.col, c.style);
 				const info = b.sheet(sheet);
+				const next = new Map<number, number>();
+				const styleFor = (id: number) => {
+					let s = next.get(id);
+					if (s === undefined)
+						next.set(id, (s = b.styleId(patched(b.styles[id] ?? b.styles[0], patch))));
+					return s;
+				};
 				if (area.top === 0 && area.bottom === MAX_ROWS - 1) {
-					for (let c = area.left; c <= Math.min(area.right, MAX_COLS - 1); c++) {
-						const cur = info.cols.find((x) => c >= x.min && c <= x.max);
-						const style = b.styleId(patched(b.styles[cur?.style ?? 0], patch));
-						b.setColWidth(sheet, c, c, cur?.width);
-						const ci = info.cols.find((x) => c >= x.min && c <= x.max);
-						if (ci) ci.style = style;
-						else {
-							info.cols.push({ min: c, max: c, style });
-							info.cols.sort((x, y) => x.min - y.min);
-						}
-					}
-				} else if (area.left === 0 && area.right === MAX_COLS - 1) {
-					for (let r = area.top; r <= area.bottom && r - area.top < 100_000; r++) {
+					b.updateCols(sheet, area.left, area.right, (c) => ({
+						...c,
+						style: styleFor(c.style ?? 0)
+					}));
+				} else if (area.left === 0 && area.right === MAX_COLS - 1 && rows <= 100_000) {
+					for (let r = area.top; r <= area.bottom; r++) {
 						const ri = info.rows.get(r) ?? {};
-						info.rows.set(r, { ...ri, style: b.styleId(patched(b.styles[ri.style ?? 0], patch)) });
+						info.rows.set(r, { ...ri, style: styleFor(ri.style ?? 0) });
 					}
-				}
+				} else return { changed: [], partial: true };
 			}
 			return { changed: [] };
 		});

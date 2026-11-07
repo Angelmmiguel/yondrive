@@ -263,16 +263,40 @@ export class Book {
 
 	/** Sets the width of columns, splitting the runs they fall in. */
 	setColWidth(id: number, from: number, to: number, width: number | undefined): void {
+		this.updateCols(id, from, to, (c) => {
+			const next = { ...c };
+			if (width === undefined) delete next.width;
+			else next.width = width;
+			return next;
+		});
+	}
+
+	/**
+	 * Changes columns `from` to `to` with `f`, which gets each run of them as it is
+	 * now (with only `min` and `max` where nothing is set), so what it leaves alone,
+	 * such as a hidden column's `hidden`, stays. One pass over the column runs.
+	 */
+	updateCols(id: number, from: number, to: number, f: (c: ColInfo) => ColInfo): void {
 		const info = this.sheet(id);
 		const out: ColInfo[] = [];
-		for (const c of info.cols) {
-			if (c.max < from || c.min > to) out.push(c);
-			else {
-				if (c.min < from) out.push({ ...c, max: from - 1 });
-				if (c.max > to) out.push({ ...c, min: to + 1 });
+		const add = (c: ColInfo) => {
+			if (c.width !== undefined || c.hidden || c.style !== undefined) out.push(c);
+		};
+		let next = from;
+		for (const c of [...info.cols].sort((a, b) => a.min - b.min)) {
+			if (c.max < from || c.min > to) {
+				out.push(c);
+				continue;
 			}
+			if (c.min < from) out.push({ ...c, max: from - 1 });
+			if (c.min > next) add(f({ min: next, max: c.min - 1 }));
+			const lo = Math.max(c.min, from);
+			const hi = Math.min(c.max, to);
+			add(f({ ...c, min: lo, max: hi }));
+			next = hi + 1;
+			if (c.max > to) out.push({ ...c, min: to + 1 });
 		}
-		if (width !== undefined) out.push({ min: from, max: to, width });
+		if (next <= to) add(f({ min: next, max: to }));
 		info.cols = out.sort((a, b) => a.min - b.min);
 	}
 }

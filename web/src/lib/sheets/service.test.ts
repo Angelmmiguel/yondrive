@@ -210,3 +210,35 @@ describe('sorting whole columns', () => {
 		expect(values(svc)).toEqual(values(used));
 	});
 });
+
+describe('formatting large areas', () => {
+	it('formats whole columns in one pass, keeping hidden columns hidden', async () => {
+		const svc = new SheetService();
+		const { sheets } = await svc.load(fixture(), 'xlsx');
+		const s = sheets[0].id;
+		svc.setColWidth(s, 2, 2, 30);
+		svc.setColWidth(s, 3, 5, 12);
+		const info = svc.sheets()[0].colInfo;
+		// Hide D:F as a file would.
+		for (const c of info) if (c.min === 3) c.hidden = true;
+		const t = performance.now();
+		const r = svc.setStyle(s, { top: 0, left: 0, bottom: 1048575, right: 16383 }, { fill: '#ff0000' });
+		expect(performance.now() - t).toBeLessThan(1000);
+		expect(r.partial).toBeUndefined();
+		const cols = svc.sheets()[0].colInfo;
+		expect(cols.find((c) => c.min <= 3 && c.max >= 3)).toMatchObject({ width: 12, hidden: true });
+		expect(cols.find((c) => c.min <= 2 && c.max >= 2)).toMatchObject({ width: 30 });
+		expect(cols.reduce((n, c) => n + c.max - c.min + 1, 0)).toBe(16384);
+		const red = svc.styles()[cols.find((c) => c.min <= 100 && c.max >= 100)!.style!];
+		expect(red.fill).toBe('#ff0000');
+	});
+
+	it('says when only the cells with content were formatted', async () => {
+		const svc = new SheetService();
+		const { sheets } = await svc.load(fixture(), 'xlsx');
+		const s = sheets[0].id;
+		const r = svc.setStyle(s, { top: 0, left: 0, bottom: 9999, right: 99 }, { fill: '#ff0000' });
+		expect(r.partial).toBe(true);
+		expect(svc.setStyle(s, { top: 0, left: 0, bottom: 9, right: 9 }, { fill: '#00ff00' }).partial).toBeUndefined();
+	});
+});
