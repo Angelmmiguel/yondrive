@@ -33,9 +33,15 @@ const (
 	maxBodyBytes = MaxFrameSize + frameOverhead
 )
 
-// largeBodyRoute reports whether a request may carry a frame or a small blob,
-// rather than a JSON document. These get a larger cap and more time to arrive.
+// largeBodyRoute reports whether a request may carry a frame, a small blob or the
+// keys of a whole folder, rather than a small JSON document. These get a larger cap
+// and more time to arrive.
 func largeBodyRoute(r *http.Request) bool {
+	if r.Method == http.MethodPost {
+		rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/nodes/")
+		id, op, found := strings.Cut(rest, "/")
+		return ok && found && op == "rotate" && blobs.ValidID(id)
+	}
 	if r.Method != http.MethodPut {
 		return false
 	}
@@ -141,16 +147,18 @@ func (s *Server) authorizeUpload(ctx context.Context, id string) (store.Upload, 
 }
 
 func uploadView(u store.Upload, frames []int64) oapi.Upload {
+	generation := u.KeyGeneration
 	return oapi.Upload{
-		Id:         u.ID,
-		NodeId:     u.NodeID,
-		VersionId:  u.VersionID,
-		Suite:      oapi.Suite(u.Suite),
-		FrameCount: u.FrameCount,
-		FrameSize:  u.FrameSize,
-		StoredSize: u.StoredSize,
-		Frames:     frames,
-		CreatedAt:  u.CreatedAt,
+		KeyGeneration: &generation,
+		Id:            u.ID,
+		NodeId:        u.NodeID,
+		VersionId:     u.VersionID,
+		Suite:         oapi.Suite(u.Suite),
+		FrameCount:    u.FrameCount,
+		FrameSize:     u.FrameSize,
+		StoredSize:    u.StoredSize,
+		Frames:        frames,
+		CreatedAt:     u.CreatedAt,
 	}
 }
 
@@ -171,17 +179,25 @@ func (s *Server) CreateUpload(ctx context.Context, req oapi.CreateUploadRequestO
 	if _, err := s.authorizeNode(ctx, in.NodeId, permWrite); err != nil {
 		return nil, err
 	}
+	var generation int64
+	if in.KeyGeneration != nil {
+		if *in.KeyGeneration < 1 {
+			return nil, fail(http.StatusPreconditionFailed, codeKeyGenerationConflict)
+		}
+		generation = *in.KeyGeneration
+	}
 	id := store.NewID()
 	u, err := s.store.CreateUpload(ctx, store.Upload{
-		ID:         id,
-		UserID:     principalFrom(ctx).user.ID,
-		NodeID:     in.NodeId,
-		VersionID:  in.VersionId,
-		Suite:      string(in.Suite),
-		FrameCount: in.FrameCount,
-		FrameSize:  in.FrameSize,
-		StoredSize: in.StoredSize,
-		CreatedAt:  s.cfg.Now(),
+		KeyGeneration: generation,
+		ID:            id,
+		UserID:        principalFrom(ctx).user.ID,
+		NodeID:        in.NodeId,
+		VersionID:     in.VersionId,
+		Suite:         string(in.Suite),
+		FrameCount:    in.FrameCount,
+		FrameSize:     in.FrameSize,
+		StoredSize:    in.StoredSize,
+		CreatedAt:     s.cfg.Now(),
 	})
 	if err != nil {
 		return nil, driveError(err)

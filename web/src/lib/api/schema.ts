@@ -1073,7 +1073,8 @@ export interface paths {
         };
         /**
          * Read the change journal
-         * @description What happened to the nodes the signed-in user can reach, in order. Start
+         * @description What happened to the nodes the signed-in user can reach, in order, written
+         *     as it happens: their own, and those a grant covers at that moment. Start
          *     with no cursor, and store each page's `next_cursor`. A client that comes
          *     back with it misses nothing. An operation on a subtree appears once, on its
          *     root.
@@ -1081,6 +1082,200 @@ export interface paths {
         get: operations["listChanges"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find a user by exact username, to share with them
+         * @description There is no listing and no partial match. An unknown username, a disabled
+         *     account and a malformed one all answer `not_found`. Limited per user and per
+         *     address (`rate_limited`). `public_keys` is absent in `none` mode.
+         */
+        get: operations["lookupUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the grants the signed-in user has made
+         * @description With the links, this is the "shared by me" page.
+         */
+        get: operations["listGrantsMade"];
+        put?: never;
+        /**
+         * Share a node with a user
+         * @description Only the owner shares, and a grant covers the subtree. Answers `grant_exists`
+         *     if the user has a grant on this node (change its role instead),
+         *     `invalid_grant` if they are the owner, or the sealed key or signature are the
+         *     wrong size for the mode, `root_immutable`, `node_trashed`, `not_found` if the
+         *     user does not exist, or `key_generation_conflict`.
+         */
+        post: operations["createGrant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/grants/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a grant, or give up one's own
+         * @description By the owner, or by the holder of the grant. Access ends at once. In `e2e`
+         *     mode, an owner revoking MUST then rotate the node and what is under it, as
+         *     the former grantee may have kept the keys: see `rotateNode`.
+         */
+        delete: operations["deleteGrant"];
+        options?: never;
+        head?: never;
+        /**
+         * Change the role of a grant
+         * @description Owner only. Uploads an editor made a viewer had going are dropped.
+         */
+        patch: operations["updateGrant"];
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List who can reach a node through a grant
+         * @description The grants on the node and on the folders above it, nearest first, for anyone
+         *     who can read the node: a client verifies a version's signature against an
+         *     author who holds edit rights, and they are the owner and the editors here.
+         */
+        get: operations["listNodeAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a node's key, after revoking someone
+         * @description Owner only. CRYPTO.md, section 8, says what to send. One transaction swaps the
+         *     key, the old key's link in the chain, the metadata, the wraps and tags of all
+         *     children and the sealed grants, and removes the thumbnail. Versions stay as
+         *     they are, and `key_chain` reaches their keys.
+         *
+         *     This is one node. To revoke from a subtree, rotate its top and then each node
+         *     under it, parents first, so each wrap is made under the parent's new key. A
+         *     node whose `key_generation` has moved on is done, which lets a client resume.
+         *
+         *     Answers `rotate_conflict` if the list of children or grants is not what the
+         *     node has now, because someone has just created or shared one; read them again.
+         *     Also `key_generation_conflict`, `invalid_rotation`, `name_conflict`,
+         *     `root_immutable`, or `too_large` when a folder's children do not fit in 16 MiB.
+         *     Works the same in `none` mode, where nothing is sealed, though nothing needs it.
+         */
+        post: operations["rotateNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared-with-me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the grants the signed-in user holds
+         * @description Each with its node. What is in the owner's trash is left out, so a page can be short with more to come.
+         */
+        get: operations["listSharedWithMe"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List what has been shared with the signed-in user and not marked as read */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notifications/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark notifications as read */
+        post: operations["markNotificationsRead"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1151,6 +1346,12 @@ export interface components {
              *     - `invalid_blob`: the kind and node of a small blob do not agree
              *     - `blob_in_use`: content goes with its versions
              *     - `invalid_cursor`
+             *     - `forbidden` on a node: the caller can see it, and their role does not allow this
+             *     - `key_generation_conflict`: sealed under a key that has been rotated (412)
+             *     - `move_refused`: the move leaves the shared subtree or crosses owners
+             *     - `grant_exists`, `invalid_grant`
+             *     - `invalid_rotation`: a sealed field of a rotation is the wrong size
+             *     - `rotate_conflict`: a rotation does not name what the node has now
              * @example not_found
              */
             code: string;
@@ -1524,7 +1725,21 @@ export interface components {
         Suite: "xchacha20poly1305-v1" | "none";
         /** @enum {string} */
         NodeKind: "file" | "folder";
-        /** @description A file or folder. The server cannot read the sealed fields. */
+        /**
+         * @description What the signed-in user may do with a node: the strongest of owning it and
+         *     of the grants they hold on it and above it. A `viewer` reads. An `editor`
+         *     also creates, renames, moves within the shared subtree, uploads versions and
+         *     trashes, but not on the node a grant is on unless something above it is
+         *     shared too, since those change the folder it lives in. Only an `owner`
+         *     shares, rotates, restores, purges or deletes versions.
+         * @enum {string}
+         */
+        NodeRole: "owner" | "editor" | "viewer";
+        /**
+         * @description A file or folder. The server cannot read the sealed fields. On the node of
+         *     a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
+         *     and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
+         */
         Node: {
             id: string;
             owner_id: string;
@@ -1546,7 +1761,19 @@ export interface components {
             name_tag?: string;
             /** @description Absent until a file's first commit. */
             current_version?: string;
+            /**
+             * @description A rotation removes it. One written by a client that had not yet seen a
+             *     rotation does not open: treat it as missing, and make another.
+             */
             thumb_blob_id?: string;
+            /**
+             * Format: int64
+             * @description Which generation of this node's key is current: what `wrapped_key`,
+             *     `sealed_metadata` and the wraps and tags of its children are sealed
+             *     under. Starts at 1, and every rotation adds one. Always sent.
+             */
+            key_generation?: number;
+            role?: components["schemas"]["NodeRole"];
             /**
              * Format: date-time
              * @description Set on the node that was trashed, not on what is under it.
@@ -1603,6 +1830,13 @@ export interface components {
              * @description 32 bytes.
              */
             name_tag: string;
+            /**
+             * Format: int64
+             * @description The generation of the parent's key that `wrapped_key` and `name_tag` were
+             *     made under. A client MUST send it. If the parent has been rotated since,
+             *     the answer is `key_generation_conflict`.
+             */
+            parent_key_generation?: number;
         };
         /** @description Fields left out stay as they are. */
         UpdateNodeRequest: {
@@ -1614,6 +1848,16 @@ export interface components {
              * @description 32 bytes. A root has none.
              */
             name_tag?: string;
+            /**
+             * Format: int64
+             * @description The generation of this node's key that `sealed_metadata` is sealed under. A client MUST send it with `sealed_metadata`.
+             */
+            key_generation?: number;
+            /**
+             * Format: int64
+             * @description The generation of the parent's key that `name_tag` was made under. A client MUST send it with `name_tag`.
+             */
+            parent_key_generation?: number;
         };
         MoveNodeRequest: {
             parent_id: string;
@@ -1627,11 +1871,21 @@ export interface components {
              * @description 32 bytes, under the new parent.
              */
             name_tag: string;
+            /**
+             * Format: int64
+             * @description The generation of the new parent's key that these were made under. A client MUST send it.
+             */
+            parent_key_generation?: number;
         };
         EmptiedTrash: {
             marked: number;
         };
         VersionSummary: {
+            /**
+             * Format: int64
+             * @description The generation of the node's key this is sealed under. Always sent.
+             */
+            key_generation?: number;
             id: string;
             node_id: string;
             blob_id: string;
@@ -1662,7 +1916,22 @@ export interface components {
              */
             remove_at?: string;
         };
+        KeyLink: {
+            /** Format: int64 */
+            generation: number;
+            /**
+             * Format: byte
+             * @description The key of this generation, sealed under the next one (CRYPTO.md, section 8).
+             */
+            sealed_key: string;
+        };
         Version: components["schemas"]["VersionSummary"] & {
+            /**
+             * @description How to get from the node's current key to the one this version is
+             *     sealed under, newest link first. Absent when that is the current key,
+             *     and always in `none` mode.
+             */
+            key_chain?: components["schemas"]["KeyLink"][];
             /**
              * Format: byte
              * @description 32 bytes of SHA-256 per stored frame, in order.
@@ -1707,8 +1976,20 @@ export interface components {
             frame_size: number;
             /** Format: int64 */
             stored_size: number;
+            /**
+             * Format: int64
+             * @description The generation of the node's key the frames will be sealed under. A client
+             *     MUST send it. A rotation before the commit answers
+             *     `key_generation_conflict` at commit: abort, and upload again under the new key.
+             */
+            key_generation?: number;
         };
         Upload: {
+            /**
+             * Format: int64
+             * @description The generation of the node's key this is sealed under. Always sent.
+             */
+            key_generation?: number;
             /** @description Also the id of the blob this upload becomes. */
             id: string;
             node_id: string;
@@ -1777,8 +2058,15 @@ export interface components {
              */
             reserved_bytes: number;
         };
-        /** @enum {string} */
-        ChangeOp: "created" | "updated" | "moved" | "trashed" | "restored" | "purged" | "removed" | "version" | "version_deleted" | "thumbnail";
+        /**
+         * @description `granted`: a grant on this node was made. `role_changed`: the caller's role
+         *     over it changed. `rotated`: its key changed, along with the wraps and tags of
+         *     its children, so read them again. `revoked`: the caller lost a way of reaching
+         *     this node; read it, and if the answer is `not_found` drop it and all under it.
+         *     Trashing a folder also appears as `trashed` on each grant under it.
+         * @enum {string}
+         */
+        ChangeOp: "created" | "updated" | "moved" | "trashed" | "restored" | "purged" | "removed" | "version" | "version_deleted" | "thumbnail" | "granted" | "role_changed" | "revoked" | "rotated";
         Change: {
             /** Format: int64 */
             seq: number;
@@ -1791,6 +2079,173 @@ export interface components {
             changes: components["schemas"]["Change"][];
             /** @description Where to read from next, also when this page is empty. */
             next_cursor: string;
+        };
+        /** @enum {string} */
+        GrantRole: "viewer" | "editor";
+        /**
+         * @description A role over a node and everything under it. `sealed_key` and `signature` are
+         *     opaque to the server, and empty in `none` mode (CRYPTO.md, section 8). A client
+         *     MUST verify the signature against the granter's pinned Ed25519 key before
+         *     trusting the grant, and that the granter is the node's owner.
+         */
+        Grant: {
+            id: string;
+            node_id: string;
+            grantee_id: string;
+            grantee_username: string;
+            granter_id: string;
+            granter_username: string;
+            role: components["schemas"]["GrantRole"];
+            /**
+             * Format: int64
+             * @description The generation of the node's key that `sealed_key` holds.
+             */
+            key_generation: number;
+            /** Format: byte */
+            sealed_key: string;
+            /** Format: byte */
+            signature: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        GrantedNode: {
+            grant: components["schemas"]["Grant"];
+            node: components["schemas"]["Node"];
+        };
+        GrantPage: {
+            items: components["schemas"]["GrantedNode"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        CreateGrantRequest: {
+            node_id: string;
+            grantee_id: string;
+            role: components["schemas"]["GrantRole"];
+            /**
+             * Format: int64
+             * @description The node's current generation, of the key being sealed.
+             */
+            key_generation: number;
+            /**
+             * Format: byte
+             * @description The node key sealed to the grantee, 105 bytes. Empty in `none` mode.
+             */
+            sealed_key: string;
+            /**
+             * Format: byte
+             * @description The granter's Ed25519 signature, 64 bytes. Empty in `none` mode.
+             */
+            signature: string;
+        };
+        UpdateGrantRequest: {
+            role: components["schemas"]["GrantRole"];
+            /**
+             * Format: byte
+             * @description A new signature, as the role is signed. Empty in `none` mode.
+             */
+            signature: string;
+        };
+        /**
+         * @description One user's way of reaching a node. `grant_id`, `node_id`, `key_generation`,
+         *     `sealed_key` and `signature` are given to the owner only, and `grant_id` to
+         *     the holder of the grant too.
+         */
+        NodeAccess: {
+            user_id: string;
+            username: string;
+            role: components["schemas"]["GrantRole"];
+            /** @description The grant is on a folder above the node. */
+            inherited: boolean;
+            grant_id?: string;
+            node_id?: string;
+            /** Format: int64 */
+            key_generation?: number;
+            /** Format: byte */
+            sealed_key?: string;
+            /** Format: byte */
+            signature?: string;
+        };
+        NodeAccessList: {
+            access: components["schemas"]["NodeAccess"][];
+        };
+        UserLookup: {
+            id: string;
+            username: string;
+            public_keys?: components["schemas"]["PublicKeys"];
+        };
+        /** @description A grant its holder has not marked as read. Ids only, as names are sealed. */
+        Notification: {
+            grant_id: string;
+            node_id: string;
+            granter_id: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        NotificationList: {
+            /** @description The newest first, at most 50. */
+            notifications: components["schemas"]["Notification"][];
+            has_more: boolean;
+        };
+        MarkNotificationsReadRequest: {
+            /** @description Which to mark. Absent marks all of them. */
+            grant_ids?: string[];
+        };
+        RotatedChild: {
+            id: string;
+            /**
+             * Format: byte
+             * @description The child's own key, unchanged, wrapped under the node's new key. Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description 32 bytes, under the node's new key.
+             */
+            name_tag: string;
+        };
+        RotatedGrant: {
+            grantee_id: string;
+            /**
+             * Format: byte
+             * @description The new key sealed to the grantee, 105 bytes. Empty in `none` mode.
+             */
+            sealed_key: string;
+            /**
+             * Format: byte
+             * @description 64 bytes, over the new generation. Empty in `none` mode.
+             */
+            signature: string;
+        };
+        RotateNodeRequest: {
+            /**
+             * Format: int64
+             * @description The node's current generation, the one being replaced.
+             */
+            key_generation: number;
+            /**
+             * Format: int64
+             * @description The generation of the parent's key that `wrapped_key` is wrapped under.
+             */
+            parent_key_generation: number;
+            /**
+             * Format: byte
+             * @description The new key wrapped under the parent. Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description The old key sealed under the new one, 73 bytes. Empty in `none` mode.
+             */
+            previous_key: string;
+            /**
+             * Format: byte
+             * @description The node's metadata sealed under the new key. 1 byte to 64 KiB.
+             */
+            sealed_metadata: string;
+            /** @description Every direct child, in the trash too. */
+            children: components["schemas"]["RotatedChild"][];
+            /** @description Every grant on this node. Grants above and below it are not affected. */
+            grants: components["schemas"]["RotatedGrant"][];
         };
         AdminHealth: {
             version: string;
@@ -3317,6 +3772,252 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ChangePage"];
                 };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    lookupUser: {
+        parameters: {
+            query: {
+                username: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserLookup"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listGrantsMade: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description The grant. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateGrant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGrantRequest"];
+            };
+        };
+        responses: {
+            /** @description The grant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Grant"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listNodeAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeAccessList"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    rotateNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateNodeRequest"];
+            };
+        };
+        responses: {
+            /** @description The node, at its new generation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listSharedWithMe: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationList"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    markNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkNotificationsReadRequest"];
+            };
+        };
+        responses: {
+            /** @description Marked. Ids that are not the caller's are ignored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Error"];
         };

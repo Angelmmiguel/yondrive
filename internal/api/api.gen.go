@@ -21,10 +21,14 @@ import (
 // Defines values for ChangeOp.
 const (
 	ChangeOpCreated        ChangeOp = "created"
+	ChangeOpGranted        ChangeOp = "granted"
 	ChangeOpMoved          ChangeOp = "moved"
 	ChangeOpPurged         ChangeOp = "purged"
 	ChangeOpRemoved        ChangeOp = "removed"
 	ChangeOpRestored       ChangeOp = "restored"
+	ChangeOpRevoked        ChangeOp = "revoked"
+	ChangeOpRoleChanged    ChangeOp = "role_changed"
+	ChangeOpRotated        ChangeOp = "rotated"
 	ChangeOpThumbnail      ChangeOp = "thumbnail"
 	ChangeOpTrashed        ChangeOp = "trashed"
 	ChangeOpUpdated        ChangeOp = "updated"
@@ -37,6 +41,8 @@ func (e ChangeOp) Valid() bool {
 	switch e {
 	case ChangeOpCreated:
 		return true
+	case ChangeOpGranted:
+		return true
 	case ChangeOpMoved:
 		return true
 	case ChangeOpPurged:
@@ -44,6 +50,12 @@ func (e ChangeOp) Valid() bool {
 	case ChangeOpRemoved:
 		return true
 	case ChangeOpRestored:
+		return true
+	case ChangeOpRevoked:
+		return true
+	case ChangeOpRoleChanged:
+		return true
+	case ChangeOpRotated:
 		return true
 	case ChangeOpThumbnail:
 		return true
@@ -54,6 +66,24 @@ func (e ChangeOp) Valid() bool {
 	case ChangeOpVersion:
 		return true
 	case ChangeOpVersionDeleted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GrantRole.
+const (
+	GrantRoleEditor GrantRole = "editor"
+	GrantRoleViewer GrantRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the GrantRole enum.
+func (e GrantRole) Valid() bool {
+	switch e {
+	case GrantRoleEditor:
+		return true
+	case GrantRoleViewer:
 		return true
 	default:
 		return false
@@ -120,6 +150,27 @@ func (e NodeKind) Valid() bool {
 	case File:
 		return true
 	case Folder:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for NodeRole.
+const (
+	NodeRoleEditor NodeRole = "editor"
+	NodeRoleOwner  NodeRole = "owner"
+	NodeRoleViewer NodeRole = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the NodeRole enum.
+func (e NodeRole) Valid() bool {
+	switch e {
+	case NodeRoleEditor:
+		return true
+	case NodeRoleOwner:
+		return true
+	case NodeRoleViewer:
 		return true
 	default:
 		return false
@@ -241,11 +292,21 @@ type AdminHealth struct {
 type Change struct {
 	At     time.Time `json:"at"`
 	NodeId string    `json:"node_id"`
-	Op     ChangeOp  `json:"op"`
-	Seq    int64     `json:"seq"`
+
+	// Op `granted`: a grant on this node was made. `role_changed`: the caller's role
+	// over it changed. `rotated`: its key changed, along with the wraps and tags of
+	// its children, so read them again. `revoked`: the caller lost a way of reaching
+	// this node; read it, and if the answer is `not_found` drop it and all under it.
+	// Trashing a folder also appears as `trashed` on each grant under it.
+	Op  ChangeOp `json:"op"`
+	Seq int64    `json:"seq"`
 }
 
-// ChangeOp defines model for ChangeOp.
+// ChangeOp `granted`: a grant on this node was made. `role_changed`: the caller's role
+// over it changed. `rotated`: its key changed, along with the wraps and tags of
+// its children, so read them again. `revoked`: the caller lost a way of reaching
+// this node; read it, and if the answer is `not_found` drop it and all under it.
+// Trashing a folder also appears as `trashed` on each grant under it.
 type ChangeOp string
 
 // ChangePage defines model for ChangePage.
@@ -286,6 +347,22 @@ type ConfirmTOTPRequest struct {
 	Code string `json:"code"`
 }
 
+// CreateGrantRequest defines model for CreateGrantRequest.
+type CreateGrantRequest struct {
+	GranteeId string `json:"grantee_id"`
+
+	// KeyGeneration The node's current generation, of the key being sealed.
+	KeyGeneration int64     `json:"key_generation"`
+	NodeId        string    `json:"node_id"`
+	Role          GrantRole `json:"role"`
+
+	// SealedKey The node key sealed to the grantee, 105 bytes. Empty in `none` mode.
+	SealedKey []byte `json:"sealed_key"`
+
+	// Signature The granter's Ed25519 signature, 64 bytes. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+}
+
 // CreateInviteRequest defines model for CreateInviteRequest.
 type CreateInviteRequest struct {
 	// CurrentAuthKey Either current auth key. Required when `role` is `admin`.
@@ -308,6 +385,11 @@ type CreateNodeRequest struct {
 	// NameTag 32 bytes.
 	NameTag  []byte `json:"name_tag"`
 	ParentId string `json:"parent_id"`
+
+	// ParentKeyGeneration The generation of the parent's key that `wrapped_key` and `name_tag` were
+	// made under. A client MUST send it. If the parent has been rotated since,
+	// the answer is `key_generation_conflict`.
+	ParentKeyGeneration *int64 `json:"parent_key_generation,omitempty"`
 
 	// SealedMetadata 1 byte to 64 KiB.
 	SealedMetadata []byte `json:"sealed_metadata"`
@@ -349,9 +431,14 @@ type CreateUploadRequest struct {
 	FrameCount int64 `json:"frame_count"`
 
 	// FrameSize Plaintext bytes per frame.
-	FrameSize  int64  `json:"frame_size"`
-	NodeId     string `json:"node_id"`
-	StoredSize int64  `json:"stored_size"`
+	FrameSize int64 `json:"frame_size"`
+
+	// KeyGeneration The generation of the node's key the frames will be sealed under. A client
+	// MUST send it. A rotation before the commit answers
+	// `key_generation_conflict` at commit: abort, and upload again under the new key.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
+	NodeId        string `json:"node_id"`
+	StoredSize    int64  `json:"stored_size"`
 
 	// Suite How an item is protected. It is recorded on every item, and must be the
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
@@ -468,10 +555,61 @@ type Error struct {
 	// - `invalid_blob`: the kind and node of a small blob do not agree
 	// - `blob_in_use`: content goes with its versions
 	// - `invalid_cursor`
+	// - `forbidden` on a node: the caller can see it, and their role does not allow this
+	// - `key_generation_conflict`: sealed under a key that has been rotated (412)
+	// - `move_refused`: the move leaves the shared subtree or crosses owners
+	// - `grant_exists`, `invalid_grant`
+	// - `invalid_rotation`: a sealed field of a rotation is the wrong size
+	// - `rotate_conflict`: a rotation does not name what the node has now
 	//
 	//
 	// Examples: not_found
 	Code string `json:"code"`
+}
+
+// Grant A role over a node and everything under it. `sealed_key` and `signature` are
+// opaque to the server, and empty in `none` mode (CRYPTO.md, section 8). A client
+// MUST verify the signature against the granter's pinned Ed25519 key before
+// trusting the grant, and that the granter is the node's owner.
+type Grant struct {
+	CreatedAt       time.Time `json:"created_at"`
+	GranteeId       string    `json:"grantee_id"`
+	GranteeUsername string    `json:"grantee_username"`
+	GranterId       string    `json:"granter_id"`
+	GranterUsername string    `json:"granter_username"`
+	Id              string    `json:"id"`
+
+	// KeyGeneration The generation of the node's key that `sealed_key` holds.
+	KeyGeneration int64     `json:"key_generation"`
+	NodeId        string    `json:"node_id"`
+	Role          GrantRole `json:"role"`
+	SealedKey     []byte    `json:"sealed_key"`
+	Signature     []byte    `json:"signature"`
+}
+
+// GrantPage defines model for GrantPage.
+type GrantPage struct {
+	Items []GrantedNode `json:"items"`
+
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// GrantRole defines model for GrantRole.
+type GrantRole string
+
+// GrantedNode defines model for GrantedNode.
+type GrantedNode struct {
+	// Grant A role over a node and everything under it. `sealed_key` and `signature` are
+	// opaque to the server, and empty in `none` mode (CRYPTO.md, section 8). A client
+	// MUST verify the signature against the granter's pinned Ed25519 key before
+	// trusting the grant, and that the granter is the node's owner.
+	Grant Grant `json:"grant"`
+
+	// Node A file or folder. The server cannot read the sealed fields. On the node of
+	// a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
+	// and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
+	Node Node `json:"node"`
 }
 
 // Health defines model for Health.
@@ -531,6 +669,14 @@ type KDF struct {
 // KDFName defines model for KDF.Name.
 type KDFName string
 
+// KeyLink defines model for KeyLink.
+type KeyLink struct {
+	Generation int64 `json:"generation"`
+
+	// SealedKey The key of this generation, sealed under the next one (CRYPTO.md, section 8).
+	SealedKey []byte `json:"sealed_key"`
+}
+
 // LoginRequest defines model for LoginRequest.
 type LoginRequest struct {
 	// AuthKey Either auth key, 32 bytes.
@@ -544,6 +690,12 @@ type LoginRequest struct {
 	Username         string  `json:"username"`
 }
 
+// MarkNotificationsReadRequest defines model for MarkNotificationsReadRequest.
+type MarkNotificationsReadRequest struct {
+	// GrantIds Which to mark. Absent marks all of them.
+	GrantIds *[]string `json:"grant_ids,omitempty"`
+}
+
 // Mode The encryption mode of the whole server, fixed at setup. Absent from
 // health until then.
 type Mode string
@@ -553,6 +705,9 @@ type MoveNodeRequest struct {
 	// NameTag 32 bytes, under the new parent.
 	NameTag  []byte `json:"name_tag"`
 	ParentId string `json:"parent_id"`
+
+	// ParentKeyGeneration The generation of the new parent's key that these were made under. A client MUST send it.
+	ParentKeyGeneration *int64 `json:"parent_key_generation,omitempty"`
 
 	// WrappedKey The node key wrapped under the new parent. Empty in `none` mode.
 	WrappedKey []byte `json:"wrapped_key"`
@@ -586,14 +741,21 @@ type NewAccount struct {
 	Username string `json:"username"`
 }
 
-// Node A file or folder. The server cannot read the sealed fields.
+// Node A file or folder. The server cannot read the sealed fields. On the node of
+// a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
+// and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
 type Node struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	// CurrentVersion Absent until a file's first commit.
-	CurrentVersion *string  `json:"current_version,omitempty"`
-	Id             string   `json:"id"`
-	Kind           NodeKind `json:"kind"`
+	CurrentVersion *string `json:"current_version,omitempty"`
+	Id             string  `json:"id"`
+
+	// KeyGeneration Which generation of this node's key is current: what `wrapped_key`,
+	// `sealed_metadata` and the wraps and tags of its children are sealed
+	// under. Starts at 1, and every rotation adds one. Always sent.
+	KeyGeneration *int64   `json:"key_generation,omitempty"`
+	Kind          NodeKind `json:"kind"`
 
 	// NameTag Absent on a root.
 	NameTag *[]byte `json:"name_tag,omitempty"`
@@ -604,12 +766,23 @@ type Node struct {
 	PurgedAt *time.Time `json:"purged_at,omitempty"`
 
 	// RemoveAt When the bytes go. Restoring before then cancels it.
-	RemoveAt       *time.Time `json:"remove_at,omitempty"`
-	SealedMetadata []byte     `json:"sealed_metadata"`
+	RemoveAt *time.Time `json:"remove_at,omitempty"`
+
+	// Role What the signed-in user may do with a node: the strongest of owning it and
+	// of the grants they hold on it and above it. A `viewer` reads. An `editor`
+	// also creates, renames, moves within the shared subtree, uploads versions and
+	// trashes, but not on the node a grant is on unless something above it is
+	// shared too, since those change the folder it lives in. Only an `owner`
+	// shares, rotates, restores, purges or deletes versions.
+	Role           *NodeRole `json:"role,omitempty"`
+	SealedMetadata []byte    `json:"sealed_metadata"`
 
 	// Suite How an item is protected. It is recorded on every item, and must be the
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
-	Suite       Suite   `json:"suite"`
+	Suite Suite `json:"suite"`
+
+	// ThumbBlobId A rotation removes it. One written by a client that had not yet seen a
+	// rotation does not open: treat it as missing, and make another.
 	ThumbBlobId *string `json:"thumb_blob_id,omitempty"`
 
 	// TrashedAt Set on the node that was trashed, not on what is under it.
@@ -620,6 +793,28 @@ type Node struct {
 	WrappedKey []byte `json:"wrapped_key"`
 }
 
+// NodeAccess One user's way of reaching a node. `grant_id`, `node_id`, `key_generation`,
+// `sealed_key` and `signature` are given to the owner only, and `grant_id` to
+// the holder of the grant too.
+type NodeAccess struct {
+	GrantId *string `json:"grant_id,omitempty"`
+
+	// Inherited The grant is on a folder above the node.
+	Inherited     bool      `json:"inherited"`
+	KeyGeneration *int64    `json:"key_generation,omitempty"`
+	NodeId        *string   `json:"node_id,omitempty"`
+	Role          GrantRole `json:"role"`
+	SealedKey     *[]byte   `json:"sealed_key,omitempty"`
+	Signature     *[]byte   `json:"signature,omitempty"`
+	UserId        string    `json:"user_id"`
+	Username      string    `json:"username"`
+}
+
+// NodeAccessList defines model for NodeAccessList.
+type NodeAccessList struct {
+	Access []NodeAccess `json:"access"`
+}
+
 // NodeKind defines model for NodeKind.
 type NodeKind string
 
@@ -628,6 +823,30 @@ type NodePage struct {
 	// NextCursor Present if there may be more.
 	NextCursor *string `json:"next_cursor,omitempty"`
 	Nodes      []Node  `json:"nodes"`
+}
+
+// NodeRole What the signed-in user may do with a node: the strongest of owning it and
+// of the grants they hold on it and above it. A `viewer` reads. An `editor`
+// also creates, renames, moves within the shared subtree, uploads versions and
+// trashes, but not on the node a grant is on unless something above it is
+// shared too, since those change the folder it lives in. Only an `owner`
+// shares, rotates, restores, purges or deletes versions.
+type NodeRole string
+
+// Notification A grant its holder has not marked as read. Ids only, as names are sealed.
+type Notification struct {
+	CreatedAt time.Time `json:"created_at"`
+	GrantId   string    `json:"grant_id"`
+	GranterId string    `json:"granter_id"`
+	NodeId    string    `json:"node_id"`
+}
+
+// NotificationList defines model for NotificationList.
+type NotificationList struct {
+	HasMore bool `json:"has_more"`
+
+	// Notifications The newest first, at most 50.
+	Notifications []Notification `json:"notifications"`
 }
 
 // Profile defines model for Profile.
@@ -694,6 +913,52 @@ type RestoreVersionRequest struct {
 
 // Role defines model for Role.
 type Role string
+
+// RotateNodeRequest defines model for RotateNodeRequest.
+type RotateNodeRequest struct {
+	// Children Every direct child, in the trash too.
+	Children []RotatedChild `json:"children"`
+
+	// Grants Every grant on this node. Grants above and below it are not affected.
+	Grants []RotatedGrant `json:"grants"`
+
+	// KeyGeneration The node's current generation, the one being replaced.
+	KeyGeneration int64 `json:"key_generation"`
+
+	// ParentKeyGeneration The generation of the parent's key that `wrapped_key` is wrapped under.
+	ParentKeyGeneration int64 `json:"parent_key_generation"`
+
+	// PreviousKey The old key sealed under the new one, 73 bytes. Empty in `none` mode.
+	PreviousKey []byte `json:"previous_key"`
+
+	// SealedMetadata The node's metadata sealed under the new key. 1 byte to 64 KiB.
+	SealedMetadata []byte `json:"sealed_metadata"`
+
+	// WrappedKey The new key wrapped under the parent. Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// RotatedChild defines model for RotatedChild.
+type RotatedChild struct {
+	Id string `json:"id"`
+
+	// NameTag 32 bytes, under the node's new key.
+	NameTag []byte `json:"name_tag"`
+
+	// WrappedKey The child's own key, unchanged, wrapped under the node's new key. Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// RotatedGrant defines model for RotatedGrant.
+type RotatedGrant struct {
+	GranteeId string `json:"grantee_id"`
+
+	// SealedKey The new key sealed to the grantee, 105 bytes. Empty in `none` mode.
+	SealedKey []byte `json:"sealed_key"`
+
+	// Signature 64 bytes, over the new generation. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+}
 
 // ServerSettings defines model for ServerSettings.
 type ServerSettings struct {
@@ -818,11 +1083,25 @@ type TOTPEnrolment struct {
 	Uri string `json:"uri"`
 }
 
+// UpdateGrantRequest defines model for UpdateGrantRequest.
+type UpdateGrantRequest struct {
+	Role GrantRole `json:"role"`
+
+	// Signature A new signature, as the role is signed. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+}
+
 // UpdateNodeRequest Fields left out stay as they are.
 type UpdateNodeRequest struct {
+	// KeyGeneration The generation of this node's key that `sealed_metadata` is sealed under. A client MUST send it with `sealed_metadata`.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
+
 	// NameTag 32 bytes. A root has none.
-	NameTag        *[]byte `json:"name_tag,omitempty"`
-	SealedMetadata *[]byte `json:"sealed_metadata,omitempty"`
+	NameTag *[]byte `json:"name_tag,omitempty"`
+
+	// ParentKeyGeneration The generation of the parent's key that `name_tag` was made under. A client MUST send it with `name_tag`.
+	ParentKeyGeneration *int64  `json:"parent_key_generation,omitempty"`
+	SealedMetadata      *[]byte `json:"sealed_metadata,omitempty"`
 
 	// Suite How an item is protected. It is recorded on every item, and must be the
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
@@ -864,9 +1143,12 @@ type Upload struct {
 	Frames []int64 `json:"frames"`
 
 	// Id Also the id of the blob this upload becomes.
-	Id         string `json:"id"`
-	NodeId     string `json:"node_id"`
-	StoredSize int64  `json:"stored_size"`
+	Id string `json:"id"`
+
+	// KeyGeneration The generation of the node's key this is sealed under. Always sent.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
+	NodeId        string `json:"node_id"`
+	StoredSize    int64  `json:"stored_size"`
 
 	// Suite How an item is protected. It is recorded on every item, and must be the
 	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
@@ -879,6 +1161,13 @@ type UserKeys struct {
 	PublicKeys PublicKeys `json:"public_keys"`
 	UserId     string     `json:"user_id"`
 	Username   string     `json:"username"`
+}
+
+// UserLookup defines model for UserLookup.
+type UserLookup struct {
+	Id         string      `json:"id"`
+	PublicKeys *PublicKeys `json:"public_keys,omitempty"`
+	Username   string      `json:"username"`
 }
 
 // ValidateURLRequest defines model for ValidateURLRequest.
@@ -916,6 +1205,14 @@ type Version struct {
 	FrameHashes []byte `json:"frame_hashes"`
 	FrameSize   int64  `json:"frame_size"`
 	Id          string `json:"id"`
+
+	// KeyChain How to get from the node's current key to the one this version is
+	// sealed under, newest link first. Absent when that is the current key,
+	// and always in `none` mode.
+	KeyChain *[]KeyLink `json:"key_chain,omitempty"`
+
+	// KeyGeneration The generation of the node's key this is sealed under. Always sent.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
 
 	// Manifest As sent at commit.
 	Manifest []byte `json:"manifest"`
@@ -958,7 +1255,10 @@ type VersionSummary struct {
 	FrameCount       int64      `json:"frame_count"`
 	FrameSize        int64      `json:"frame_size"`
 	Id               string     `json:"id"`
-	NodeId           string     `json:"node_id"`
+
+	// KeyGeneration The generation of the node's key this is sealed under. Always sent.
+	KeyGeneration *int64 `json:"key_generation,omitempty"`
+	NodeId        string `json:"node_id"`
 
 	// RemoveAt When a deleted version goes.
 	RemoveAt   *time.Time `json:"remove_at,omitempty"`
@@ -1018,6 +1318,15 @@ type ListChangesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListGrantsMadeParams defines parameters for ListGrantsMade.
+type ListGrantsMadeParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListIndexBlobsParams defines parameters for ListIndexBlobs.
 type ListIndexBlobsParams struct {
 	// Cursor The `next_cursor` of the previous page.
@@ -1045,6 +1354,15 @@ type ListVersionsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ListSharedWithMeParams defines parameters for ListSharedWithMe.
+type ListSharedWithMeParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListTrashParams defines parameters for ListTrash.
 type ListTrashParams struct {
 	// Cursor The `next_cursor` of the previous page.
@@ -1058,6 +1376,11 @@ type ListTrashParams struct {
 type PutFrameParams struct {
 	// XContentSHA256 The SHA-256 of the body, in padded standard base64.
 	XContentSHA256 ContentSHA256 `json:"X-Content-SHA256"`
+}
+
+// LookupUserParams defines parameters for LookupUser.
+type LookupUserParams struct {
+	Username string `form:"username" json:"username"`
 }
 
 // CreateInviteJSONRequestBody defines body for CreateInvite for application/json ContentType.
@@ -1096,6 +1419,12 @@ type DisableTOTPJSONRequestBody = DisableTOTPRequest
 // EnrolTOTPJSONRequestBody defines body for EnrolTOTP for application/json ContentType.
 type EnrolTOTPJSONRequestBody = CurrentCredential
 
+// CreateGrantJSONRequestBody defines body for CreateGrant for application/json ContentType.
+type CreateGrantJSONRequestBody = CreateGrantRequest
+
+// UpdateGrantJSONRequestBody defines body for UpdateGrant for application/json ContentType.
+type UpdateGrantJSONRequestBody = UpdateGrantRequest
+
 // CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
 type CreateTokenJSONRequestBody = CreateTokenRequest
 
@@ -1111,8 +1440,14 @@ type UpdateNodeJSONRequestBody = UpdateNodeRequest
 // MoveNodeJSONRequestBody defines body for MoveNode for application/json ContentType.
 type MoveNodeJSONRequestBody = MoveNodeRequest
 
+// RotateNodeJSONRequestBody defines body for RotateNode for application/json ContentType.
+type RotateNodeJSONRequestBody = RotateNodeRequest
+
 // RestoreVersionJSONRequestBody defines body for RestoreVersion for application/json ContentType.
 type RestoreVersionJSONRequestBody = RestoreVersionRequest
+
+// MarkNotificationsReadJSONRequestBody defines body for MarkNotificationsRead for application/json ContentType.
+type MarkNotificationsReadJSONRequestBody = MarkNotificationsReadRequest
 
 // PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
 type PutSessionKeyJSONRequestBody = SessionKey
@@ -1203,6 +1538,18 @@ type ServerInterface interface {
 	// ListChanges Read the change journal
 	// (GET /api/v1/changes)
 	ListChanges(w http.ResponseWriter, r *http.Request, params ListChangesParams)
+	// ListGrantsMade List the grants the signed-in user has made
+	// (GET /api/v1/grants)
+	ListGrantsMade(w http.ResponseWriter, r *http.Request, params ListGrantsMadeParams)
+	// CreateGrant Share a node with a user
+	// (POST /api/v1/grants)
+	CreateGrant(w http.ResponseWriter, r *http.Request)
+	// DeleteGrant Revoke a grant, or give up one's own
+	// (DELETE /api/v1/grants/{id})
+	DeleteGrant(w http.ResponseWriter, r *http.Request, id ID)
+	// UpdateGrant Change the role of a grant
+	// (PATCH /api/v1/grants/{id})
+	UpdateGrant(w http.ResponseWriter, r *http.Request, id ID)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
@@ -1242,6 +1589,9 @@ type ServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(w http.ResponseWriter, r *http.Request, id ID, params ListChildrenParams)
+	// ListNodeAccess List who can reach a node through a grant
+	// (GET /api/v1/nodes/{id}/grants)
+	ListNodeAccess(w http.ResponseWriter, r *http.Request, id ID)
 	// MoveNode Move a node to another folder
 	// (POST /api/v1/nodes/{id}/move)
 	MoveNode(w http.ResponseWriter, r *http.Request, id ID)
@@ -1251,6 +1601,9 @@ type ServerInterface interface {
 	// RestoreNode Take a node out of the trash
 	// (POST /api/v1/nodes/{id}/restore)
 	RestoreNode(w http.ResponseWriter, r *http.Request, id ID)
+	// RotateNode Replace a node's key, after revoking someone
+	// (POST /api/v1/nodes/{id}/rotate)
+	RotateNode(w http.ResponseWriter, r *http.Request, id ID)
 	// TrashNode Put a node and its subtree in the trash
 	// (POST /api/v1/nodes/{id}/trash)
 	TrashNode(w http.ResponseWriter, r *http.Request, id ID)
@@ -1266,6 +1619,12 @@ type ServerInterface interface {
 	// RestoreVersion Make a new current version from an older one
 	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
 	RestoreVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID)
+	// ListNotifications List what has been shared with the signed-in user and not marked as read
+	// (GET /api/v1/notifications)
+	ListNotifications(w http.ResponseWriter, r *http.Request)
+	// MarkNotificationsRead Mark notifications as read
+	// (POST /api/v1/notifications/read)
+	MarkNotificationsRead(w http.ResponseWriter, r *http.Request)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(w http.ResponseWriter, r *http.Request)
@@ -1284,6 +1643,9 @@ type ServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(w http.ResponseWriter, r *http.Request)
+	// ListSharedWithMe List the grants the signed-in user holds
+	// (GET /api/v1/shared-with-me)
+	ListSharedWithMe(w http.ResponseWriter, r *http.Request, params ListSharedWithMeParams)
 	// ListTrash List the signed-in user's trash
 	// (GET /api/v1/trash)
 	ListTrash(w http.ResponseWriter, r *http.Request, params ListTrashParams)
@@ -1305,6 +1667,9 @@ type ServerInterface interface {
 	// PutFrame Send one stored frame
 	// (PUT /api/v1/uploads/{id}/frames/{n})
 	PutFrame(w http.ResponseWriter, r *http.Request, id ID, n int64, params PutFrameParams)
+	// LookupUser Find a user by exact username, to share with them
+	// (GET /api/v1/users/lookup)
+	LookupUser(w http.ResponseWriter, r *http.Request, params LookupUserParams)
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(w http.ResponseWriter, r *http.Request, id ID)
@@ -1900,6 +2265,118 @@ func (siw *ServerInterfaceWrapper) ListChanges(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListGrantsMade operation middleware
+func (siw *ServerInterfaceWrapper) ListGrantsMade(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListGrantsMadeParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGrantsMade(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateGrant operation middleware
+func (siw *ServerInterfaceWrapper) CreateGrant(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateGrant(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGrant operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGrant(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateGrant operation middleware
+func (siw *ServerInterfaceWrapper) UpdateGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateGrant(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealth operation middleware
 func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Request) {
 
@@ -2191,6 +2668,32 @@ func (siw *ServerInterfaceWrapper) ListChildren(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListNodeAccess operation middleware
+func (siw *ServerInterfaceWrapper) ListNodeAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNodeAccess(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MoveNode operation middleware
 func (siw *ServerInterfaceWrapper) MoveNode(w http.ResponseWriter, r *http.Request) {
 
@@ -2260,6 +2763,32 @@ func (siw *ServerInterfaceWrapper) RestoreNode(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RestoreNode(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RotateNode operation middleware
+func (siw *ServerInterfaceWrapper) RotateNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotateNode(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2455,6 +2984,34 @@ func (siw *ServerInterfaceWrapper) RestoreVersion(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// ListNotifications operation middleware
+func (siw *ServerInterfaceWrapper) ListNotifications(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListNotifications(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkNotificationsRead operation middleware
+func (siw *ServerInterfaceWrapper) MarkNotificationsRead(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkNotificationsRead(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSessionKey operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSessionKey(w http.ResponseWriter, r *http.Request) {
 
@@ -2530,6 +3087,52 @@ func (siw *ServerInterfaceWrapper) ValidateSetupURL(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ValidateSetupURL(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSharedWithMe operation middleware
+func (siw *ServerInterfaceWrapper) ListSharedWithMe(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSharedWithMeParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSharedWithMe(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2754,6 +3357,39 @@ func (siw *ServerInterfaceWrapper) PutFrame(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// LookupUser operation middleware
+func (siw *ServerInterfaceWrapper) LookupUser(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params LookupUserParams
+
+	// ------------- Required query parameter "username" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "username", r.URL.Query(), &params.Username, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "username"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "username", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LookupUser(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUserKeys operation middleware
 func (siw *ServerInterfaceWrapper) GetUserKeys(w http.ResponseWriter, r *http.Request) {
 
@@ -2959,6 +3595,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/blobs/{id}", wrapper.PutSmallBlob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/index", wrapper.ListIndexBlobs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/changes", wrapper.ListChanges)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/users/lookup", wrapper.LookupUser)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/grants", wrapper.ListGrantsMade)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/grants", wrapper.CreateGrant)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/grants/{id}", wrapper.DeleteGrant)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/api/v1/grants/{id}", wrapper.UpdateGrant)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/grants", wrapper.ListNodeAccess)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/rotate", wrapper.RotateNode)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/shared-with-me", wrapper.ListSharedWithMe)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/notifications", wrapper.ListNotifications)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/notifications/read", wrapper.MarkNotificationsRead)
 
 	return m
 }
@@ -3950,6 +4596,157 @@ func (response ListChangesdefaultJSONResponse) VisitListChangesResponse(w http.R
 	return err
 }
 
+type ListGrantsMadeRequestObject struct {
+	Params ListGrantsMadeParams
+}
+
+type ListGrantsMadeResponseObject interface {
+	VisitListGrantsMadeResponse(w http.ResponseWriter) error
+}
+
+type ListGrantsMade200JSONResponse GrantPage
+
+func (response ListGrantsMade200JSONResponse) VisitListGrantsMadeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGrantsMadedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListGrantsMadedefaultJSONResponse) VisitListGrantsMadeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGrantRequestObject struct {
+	Body *CreateGrantJSONRequestBody
+}
+
+type CreateGrantResponseObject interface {
+	VisitCreateGrantResponse(w http.ResponseWriter) error
+}
+
+type CreateGrant201JSONResponse Grant
+
+func (response CreateGrant201JSONResponse) VisitCreateGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateGrantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateGrantdefaultJSONResponse) VisitCreateGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGrantRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type DeleteGrantResponseObject interface {
+	VisitDeleteGrantResponse(w http.ResponseWriter) error
+}
+
+type DeleteGrant204Response struct {
+}
+
+func (response DeleteGrant204Response) VisitDeleteGrantResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGrantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteGrantdefaultJSONResponse) VisitDeleteGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGrantRequestObject struct {
+	Id   ID `json:"id"`
+	Body *UpdateGrantJSONRequestBody
+}
+
+type UpdateGrantResponseObject interface {
+	VisitUpdateGrantResponse(w http.ResponseWriter) error
+}
+
+type UpdateGrant200JSONResponse Grant
+
+func (response UpdateGrant200JSONResponse) VisitUpdateGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateGrantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateGrantdefaultJSONResponse) VisitUpdateGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetHealthRequestObject struct {
 }
 
@@ -4462,6 +5259,45 @@ func (response ListChildrendefaultJSONResponse) VisitListChildrenResponse(w http
 	return err
 }
 
+type ListNodeAccessRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type ListNodeAccessResponseObject interface {
+	VisitListNodeAccessResponse(w http.ResponseWriter) error
+}
+
+type ListNodeAccess200JSONResponse NodeAccessList
+
+func (response ListNodeAccess200JSONResponse) VisitListNodeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNodeAccessdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListNodeAccessdefaultJSONResponse) VisitListNodeAccessResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type MoveNodeRequestObject struct {
 	Id   ID `json:"id"`
 	Body *MoveNodeJSONRequestBody
@@ -4569,6 +5405,46 @@ type RestoreNodedefaultJSONResponse struct {
 }
 
 func (response RestoreNodedefaultJSONResponse) VisitRestoreNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotateNodeRequestObject struct {
+	Id   ID `json:"id"`
+	Body *RotateNodeJSONRequestBody
+}
+
+type RotateNodeResponseObject interface {
+	VisitRotateNodeResponse(w http.ResponseWriter) error
+}
+
+type RotateNode200JSONResponse Node
+
+func (response RotateNode200JSONResponse) VisitRotateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotateNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RotateNodedefaultJSONResponse) VisitRotateNodeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4769,6 +5645,77 @@ type RestoreVersiondefaultJSONResponse struct {
 }
 
 func (response RestoreVersiondefaultJSONResponse) VisitRestoreVersionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotificationsRequestObject struct {
+}
+
+type ListNotificationsResponseObject interface {
+	VisitListNotificationsResponse(w http.ResponseWriter) error
+}
+
+type ListNotifications200JSONResponse NotificationList
+
+func (response ListNotifications200JSONResponse) VisitListNotificationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListNotificationsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListNotificationsdefaultJSONResponse) VisitListNotificationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkNotificationsReadRequestObject struct {
+	Body *MarkNotificationsReadJSONRequestBody
+}
+
+type MarkNotificationsReadResponseObject interface {
+	VisitMarkNotificationsReadResponse(w http.ResponseWriter) error
+}
+
+type MarkNotificationsRead204Response struct {
+}
+
+func (response MarkNotificationsRead204Response) VisitMarkNotificationsReadResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type MarkNotificationsReaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response MarkNotificationsReaddefaultJSONResponse) VisitMarkNotificationsReadResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4988,6 +5935,45 @@ type ValidateSetupURLdefaultJSONResponse struct {
 }
 
 func (response ValidateSetupURLdefaultJSONResponse) VisitValidateSetupURLResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedWithMeRequestObject struct {
+	Params ListSharedWithMeParams
+}
+
+type ListSharedWithMeResponseObject interface {
+	VisitListSharedWithMeResponse(w http.ResponseWriter) error
+}
+
+type ListSharedWithMe200JSONResponse GrantPage
+
+func (response ListSharedWithMe200JSONResponse) VisitListSharedWithMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedWithMedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListSharedWithMedefaultJSONResponse) VisitListSharedWithMeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5263,6 +6249,45 @@ func (response PutFramedefaultJSONResponse) VisitPutFrameResponse(w http.Respons
 	return err
 }
 
+type LookupUserRequestObject struct {
+	Params LookupUserParams
+}
+
+type LookupUserResponseObject interface {
+	VisitLookupUserResponse(w http.ResponseWriter) error
+}
+
+type LookupUser200JSONResponse UserLookup
+
+func (response LookupUser200JSONResponse) VisitLookupUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LookupUserdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response LookupUserdefaultJSONResponse) VisitLookupUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUserKeysRequestObject struct {
 	Id ID `json:"id"`
 }
@@ -5376,6 +6401,18 @@ type StrictServerInterface interface {
 	// ListChanges Read the change journal
 	// (GET /api/v1/changes)
 	ListChanges(ctx context.Context, request ListChangesRequestObject) (ListChangesResponseObject, error)
+	// ListGrantsMade List the grants the signed-in user has made
+	// (GET /api/v1/grants)
+	ListGrantsMade(ctx context.Context, request ListGrantsMadeRequestObject) (ListGrantsMadeResponseObject, error)
+	// CreateGrant Share a node with a user
+	// (POST /api/v1/grants)
+	CreateGrant(ctx context.Context, request CreateGrantRequestObject) (CreateGrantResponseObject, error)
+	// DeleteGrant Revoke a grant, or give up one's own
+	// (DELETE /api/v1/grants/{id})
+	DeleteGrant(ctx context.Context, request DeleteGrantRequestObject) (DeleteGrantResponseObject, error)
+	// UpdateGrant Change the role of a grant
+	// (PATCH /api/v1/grants/{id})
+	UpdateGrant(ctx context.Context, request UpdateGrantRequestObject) (UpdateGrantResponseObject, error)
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
@@ -5415,6 +6452,9 @@ type StrictServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(ctx context.Context, request ListChildrenRequestObject) (ListChildrenResponseObject, error)
+	// ListNodeAccess List who can reach a node through a grant
+	// (GET /api/v1/nodes/{id}/grants)
+	ListNodeAccess(ctx context.Context, request ListNodeAccessRequestObject) (ListNodeAccessResponseObject, error)
 	// MoveNode Move a node to another folder
 	// (POST /api/v1/nodes/{id}/move)
 	MoveNode(ctx context.Context, request MoveNodeRequestObject) (MoveNodeResponseObject, error)
@@ -5424,6 +6464,9 @@ type StrictServerInterface interface {
 	// RestoreNode Take a node out of the trash
 	// (POST /api/v1/nodes/{id}/restore)
 	RestoreNode(ctx context.Context, request RestoreNodeRequestObject) (RestoreNodeResponseObject, error)
+	// RotateNode Replace a node's key, after revoking someone
+	// (POST /api/v1/nodes/{id}/rotate)
+	RotateNode(ctx context.Context, request RotateNodeRequestObject) (RotateNodeResponseObject, error)
 	// TrashNode Put a node and its subtree in the trash
 	// (POST /api/v1/nodes/{id}/trash)
 	TrashNode(ctx context.Context, request TrashNodeRequestObject) (TrashNodeResponseObject, error)
@@ -5439,6 +6482,12 @@ type StrictServerInterface interface {
 	// RestoreVersion Make a new current version from an older one
 	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
 	RestoreVersion(ctx context.Context, request RestoreVersionRequestObject) (RestoreVersionResponseObject, error)
+	// ListNotifications List what has been shared with the signed-in user and not marked as read
+	// (GET /api/v1/notifications)
+	ListNotifications(ctx context.Context, request ListNotificationsRequestObject) (ListNotificationsResponseObject, error)
+	// MarkNotificationsRead Mark notifications as read
+	// (POST /api/v1/notifications/read)
+	MarkNotificationsRead(ctx context.Context, request MarkNotificationsReadRequestObject) (MarkNotificationsReadResponseObject, error)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(ctx context.Context, request DeleteSessionKeyRequestObject) (DeleteSessionKeyResponseObject, error)
@@ -5457,6 +6506,9 @@ type StrictServerInterface interface {
 	// ValidateSetupURL Check a public URL
 	// (POST /api/v1/setup/validate-url)
 	ValidateSetupURL(ctx context.Context, request ValidateSetupURLRequestObject) (ValidateSetupURLResponseObject, error)
+	// ListSharedWithMe List the grants the signed-in user holds
+	// (GET /api/v1/shared-with-me)
+	ListSharedWithMe(ctx context.Context, request ListSharedWithMeRequestObject) (ListSharedWithMeResponseObject, error)
 	// ListTrash List the signed-in user's trash
 	// (GET /api/v1/trash)
 	ListTrash(ctx context.Context, request ListTrashRequestObject) (ListTrashResponseObject, error)
@@ -5478,6 +6530,9 @@ type StrictServerInterface interface {
 	// PutFrame Send one stored frame
 	// (PUT /api/v1/uploads/{id}/frames/{n})
 	PutFrame(ctx context.Context, request PutFrameRequestObject) (PutFrameResponseObject, error)
+	// LookupUser Find a user by exact username, to share with them
+	// (GET /api/v1/users/lookup)
+	LookupUser(ctx context.Context, request LookupUserRequestObject) (LookupUserResponseObject, error)
 	// GetUserKeys Fetch a user's public keys
 	// (GET /api/v1/users/{id}/keys)
 	GetUserKeys(ctx context.Context, request GetUserKeysRequestObject) (GetUserKeysResponseObject, error)
@@ -6204,6 +7259,122 @@ func (sh *strictHandler) ListChanges(w http.ResponseWriter, r *http.Request, par
 	}
 }
 
+// ListGrantsMade operation middleware
+func (sh *strictHandler) ListGrantsMade(w http.ResponseWriter, r *http.Request, params ListGrantsMadeParams) {
+	var request ListGrantsMadeRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGrantsMade(ctx, request.(ListGrantsMadeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGrantsMade")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGrantsMadeResponseObject); ok {
+		if err := validResponse.VisitListGrantsMadeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateGrant operation middleware
+func (sh *strictHandler) CreateGrant(w http.ResponseWriter, r *http.Request) {
+	var request CreateGrantRequestObject
+
+	var body CreateGrantJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateGrant(ctx, request.(CreateGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateGrantResponseObject); ok {
+		if err := validResponse.VisitCreateGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGrant operation middleware
+func (sh *strictHandler) DeleteGrant(w http.ResponseWriter, r *http.Request, id ID) {
+	var request DeleteGrantRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGrant(ctx, request.(DeleteGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGrantResponseObject); ok {
+		if err := validResponse.VisitDeleteGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateGrant operation middleware
+func (sh *strictHandler) UpdateGrant(w http.ResponseWriter, r *http.Request, id ID) {
+	var request UpdateGrantRequestObject
+
+	request.Id = id
+
+	var body UpdateGrantJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateGrant(ctx, request.(UpdateGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateGrantResponseObject); ok {
+		if err := validResponse.VisitUpdateGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetHealth operation middleware
 func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	var request GetHealthRequestObject
@@ -6555,6 +7726,32 @@ func (sh *strictHandler) ListChildren(w http.ResponseWriter, r *http.Request, id
 	}
 }
 
+// ListNodeAccess operation middleware
+func (sh *strictHandler) ListNodeAccess(w http.ResponseWriter, r *http.Request, id ID) {
+	var request ListNodeAccessRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListNodeAccess(ctx, request.(ListNodeAccessRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListNodeAccess")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListNodeAccessResponseObject); ok {
+		if err := validResponse.VisitListNodeAccessResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // MoveNode operation middleware
 func (sh *strictHandler) MoveNode(w http.ResponseWriter, r *http.Request, id ID) {
 	var request MoveNodeRequestObject
@@ -6633,6 +7830,39 @@ func (sh *strictHandler) RestoreNode(w http.ResponseWriter, r *http.Request, id 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestoreNodeResponseObject); ok {
 		if err := validResponse.VisitRestoreNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RotateNode operation middleware
+func (sh *strictHandler) RotateNode(w http.ResponseWriter, r *http.Request, id ID) {
+	var request RotateNodeRequestObject
+
+	request.Id = id
+
+	var body RotateNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RotateNode(ctx, request.(RotateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RotateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RotateNodeResponseObject); ok {
+		if err := validResponse.VisitRotateNodeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6774,6 +8004,61 @@ func (sh *strictHandler) RestoreVersion(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RestoreVersionResponseObject); ok {
 		if err := validResponse.VisitRestoreVersionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListNotifications operation middleware
+func (sh *strictHandler) ListNotifications(w http.ResponseWriter, r *http.Request) {
+	var request ListNotificationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListNotifications(ctx, request.(ListNotificationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListNotifications")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListNotificationsResponseObject); ok {
+		if err := validResponse.VisitListNotificationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MarkNotificationsRead operation middleware
+func (sh *strictHandler) MarkNotificationsRead(w http.ResponseWriter, r *http.Request) {
+	var request MarkNotificationsReadRequestObject
+
+	var body MarkNotificationsReadJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MarkNotificationsRead(ctx, request.(MarkNotificationsReadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MarkNotificationsRead")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MarkNotificationsReadResponseObject); ok {
+		if err := validResponse.VisitMarkNotificationsReadResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6939,6 +8224,32 @@ func (sh *strictHandler) ValidateSetupURL(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ValidateSetupURLResponseObject); ok {
 		if err := validResponse.VisitValidateSetupURLResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSharedWithMe operation middleware
+func (sh *strictHandler) ListSharedWithMe(w http.ResponseWriter, r *http.Request, params ListSharedWithMeParams) {
+	var request ListSharedWithMeRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSharedWithMe(ctx, request.(ListSharedWithMeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSharedWithMe")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharedWithMeResponseObject); ok {
+		if err := validResponse.VisitListSharedWithMeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7135,6 +8446,32 @@ func (sh *strictHandler) PutFrame(w http.ResponseWriter, r *http.Request, id ID,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutFrameResponseObject); ok {
 		if err := validResponse.VisitPutFrameResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LookupUser operation middleware
+func (sh *strictHandler) LookupUser(w http.ResponseWriter, r *http.Request, params LookupUserParams) {
+	var request LookupUserRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LookupUser(ctx, request.(LookupUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LookupUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LookupUserResponseObject); ok {
+		if err := validResponse.VisitLookupUserResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

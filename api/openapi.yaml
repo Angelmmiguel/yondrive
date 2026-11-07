@@ -36,6 +36,8 @@ tags:
     description: The signed-in user, the session key and other users' public keys.
   - name: drive
     description: The tree of opaque nodes, its versions, uploads, downloads and journal.
+  - name: sharing
+    description: Grants to other users, key rotation, and the notifications they make.
   - name: admin
     description: Server administration. Admins only.
 paths:
@@ -1277,7 +1279,8 @@ paths:
       tags: [drive]
       summary: Read the change journal
       description: |
-        What happened to the nodes the signed-in user can reach, in order. Start
+        What happened to the nodes the signed-in user can reach, in order, written
+        as it happens: their own, and those a grant covers at that moment. Start
         with no cursor, and store each page's `next_cursor`. A client that comes
         back with it misses nothing. An operation on a subtree appears once, on its
         root.
@@ -1295,6 +1298,214 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ChangePage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/users/lookup:
+    get:
+      operationId: lookupUser
+      tags: [sharing]
+      summary: Find a user by exact username, to share with them
+      description: |
+        There is no listing and no partial match. An unknown username, a disabled
+        account and a malformed one all answer `not_found`. Limited per user and per
+        address (`rate_limited`). `public_keys` is absent in `none` mode.
+      parameters:
+        - name: username
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserLookup"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/grants:
+    get:
+      operationId: listGrantsMade
+      tags: [sharing]
+      summary: List the grants the signed-in user has made
+      description: With the links, this is the "shared by me" page.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantPage"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createGrant
+      tags: [sharing]
+      summary: Share a node with a user
+      description: |
+        Only the owner shares, and a grant covers the subtree. Answers `grant_exists`
+        if the user has a grant on this node (change its role instead),
+        `invalid_grant` if they are the owner, or the sealed key or signature are the
+        wrong size for the mode, `root_immutable`, `node_trashed`, `not_found` if the
+        user does not exist, or `key_generation_conflict`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateGrantRequest"
+      responses:
+        "201":
+          description: The grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/grants/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    patch:
+      operationId: updateGrant
+      tags: [sharing]
+      summary: Change the role of a grant
+      description: Owner only. Uploads an editor made a viewer had going are dropped.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateGrantRequest"
+      responses:
+        "200":
+          description: The grant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Grant"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteGrant
+      tags: [sharing]
+      summary: Revoke a grant, or give up one's own
+      description: |
+        By the owner, or by the holder of the grant. Access ends at once. In `e2e`
+        mode, an owner revoking MUST then rotate the node and what is under it, as
+        the former grantee may have kept the keys: see `rotateNode`.
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/grants:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: listNodeAccess
+      tags: [sharing]
+      summary: List who can reach a node through a grant
+      description: |
+        The grants on the node and on the folders above it, nearest first, for anyone
+        who can read the node: a client verifies a version's signature against an
+        author who holds edit rights, and they are the owner and the editors here.
+      responses:
+        "200":
+          description: The list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeAccessList"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/rotate:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: rotateNode
+      tags: [sharing]
+      summary: Replace a node's key, after revoking someone
+      description: |
+        Owner only. CRYPTO.md, section 8, says what to send. One transaction swaps the
+        key, the old key's link in the chain, the metadata, the wraps and tags of all
+        children and the sealed grants, and removes the thumbnail. Versions stay as
+        they are, and `key_chain` reaches their keys.
+
+        This is one node. To revoke from a subtree, rotate its top and then each node
+        under it, parents first, so each wrap is made under the parent's new key. A
+        node whose `key_generation` has moved on is done, which lets a client resume.
+
+        Answers `rotate_conflict` if the list of children or grants is not what the
+        node has now, because someone has just created or shared one; read them again.
+        Also `key_generation_conflict`, `invalid_rotation`, `name_conflict`,
+        `root_immutable`, or `too_large` when a folder's children do not fit in 16 MiB.
+        Works the same in `none` mode, where nothing is sealed, though nothing needs it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RotateNodeRequest"
+      responses:
+        "200":
+          description: The node, at its new generation.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/shared-with-me:
+    get:
+      operationId: listSharedWithMe
+      tags: [sharing]
+      summary: List the grants the signed-in user holds
+      description: Each with its node. What is in the owner's trash is left out, so a page can be short with more to come.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrantPage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/notifications:
+    get:
+      operationId: listNotifications
+      tags: [sharing]
+      summary: List what has been shared with the signed-in user and not marked as read
+      responses:
+        "200":
+          description: The list.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationList"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/notifications/read:
+    post:
+      operationId: markNotificationsRead
+      tags: [sharing]
+      summary: Mark notifications as read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MarkNotificationsReadRequest"
+      responses:
+        "204":
+          description: Marked. Ids that are not the caller's are ignored.
         default:
           $ref: "#/components/responses/Error"
 components:
@@ -1383,6 +1594,12 @@ components:
             - `invalid_blob`: the kind and node of a small blob do not agree
             - `blob_in_use`: content goes with its versions
             - `invalid_cursor`
+            - `forbidden` on a node: the caller can see it, and their role does not allow this
+            - `key_generation_conflict`: sealed under a key that has been rotated (412)
+            - `move_refused`: the move leaves the shared subtree or crosses owners
+            - `grant_exists`, `invalid_grant`
+            - `invalid_rotation`: a sealed field of a rotation is the wrong size
+            - `rotate_conflict`: a rotation does not name what the node has now
           examples: [not_found]
     KDF:
       type: object
@@ -1901,9 +2118,22 @@ components:
     NodeKind:
       type: string
       enum: [file, folder]
+    NodeRole:
+      type: string
+      description: |
+        What the signed-in user may do with a node: the strongest of owning it and
+        of the grants they hold on it and above it. A `viewer` reads. An `editor`
+        also creates, renames, moves within the shared subtree, uploads versions and
+        trashes, but not on the node a grant is on unless something above it is
+        shared too, since those change the folder it lives in. Only an `owner`
+        shares, rotates, restores, purges or deletes versions.
+      enum: [owner, editor, viewer]
     Node:
       type: object
-      description: A file or folder. The server cannot read the sealed fields.
+      description: |
+        A file or folder. The server cannot read the sealed fields. On the node of
+        a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
+        and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
       required: [id, owner_id, kind, suite, sealed_metadata, wrapped_key, created_at, updated_at]
       properties:
         id:
@@ -1933,6 +2163,18 @@ components:
           description: Absent until a file's first commit.
         thumb_blob_id:
           type: string
+          description: |
+            A rotation removes it. One written by a client that had not yet seen a
+            rotation does not open: treat it as missing, and make another.
+        key_generation:
+          type: integer
+          format: int64
+          description: |
+            Which generation of this node's key is current: what `wrapped_key`,
+            `sealed_metadata` and the wraps and tags of its children are sealed
+            under. Starts at 1, and every rotation adds one. Always sent.
+        role:
+          $ref: "#/components/schemas/NodeRole"
         trashed_at:
           type: string
           format: date-time
@@ -2004,6 +2246,13 @@ components:
           type: string
           format: byte
           description: 32 bytes.
+        parent_key_generation:
+          type: integer
+          format: int64
+          description: |
+            The generation of the parent's key that `wrapped_key` and `name_tag` were
+            made under. A client MUST send it. If the parent has been rotated since,
+            the answer is `key_generation_conflict`.
     UpdateNodeRequest:
       type: object
       description: Fields left out stay as they are.
@@ -2018,6 +2267,14 @@ components:
           type: string
           format: byte
           description: 32 bytes. A root has none.
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of this node's key that `sealed_metadata` is sealed under. A client MUST send it with `sealed_metadata`.
+        parent_key_generation:
+          type: integer
+          format: int64
+          description: The generation of the parent's key that `name_tag` was made under. A client MUST send it with `name_tag`.
     MoveNodeRequest:
       type: object
       required: [parent_id, wrapped_key, name_tag]
@@ -2033,6 +2290,10 @@ components:
           type: string
           format: byte
           description: 32 bytes, under the new parent.
+        parent_key_generation:
+          type: integer
+          format: int64
+          description: The generation of the new parent's key that these were made under. A client MUST send it.
     EmptiedTrash:
       type: object
       required: [marked]
@@ -2043,6 +2304,10 @@ components:
       type: object
       required: [id, node_id, blob_id, suite, author_id, content_version_id, content_author_id, stored_size, frame_count, frame_size, created_at]
       properties:
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key this is sealed under. Always sent.
         id:
           type: string
         node_id:
@@ -2082,12 +2347,31 @@ components:
           type: string
           format: date-time
           description: When a deleted version goes.
+    KeyLink:
+      type: object
+      required: [generation, sealed_key]
+      properties:
+        generation:
+          type: integer
+          format: int64
+        sealed_key:
+          type: string
+          format: byte
+          description: The key of this generation, sealed under the next one (CRYPTO.md, section 8).
     Version:
       allOf:
         - $ref: "#/components/schemas/VersionSummary"
         - type: object
           required: [frame_hashes, signature, manifest]
           properties:
+            key_chain:
+              type: array
+              description: |
+                How to get from the node's current key to the one this version is
+                sealed under, newest link first. Absent when that is the current key,
+                and always in `none` mode.
+              items:
+                $ref: "#/components/schemas/KeyLink"
             frame_hashes:
               type: string
               format: byte
@@ -2152,10 +2436,21 @@ components:
           type: integer
           format: int64
           minimum: 0
+        key_generation:
+          type: integer
+          format: int64
+          description: |
+            The generation of the node's key the frames will be sealed under. A client
+            MUST send it. A rotation before the commit answers
+            `key_generation_conflict` at commit: abort, and upload again under the new key.
     Upload:
       type: object
       required: [id, node_id, version_id, suite, frame_count, frame_size, stored_size, frames, created_at]
       properties:
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key this is sealed under. Always sent.
         id:
           type: string
           description: Also the id of the blob this upload becomes.
@@ -2251,7 +2546,13 @@ components:
           description: Held for uploads in progress.
     ChangeOp:
       type: string
-      enum: [created, updated, moved, trashed, restored, purged, removed, version, version_deleted, thumbnail]
+      description: |
+        `granted`: a grant on this node was made. `role_changed`: the caller's role
+        over it changed. `rotated`: its key changed, along with the wraps and tags of
+        its children, so read them again. `revoked`: the caller lost a way of reaching
+        this node; read it, and if the answer is `not_found` drop it and all under it.
+        Trashing a folder also appears as `trashed` on each grant under it.
+      enum: [created, updated, moved, trashed, restored, purged, removed, version, version_deleted, thumbnail, granted, role_changed, revoked, rotated]
     Change:
       type: object
       required: [seq, node_id, op, at]
@@ -2277,6 +2578,245 @@ components:
         next_cursor:
           type: string
           description: Where to read from next, also when this page is empty.
+    GrantRole:
+      type: string
+      enum: [viewer, editor]
+    Grant:
+      type: object
+      description: |
+        A role over a node and everything under it. `sealed_key` and `signature` are
+        opaque to the server, and empty in `none` mode (CRYPTO.md, section 8). A client
+        MUST verify the signature against the granter's pinned Ed25519 key before
+        trusting the grant, and that the granter is the node's owner.
+      required: [id, node_id, grantee_id, grantee_username, granter_id, granter_username, role, key_generation, sealed_key, signature, created_at]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        grantee_id:
+          type: string
+        grantee_username:
+          type: string
+        granter_id:
+          type: string
+        granter_username:
+          type: string
+        role:
+          $ref: "#/components/schemas/GrantRole"
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key that `sealed_key` holds.
+        sealed_key:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+        created_at:
+          type: string
+          format: date-time
+    GrantedNode:
+      type: object
+      required: [grant, node]
+      properties:
+        grant:
+          $ref: "#/components/schemas/Grant"
+        node:
+          $ref: "#/components/schemas/Node"
+    GrantPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrantedNode"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    CreateGrantRequest:
+      type: object
+      required: [node_id, grantee_id, role, key_generation, sealed_key, signature]
+      properties:
+        node_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        grantee_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        role:
+          $ref: "#/components/schemas/GrantRole"
+        key_generation:
+          type: integer
+          format: int64
+          description: The node's current generation, of the key being sealed.
+        sealed_key:
+          type: string
+          format: byte
+          description: The node key sealed to the grantee, 105 bytes. Empty in `none` mode.
+        signature:
+          type: string
+          format: byte
+          description: The granter's Ed25519 signature, 64 bytes. Empty in `none` mode.
+    UpdateGrantRequest:
+      type: object
+      required: [role, signature]
+      properties:
+        role:
+          $ref: "#/components/schemas/GrantRole"
+        signature:
+          type: string
+          format: byte
+          description: A new signature, as the role is signed. Empty in `none` mode.
+    NodeAccess:
+      type: object
+      description: |
+        One user's way of reaching a node. `grant_id`, `node_id`, `key_generation`,
+        `sealed_key` and `signature` are given to the owner only, and `grant_id` to
+        the holder of the grant too.
+      required: [user_id, username, role, inherited]
+      properties:
+        user_id:
+          type: string
+        username:
+          type: string
+        role:
+          $ref: "#/components/schemas/GrantRole"
+        inherited:
+          type: boolean
+          description: The grant is on a folder above the node.
+        grant_id:
+          type: string
+        node_id:
+          type: string
+        key_generation:
+          type: integer
+          format: int64
+        sealed_key:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+    NodeAccessList:
+      type: object
+      required: [access]
+      properties:
+        access:
+          type: array
+          items:
+            $ref: "#/components/schemas/NodeAccess"
+    UserLookup:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        public_keys:
+          $ref: "#/components/schemas/PublicKeys"
+    Notification:
+      type: object
+      description: A grant its holder has not marked as read. Ids only, as names are sealed.
+      required: [grant_id, node_id, granter_id, created_at]
+      properties:
+        grant_id:
+          type: string
+        node_id:
+          type: string
+        granter_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    NotificationList:
+      type: object
+      required: [notifications, has_more]
+      properties:
+        notifications:
+          type: array
+          description: The newest first, at most 50.
+          items:
+            $ref: "#/components/schemas/Notification"
+        has_more:
+          type: boolean
+    MarkNotificationsReadRequest:
+      type: object
+      properties:
+        grant_ids:
+          type: array
+          description: Which to mark. Absent marks all of them.
+          maxItems: 1000
+          items:
+            type: string
+            pattern: "^[0-9a-f]{32}$"
+    RotatedChild:
+      type: object
+      required: [id, wrapped_key, name_tag]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        wrapped_key:
+          type: string
+          format: byte
+          description: The child's own key, unchanged, wrapped under the node's new key. Empty in `none` mode.
+        name_tag:
+          type: string
+          format: byte
+          description: 32 bytes, under the node's new key.
+    RotatedGrant:
+      type: object
+      required: [grantee_id, sealed_key, signature]
+      properties:
+        grantee_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        sealed_key:
+          type: string
+          format: byte
+          description: The new key sealed to the grantee, 105 bytes. Empty in `none` mode.
+        signature:
+          type: string
+          format: byte
+          description: 64 bytes, over the new generation. Empty in `none` mode.
+    RotateNodeRequest:
+      type: object
+      required: [key_generation, parent_key_generation, wrapped_key, previous_key, sealed_metadata, children, grants]
+      properties:
+        key_generation:
+          type: integer
+          format: int64
+          description: The node's current generation, the one being replaced.
+        parent_key_generation:
+          type: integer
+          format: int64
+          description: The generation of the parent's key that `wrapped_key` is wrapped under.
+        wrapped_key:
+          type: string
+          format: byte
+          description: The new key wrapped under the parent. Empty in `none` mode.
+        previous_key:
+          type: string
+          format: byte
+          description: The old key sealed under the new one, 73 bytes. Empty in `none` mode.
+        sealed_metadata:
+          type: string
+          format: byte
+          description: The node's metadata sealed under the new key. 1 byte to 64 KiB.
+        children:
+          type: array
+          description: Every direct child, in the trash too.
+          items:
+            $ref: "#/components/schemas/RotatedChild"
+        grants:
+          type: array
+          description: Every grant on this node. Grants above and below it are not affected.
+          items:
+            $ref: "#/components/schemas/RotatedGrant"
     AdminHealth:
       type: object
       required: [version, mode, blobs, stored_bytes, uploads, reserved_bytes, pending_removals]

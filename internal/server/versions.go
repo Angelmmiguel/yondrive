@@ -10,7 +10,9 @@ import (
 )
 
 func versionSummaryView(v store.Version) oapi.VersionSummary {
+	generation := v.KeyGeneration
 	return oapi.VersionSummary{
+		KeyGeneration:    &generation,
 		Id:               v.ID,
 		NodeId:           v.NodeID,
 		BlobId:           v.BlobID,
@@ -28,7 +30,10 @@ func versionSummaryView(v store.Version) oapi.VersionSummary {
 }
 
 func versionView(v store.Version) oapi.Version {
+	generation := v.KeyGeneration
 	return oapi.Version{
+		KeyGeneration:    &generation,
+		KeyChain:         keyChainView(v.KeyChain),
 		Id:               v.ID,
 		NodeId:           v.NodeID,
 		BlobId:           v.BlobID,
@@ -46,6 +51,17 @@ func versionView(v store.Version) oapi.Version {
 		DeletedAt:        optionalTime(v.DeletedAt),
 		RemoveAt:         optionalTime(v.RemoveAt),
 	}
+}
+
+func keyChainView(chain []store.KeyLink) *[]oapi.KeyLink {
+	if len(chain) == 0 {
+		return nil
+	}
+	out := make([]oapi.KeyLink, 0, len(chain))
+	for _, l := range chain {
+		out = append(out, oapi.KeyLink{Generation: l.Generation, SealedKey: l.SealedKey})
+	}
+	return &out
 }
 
 // ListVersions returns a page of a file's versions, newest first.
@@ -111,7 +127,7 @@ func (s *Server) RestoreVersion(ctx context.Context, req oapi.RestoreVersionRequ
 // DeleteVersion marks a version that is not current for removal after the grace
 // period.
 func (s *Server) DeleteVersion(ctx context.Context, req oapi.DeleteVersionRequestObject) (oapi.DeleteVersionResponseObject, error) {
-	if _, err := s.authorizeNode(ctx, req.Id, permWrite); err != nil {
+	if _, err := s.authorizeNode(ctx, req.Id, permOwn); err != nil {
 		return nil, err
 	}
 	if !blobs.ValidID(req.VersionId) {

@@ -43,6 +43,10 @@ const usernameAttemptsFactor = 5
 // kdfAttemptsFactor is how many times the sign-in limit the KDF route allows.
 const kdfAttemptsFactor = 6
 
+// lookupAttemptsFactor is how many times the sign-in limit a user or an address
+// may look up usernames: enough to share with people, not to walk a dictionary.
+const lookupAttemptsFactor = 3
+
 // SecureMode says when the server treats a request as arriving over HTTPS.
 type SecureMode string
 
@@ -112,6 +116,7 @@ type Server struct {
 	kdfLimiter      *auth.RateLimiter
 	usernameLimiter *auth.RateLimiter
 	totpLimiter     *auth.RateLimiter
+	lookupLimiter   *auth.RateLimiter
 	keys            *auth.SessionKeys
 	// secret keys the fake KDF parameters.
 	secret  []byte
@@ -187,6 +192,7 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		kdfLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		usernameLimiter: auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		totpLimiter:     auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
+		lookupLimiter:   auth.NewRateLimiter(lookupAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		keys:            auth.NewSessionKeys(),
 		secret:          secret,
 	}
