@@ -32,9 +32,12 @@ const asPromise = <T>(request: IDBRequest<T>): Promise<T> =>
 		request.onerror = () => reject(request.error);
 	});
 
-/** Keeps segments in IndexedDB, in a database per user. Without it, works from the server each time. */
-export function indexedDbSegmentCache(userId: string): SegmentCache {
-	const name = `yondrive-search-${userId}`;
+/**
+ * Keeps segments in IndexedDB, in a database per user. Without it, works from the server each time.
+ * `prefix` names another database for another index of the user's, as Notes keeps.
+ */
+export function indexedDbSegmentCache(userId: string, prefix = 'yondrive-search'): SegmentCache {
+	const name = `${prefix}-${userId}`;
 	let opening: Promise<IDBDatabase> | null = null;
 
 	const open = (): Promise<IDBDatabase> => {

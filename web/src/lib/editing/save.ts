@@ -9,6 +9,7 @@
 import { ApiError, isApiError } from '$lib/api/types';
 import { newId } from '$lib/drive/ids';
 import { inferType } from '$lib/drive/kinds';
+import type { RawMetadata } from '$lib/drive/metadata';
 import type { DriveNode, DriveTree } from '$lib/drive/tree';
 import { abandonUpload, beginUpload, sendUpload, type EngineDeps } from '$lib/drive/upload/engine';
 
@@ -111,24 +112,32 @@ export async function saveVersion(
 	return { node: saved, version };
 }
 
-/** Makes a new file with these bytes, with a name not yet taken in the folder. */
+/**
+ * Makes a new file with these bytes, with a name not yet taken in the folder.
+ * `extra` goes into its metadata, as a note's own fields do.
+ */
 export async function createWith(
 	deps: SaveDeps,
 	parentId: string,
 	name: string,
-	bytes: Uint8Array
+	bytes: Uint8Array,
+	extra: RawMetadata = {}
 ): Promise<DriveNode> {
 	const now = deps.now?.() ?? Date.now();
 	let node: DriveNode | undefined;
 	for (let n = 1; node === undefined; n++) {
 		const candidate = n === 1 ? name : numbered(name, n);
 		try {
-			node = await deps.tree.createFile(parentId, {
-				name: candidate,
-				type: inferType(candidate, ''),
-				size: bytes.length,
-				modified: now
-			});
+			node = await deps.tree.createFile(
+				parentId,
+				{
+					name: candidate,
+					type: inferType(candidate, ''),
+					size: bytes.length,
+					modified: now
+				},
+				extra
+			);
 		} catch (e) {
 			if (!isApiError(e, 'name_conflict') || n >= 50) throw e;
 		}

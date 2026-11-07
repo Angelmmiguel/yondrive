@@ -478,7 +478,7 @@ export class DriveTree {
 	async #create(
 		parentId: string,
 		kind: 'file' | 'folder',
-		metadata: NodeMetadata
+		metadata: NodeMetadata & RawMetadata
 	): Promise<DriveNode> {
 		const { api, sealer } = this.#deps;
 		const id = newId();
@@ -505,9 +505,11 @@ export class DriveTree {
 		return stored;
 	}
 
-	async createFolder(parentId: string, typed: string): Promise<DriveNode> {
+	/** `extra` adds fields of an app's own to the metadata, such as what marks a notebook. */
+	async createFolder(parentId: string, typed: string, extra: RawMetadata = {}): Promise<DriveNode> {
 		const now = this.#now();
 		return this.#create(parentId, 'folder', {
+			...extra,
 			name: cleanName(typed),
 			type: 'folder',
 			created: now,
@@ -521,9 +523,11 @@ export class DriveTree {
 	/** The node of a file about to be uploaded. It does not show until a version commits. */
 	async createFile(
 		parentId: string,
-		file: { name: string; type: string; size: number; modified: number }
+		file: { name: string; type: string; size: number; modified: number },
+		extra: RawMetadata = {}
 	): Promise<DriveNode> {
 		return this.#create(parentId, 'file', {
+			...extra,
 			name: cleanName(file.name),
 			type: file.type,
 			created: this.#now(),
@@ -565,7 +569,7 @@ export class DriveTree {
 
 	async #writeMetadata(
 		id: string,
-		patch: Partial<NodeMetadata>,
+		patch: Partial<NodeMetadata> & RawMetadata,
 		tagFor?: (parentKey: Bytes, parentId: string) => { tag: Bytes; generation?: number }
 	) {
 		const { api, sealer } = this.#deps;
@@ -597,7 +601,7 @@ export class DriveTree {
 	}
 
 	/** Changes fields of a node's metadata, leaving what this client does not know. */
-	patch(id: string, patch: Partial<NodeMetadata>): Promise<DriveNode> {
+	patch(id: string, patch: Partial<NodeMetadata> & RawMetadata): Promise<DriveNode> {
 		this.#need(id);
 		return this.#writeMetadata(id, patch);
 	}
