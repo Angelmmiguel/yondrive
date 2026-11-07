@@ -2,7 +2,7 @@
  * What only exists with keys: a server handing out a false key, a forged signature
  * on a grant, and the number two people compare.
  */
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
 import { newFolder, openDrive, row } from '../drive';
 import { startServer, type Server } from '../server';
@@ -95,6 +95,47 @@ test.describe.serial('with keys', () => {
 		await dialog.getByRole('button', { name: 'Done' }).click();
 	});
 
+	test('another account answering to a known name stops everything', async () => {
+		await newFolder(alice, 'Third');
+		const grants: string[] = [];
+		const watch = (request: Request) => {
+			if (request.method() === 'POST' && request.url().endsWith('/api/v1/grants')) {
+				grants.push(request.url());
+			}
+		};
+		alice.on('request', watch);
+		await alice.route('**/api/v1/users/lookup*', async (route) => {
+			const response = await route.fetch();
+			const found = await response.json();
+			found.id = 'f'.repeat(32);
+			found.public_keys.x25519 = randomBytes(32).toString('base64');
+			found.public_keys.ed25519 = randomBytes(32).toString('base64');
+			await route.fulfill({ response, json: found });
+		});
+
+		await shareWith(alice, 'Third', 'bob', 'viewer');
+		const warning = alice.getByRole('dialog', {
+			name: 'A different account is using the name bob'
+		});
+		await expect(warning).toBeVisible();
+		await expect(warning.getByTestId('safety-number-new')).toBeVisible();
+		await alice.keyboard.press('Escape');
+		await expect(warning).toBeVisible();
+		await warning.getByRole('button', { name: 'Keep what this device knows' }).click();
+		await expect(warning).toHaveCount(0);
+		expect(grants).toEqual([]);
+		await expect(person(alice, 'bob')).toHaveCount(0);
+
+		// What is pinned has not moved: the real account still goes through.
+		await alice.unroute('**/api/v1/users/lookup*');
+		const dialog = shareDialog(alice, 'Third');
+		await dialog.getByRole('button', { name: 'Share', exact: true }).click();
+		await expect(person(alice, 'bob')).toBeVisible();
+		expect(grants).toHaveLength(1);
+		alice.off('request', watch);
+		await dialog.getByRole('button', { name: 'Done' }).click();
+	});
+
 	test('a grant with a tampered signature is refused, and not opened', async () => {
 		await bob.route('**/api/v1/shared-with-me*', async (route) => {
 			const response = await route.fetch();
@@ -142,6 +183,45 @@ test.describe.serial('with keys', () => {
 		await expect(bob.getByTestId('unverified-share').first()).toContainText('have changed');
 		await bob.unroute('**/api/v1/users/*/keys');
 
+		await bob.goto(`${server.url}/shared`);
+		await expect(row(bob, 'First')).toBeVisible({ timeout: 30_000 });
+	});
+
+	test('a grant from another account with a known name is not believed', async () => {
+		const other = 'f'.repeat(32);
+		await bob.route('**/api/v1/shared-with-me*', async (route) => {
+			const response = await route.fetch();
+			const page = await response.json();
+			for (const item of page.items) {
+				item.grant.granter_id = other;
+				item.node.owner_id = other;
+			}
+			await route.fulfill({ response, json: page });
+		});
+		await bob.route(`**/api/v1/users/${other}/keys`, (route) =>
+			route.fulfill({
+				json: {
+					user_id: other,
+					username: 'admin',
+					public_keys: {
+						x25519: randomBytes(32).toString('base64'),
+						ed25519: randomBytes(32).toString('base64')
+					}
+				}
+			})
+		);
+
+		await bob.goto(`${server.url}/shared`);
+		const warning = bob.getByRole('dialog', {
+			name: 'A different account is using the name admin'
+		});
+		await expect(warning).toBeVisible({ timeout: 30_000 });
+		await warning.getByRole('button', { name: 'Keep what this device knows' }).click();
+		await expect(bob.getByTestId('unverified-share').first()).toContainText('have changed');
+		await expect(row(bob, 'First')).toHaveCount(0);
+
+		await bob.unroute('**/api/v1/shared-with-me*');
+		await bob.unroute(`**/api/v1/users/${other}/keys`);
 		await bob.goto(`${server.url}/shared`);
 		await expect(row(bob, 'First')).toBeVisible({ timeout: 30_000 });
 	});

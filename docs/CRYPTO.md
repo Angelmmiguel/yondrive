@@ -421,9 +421,11 @@ depend on who computes it. Each of the twelve groups reads the next 5 bytes of `
 an integer, takes it modulo 100000, and prints it as five decimal digits with leading
 zeros. Groups are separated by one space. Bytes 60 to 63 are unused.
 
-A client pins a contact's fingerprint on first use and warns if it changes. The pins stay on the
-device, and they are sealed there, so that nothing else can write one and a stolen profile does not
-list whom someone shares with:
+A client pins a contact's fingerprint on first use, with their user id and username, and warns if
+the fingerprint changes, if a pinned username comes back on another id, or if a pinned id comes back
+under another username. Usernames compare trimmed and in lower case, as the server stores them. The
+pins stay on the device, and they are sealed there, so that nothing else can write one and a stolen
+profile does not list whom someone shares with:
 
 ```
 pins key = HKDF(master key, "yondrive/pins/v1")

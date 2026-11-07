@@ -24,6 +24,11 @@
 		changed === null || contacts === null ? '' : contacts.safetyNumberWith(changed.pinned)
 	);
 
+	/** What is not as this device knows it: another account, another name, or other keys. */
+	const swapped = $derived(changed?.was.userId !== undefined);
+	const renamed = $derived(!swapped && changed?.was.username !== undefined);
+	const sameKeys = $derived(newNumber === oldNumber);
+
 	async function accept() {
 		if (changed === null || contacts === null) return;
 		contacts.accept(changed);
@@ -76,30 +81,66 @@
 {/if}
 
 {#if changed}
-	<Dialog open title="The keys of {changed.username} have changed" width={520} dismissible={false}>
+	<Dialog
+		open
+		title={swapped
+			? `A different account is using the name ${changed.username}`
+			: renamed
+				? `${changed.was.username} now has the name ${changed.username}`
+				: `The keys of ${changed.username} have changed`}
+		width={520}
+		dismissible={false}
+	>
 		<div class="alarm">
 			<Icon name="warn" size={22} />
 			<div>
 				<p class="text">
-					The server gave different keys for <strong>{changed.username}</strong> from the ones this device
-					first saw. They may have a new account. It could also be someone getting between you, so nothing
-					has been shared or opened.
+					{#if swapped}
+						This device knows <strong>{changed.username}</strong> as another account, and the server now
+						gives a new one with that name. They may have made a new account. It could also be someone
+						getting between you, so nothing has been shared or opened.
+					{:else if renamed}
+						The server now gives the account this device knows as
+						<strong>{changed.was.username}</strong> the name <strong>{changed.username}</strong>. A
+						name does not normally change. It could be someone getting between you, so nothing has
+						been shared or opened.
+					{:else}
+						The server gave different keys for <strong>{changed.username}</strong> from the ones this
+						device first saw. They may have a new account. It could also be someone getting between you,
+						so nothing has been shared or opened.
+					{/if}
 				</p>
 				<p class="text">Ask {changed.username} for their safety number before going on.</p>
+				{#if swapped}
+					<p class="text">
+						Trusting this replaces the {changed.username} this device knew. Anything the old account signed
+						can no longer be checked here.
+					</p>
+				{:else if renamed}
+					<p class="text">
+						Trusting this replaces what this device knew, and it will know them only as {changed.username}.
+					</p>
+				{/if}
 			</div>
 		</div>
-		<p class="label">The number with their new keys</p>
+		<p class="label">
+			{sameKeys ? 'The number with their keys' : 'The number with their new keys'}
+		</p>
 		<ol class="number" data-testid="safety-number-new">
 			{#each groupsOf(newNumber) as group, i (i)}<li>{group}</li>{/each}
 		</ol>
-		<p class="label">The number with the keys you knew</p>
-		<ol class="number old">
-			{#each groupsOf(oldNumber) as group, i (i)}<li>{group}</li>{/each}
-		</ol>
+		{#if !sameKeys}
+			<p class="label">The number with the keys you knew</p>
+			<ol class="number old">
+				{#each groupsOf(oldNumber) as group, i (i)}<li>{group}</li>{/each}
+			</ol>
+		{/if}
 		{#snippet footer()}
-			<Button onclick={accept}>Trust the new keys</Button>
+			<Button onclick={accept}>
+				{swapped ? 'Trust the new account' : renamed ? 'Trust the new name' : 'Trust the new keys'}
+			</Button>
 			<Button variant="primary" data-autofocus onclick={() => (sharing.changed = null)}>
-				Keep the old keys
+				{swapped || renamed ? 'Keep what this device knows' : 'Keep the old keys'}
 			</Button>
 		{/snippet}
 	</Dialog>

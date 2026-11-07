@@ -2,12 +2,14 @@
  * The people this device has seen, with the keys it first saw them with. A server
  * could hand out a false public key and read everything shared afterwards, so a
  * key is pinned on first use, and a different one is never used without asking: it
- * throws `ContactKeysChangedError`, which ends in a blocking warning. The pins stay
+ * throws `ContactKeysChangedError`, which ends in a blocking warning. A user id comes
+ * from the server too, so a pin holds an id and a name together: a known name on
+ * another id, or a known id under another name, stops in the same place. The pins stay
  * on the device, sealed under a key from the master key. In suite `none` a
  * fingerprint is empty, so there is nothing to pin and nothing to compare.
  */
 import type { Api } from '$lib/api/client';
-import { isApiError } from '$lib/api/types';
+import { ApiError, isApiError } from '$lib/api/types';
 import { decodeBase64, encodeBase64, utf8, type Bytes } from '$lib/crypto/encoding';
 import type { PublicKeys } from '$lib/crypto/keys';
 import { checkPin } from '$lib/crypto/pinning';
@@ -59,13 +61,25 @@ export interface Contact {
 	comparedAt: number | null;
 }
 
-/** A contact whose keys are not the pinned ones. Nothing is shared until someone decides. */
+/** The server's rule for a username (`normalizeUsername`), for comparing two of them. */
+export function normalizeUsername(username: string): string {
+	return username.trim().toLowerCase();
+}
+
+/**
+ * Someone who is not what the pins say: other keys, or an account or a name that does
+ * not go with the one this device knows. Nothing is shared until someone decides.
+ */
 export class ContactKeysChangedError extends Error {
 	constructor(
 		readonly userId: string,
+		/** The name that accepting this would pin. */
 		readonly username: string,
+		/** The keys this device knows for that name or id. */
 		readonly pinned: PublicKeys,
-		readonly current: PublicKeys
+		readonly current: PublicKeys,
+		/** The account that holds this name here, and the name this account has here. */
+		readonly was: { userId?: string; username?: string } = {}
 	) {
 		super('this contact has different keys');
 		this.name = 'ContactKeysChangedError';
@@ -129,13 +143,31 @@ export class Contacts {
 		return { x25519: decodeBase64(pin.x25519), ed25519: decodeBase64(pin.ed25519) };
 	}
 
-	/** The keys to use for someone, once checked against the pin. Pins them on first use. */
+	/**
+	 * The keys to use for someone, once checked against the pins. Pins them on first use,
+	 * which only a name and an id this device has never seen can be.
+	 */
 	check(userId: string, username: string, current: PublicKeys): PublicKeys {
 		const { sealer } = this.#deps;
 		const fingerprint = sealer.fingerprint(current);
 		if (fingerprint.length === 0) return current;
 		const pins = this.#read();
 		const pin = pins[userId];
+		const name = normalizeUsername(username);
+		const renamed = pin !== undefined && normalizeUsername(pin.username) !== name;
+		const holder = Object.keys(pins).find(
+			(id) => id !== userId && normalizeUsername(pins[id].username) === name
+		);
+		if (holder !== undefined || renamed) {
+			this.#checked.delete(userId);
+			throw new ContactKeysChangedError(
+				userId,
+				name,
+				this.#pinned(holder === undefined ? (pin as StoredPin) : pins[holder]),
+				current,
+				{ userId: holder, username: renamed ? pin.username : undefined }
+			);
+		}
 		const status = checkPin(
 			pin === undefined ? null : sealer.fingerprint(this.#pinned(pin)),
 			fingerprint
@@ -144,13 +176,13 @@ export class Contacts {
 			this.#checked.delete(userId);
 			throw new ContactKeysChangedError(userId, pin.username, this.#pinned(pin), current);
 		}
-		if (status === 'first-use' || pin.username !== username) {
+		if (status === 'first-use') {
 			pins[userId] = {
-				username,
+				username: name,
 				x25519: encodeBase64(current.x25519),
 				ed25519: encodeBase64(current.ed25519),
-				pinnedAt: pin?.pinnedAt ?? this.#now(),
-				comparedAt: pin?.comparedAt ?? null
+				pinnedAt: this.#now(),
+				comparedAt: null
 			};
 			this.#write(pins);
 		}
@@ -162,9 +194,16 @@ export class Contacts {
 		return this.#deps.now?.() ?? Date.now();
 	}
 
-	/** Finds someone to share with. Always asks, so that a changed key shows now and not later. */
+	/**
+	 * Finds someone to share with. Always asks, so that a changed key shows now and not
+	 * later. An answer about anyone else is no answer, or a server could name someone new
+	 * and have what is shared sealed to them as a first use.
+	 */
 	async lookup(username: string): Promise<{ id: string; username: string; keys: PublicKeys }> {
 		const found = await this.#deps.api.lookupUser(username);
+		if (normalizeUsername(found.username) !== normalizeUsername(username)) {
+			throw new ApiError(404, 'not_found');
+		}
 		const given = found.public_keys;
 		const keys = given
 			? { x25519: decodeBase64(given.x25519), ed25519: decodeBase64(given.ed25519) }
@@ -198,9 +237,30 @@ export class Contacts {
 		}
 	}
 
-	/** Takes the keys that raised the warning, after someone has looked at the numbers. */
+	/**
+	 * The keys of someone the server names in what it sent, with that name held to the
+	 * pins too: `keysOf` checks only the name it is given by the keys route, and not at
+	 * all once this session has checked the id.
+	 */
+	async keysNamed(userId: string, username: string): Promise<PublicKeys> {
+		const keys = await this.keysOf(userId);
+		if (userId === this.#deps.userId() || keys.x25519.length === 0) return keys;
+		return this.check(userId, username, keys);
+	}
+
+	/**
+	 * Takes what raised the warning, after someone has looked at the numbers. It replaces
+	 * what this device knew: the name belongs to this account alone from here on.
+	 */
 	accept(changed: ContactKeysChangedError): void {
 		const pins = this.#read();
+		const name = normalizeUsername(changed.username);
+		for (const id of Object.keys(pins)) {
+			if (id !== changed.userId && normalizeUsername(pins[id].username) === name) {
+				delete pins[id];
+				this.#checked.delete(id);
+			}
+		}
 		pins[changed.userId] = {
 			username: changed.username,
 			x25519: encodeBase64(changed.current.x25519),

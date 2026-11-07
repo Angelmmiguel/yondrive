@@ -19,7 +19,7 @@ import {
 	testPublicKeys,
 	USER_ID
 } from '$lib/testing/drive';
-import { ContactKeysChangedError, memoryPinStorage } from './contacts';
+import { ContactKeysChangedError, Contacts, memoryPinStorage } from './contacts';
 import { canChangePlace, canWrite, isOwner } from './roles';
 import { memoryRotationJobs } from './rotation';
 import { PublicLinkSession, WrongLinkPasswordError } from './public';
@@ -508,6 +508,163 @@ describe('with keys', () => {
 		contacts.accept(refused as ContactKeysChangedError);
 		await w.alice.drive.sharing.share(w.inner.id, 'bob', 'viewer');
 		expect(w.server.grants.size).toBe(before + 1);
+	});
+
+	describe('a pin holds an id and a name together', () => {
+		const OTHER = 'd'.repeat(32);
+		const hostile = (w: World, username = 'bob') => {
+			w.server.users.delete(BOB);
+			w.server.users.set(OTHER, {
+				id: OTHER,
+				username,
+				public_keys: testPublicKeys(fakeUser(SUITE_E2E))
+			});
+		};
+		const refusal = (w: Awaited<ReturnType<typeof world>>, username = 'bob') =>
+			w.alice.drive.sharing.share(w.inner.id, username, 'viewer').catch((e: unknown) => e);
+
+		it('stops at a known name on another id, and shares nothing', async () => {
+			const w = await e2e();
+			const contacts = w.alice.drive.sharing.contacts;
+			await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			const known = contacts.get(BOB)?.keys;
+			hostile(w);
+			const before = w.server.grants.size;
+
+			const refused = await refusal(w);
+
+			expect(refused).toBeInstanceOf(ContactKeysChangedError);
+			const changed = refused as ContactKeysChangedError;
+			expect(changed.userId).toBe(OTHER);
+			expect(changed.username).toBe('bob');
+			expect(changed.was.userId).toBe(BOB);
+			expect(changed.pinned).toEqual(known);
+			expect(w.server.grants.size).toBe(before);
+			expect(contacts.get(OTHER)).toBeUndefined();
+
+			// Saying no leaves it as it was, and it comes up again.
+			expect(await refusal(w)).toBeInstanceOf(ContactKeysChangedError);
+			expect(w.server.grants.size).toBe(before);
+		});
+
+		it('compares names the way the server does', async () => {
+			const w = await e2e();
+			await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			const contacts = w.alice.drive.sharing.contacts;
+			const { identity } = fakeUser(SUITE_E2E);
+			const given = { x25519: identity.x25519.publicKey, ed25519: identity.ed25519.publicKey };
+			expect(() => contacts.check(OTHER, ' BOB ', given)).toThrow(ContactKeysChangedError);
+		});
+
+		it('replaces the old pin on accepting, so that the name has one account', async () => {
+			const w = await e2e();
+			const contacts = w.alice.drive.sharing.contacts;
+			await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			hostile(w);
+			const before = w.server.grants.size;
+
+			contacts.accept((await refusal(w)) as ContactKeysChangedError);
+
+			expect(contacts.get(BOB)).toBeUndefined();
+			expect(contacts.get(OTHER)?.username).toBe('bob');
+			expect(contacts.get(OTHER)?.comparedAt).toBeNull();
+			await w.alice.drive.sharing.share(w.inner.id, 'bob', 'viewer');
+			expect(w.server.grants.size).toBe(before + 1);
+		});
+
+		it('stops at a known id under another name, and keeps the name it knew', async () => {
+			const w = await e2e();
+			const contacts = w.alice.drive.sharing.contacts;
+			await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			const user = w.server.users.get(BOB) as NonNullable<ReturnType<typeof w.server.users.get>>;
+			w.server.users.set(BOB, { ...user, username: 'robert' });
+			contacts.refresh();
+
+			const refused = await contacts.keysOf(BOB).catch((e: unknown) => e);
+
+			expect(refused).toBeInstanceOf(ContactKeysChangedError);
+			const changed = refused as ContactKeysChangedError;
+			expect(changed.username).toBe('robert');
+			expect(changed.was).toEqual({ userId: undefined, username: 'bob' });
+			expect(contacts.get(BOB)?.username).toBe('bob');
+
+			contacts.accept(changed);
+			expect(contacts.get(BOB)?.username).toBe('robert');
+			expect(await contacts.keysOf(BOB)).toEqual(contacts.get(BOB)?.keys);
+		});
+
+		it('takes the name a lookup was asked for, or no answer at all', async () => {
+			const w = await e2e();
+			hostile(w, 'bob-the-second');
+			const lookupUser = w.server.as(ALICE).lookupUser;
+			const contacts = new Contacts({
+				api: {
+					getUserKeys: w.server.as(ALICE).getUserKeys,
+					lookupUser: () => lookupUser('bob-the-second')
+				},
+				sealer: w.sealer,
+				keys: () => w.alice.keys,
+				userId: () => ALICE,
+				storage: memoryPinStorage()
+			});
+
+			await expect(contacts.lookup('bob')).rejects.toSatisfy((e) => isApiError(e, 'not_found'));
+			expect(contacts.get(OTHER)).toBeUndefined();
+		});
+
+		it('holds the name on a grant to the pins, though the keys route says otherwise', async () => {
+			const w = await e2e();
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			expect((await w.bob.drive.sharing.refreshShared())[0].trust).toBe('verified');
+
+			w.server.grants.set(grant.id, { ...grant, granter_username: 'mallory' });
+			const [relabelled] = await w.bob.drive.sharing.refreshShared();
+			expect(relabelled.trust).toBe('keys-changed');
+			expect(relabelled.changed?.was.username).toBe('alice');
+			expect(w.bob.drive.sharing.contacts.get(ALICE)?.username).toBe('alice');
+		});
+
+		it('does not believe a grant from another account with a known name', async () => {
+			const w = await e2e();
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			expect((await w.bob.drive.sharing.refreshShared())[0].trust).toBe('verified');
+
+			// All a hostile server needs: an owner of its own, whose key signs for real.
+			const forger = fakeUser(SUITE_E2E);
+			w.server.users.set(OTHER, {
+				id: OTHER,
+				username: 'alice',
+				public_keys: testPublicKeys(forger)
+			});
+			const node = w.server.nodes.get(w.folder.id) as NonNullable<
+				ReturnType<typeof w.server.nodes.get>
+			>;
+			w.server.nodes.set(w.folder.id, { ...node, owner_id: OTHER });
+			w.server.grants.set(grant.id, {
+				...grant,
+				granter_id: OTHER,
+				signature: encodeBase64(
+					w.sealer.signGrant(
+						{
+							nodeId: grant.node_id,
+							granterId: OTHER,
+							granteeId: BOB,
+							role: grant.role,
+							generation: grant.key_generation,
+							sealedKey: decodeBase64(grant.sealed_key)
+						},
+						forger
+					)
+				)
+			});
+
+			const [entry] = await w.bob.drive.sharing.refreshShared();
+			expect(entry.trust).toBe('keys-changed');
+			expect(entry.changed?.was.userId).toBe(ALICE);
+			await expect(w.bob.drive.sharing.grantKey(entry.node)).rejects.toBeInstanceOf(
+				UntrustedGrantError
+			);
+		});
 	});
 
 	it('keeps the pins sealed, under a key only this master key reaches', async () => {

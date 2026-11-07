@@ -129,7 +129,7 @@ export class Sharing {
 		}
 		let keys;
 		try {
-			keys = await contacts.keysOf(grant.granter_id);
+			keys = await contacts.keysNamed(grant.granter_id, grant.granter_username);
 		} catch (e) {
 			if (e instanceof ContactKeysChangedError) return { trust: 'keys-changed', changed: e };
 			throw e;

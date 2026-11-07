@@ -41,7 +41,7 @@
 	const reasons = {
 		'not-owner': 'The person it says it comes from does not own what it opens.',
 		'bad-signature': 'Its signature does not check out against the keys this device has for them.',
-		'keys-changed': 'The keys this device knows for them have changed.'
+		'keys-changed': 'The keys or the account this device knows for them have changed.'
 	} as const;
 </script>
 

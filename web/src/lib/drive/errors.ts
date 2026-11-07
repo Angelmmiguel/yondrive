@@ -68,7 +68,13 @@ export function describeDriveError(e: unknown): string {
 		return 'The app was locked before this could finish.';
 	}
 	if (e instanceof ContactKeysChangedError) {
-		return `The keys of ${e.username} have changed, so nothing was shared or opened. Check with them before going on.`;
+		const what =
+			e.was.userId !== undefined
+				? `A different account is using the name ${e.username}`
+				: e.was.username !== undefined
+					? `The account known as ${e.was.username} now has the name ${e.username}`
+					: `The keys of ${e.username} have changed`;
+		return `${what}, so nothing was shared or opened. Check with them before going on.`;
 	}
 	if (e instanceof UntrustedGrantError) {
 		return 'This share could not be verified, so it was not opened. Its signature does not check out against the person it says it comes from.';
