@@ -1,9 +1,14 @@
 /**
- * The zero knowledge canary: what a person types that only the device may know
- * must not reach the server, its database, its data directory or its logs. It
- * covers setup and sign-in now; files and their names join it with Drive.
+ * The zero knowledge canary: what a person types or uploads that only the device
+ * may know must not reach the server, its database, its data directory or its logs.
+ * It covers setup and sign-in, and then files: their names, tags and contents. In
+ * mode `none` it checks the other side: the stored file is the file, and the app
+ * says that it is not encrypted.
  */
 import { expect, test } from '@playwright/test';
+import { readFile, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
+import { act, download, expectDriveReady, fileBox, newFolder, row, upload } from '../drive';
 import { captureRequests, findIn, scanDir } from '../scan';
 import { accountMenu, expectLocked, runWizard, signIn, submitUnlock } from '../flows';
 import { startServer, type Mode, type Server } from '../server';
@@ -11,6 +16,16 @@ import { startServer, type Mode, type Server } from '../server';
 const CANARY_PASSPHRASE = 'canary zebra quartz meadow violet 7319';
 const CANARY_NAME = 'Canary Displayname Xq7Zp2';
 const USERNAME = 'canaryuser';
+
+/** Every file the server keeps under blobs/. */
+async function storedFiles(dataDir: string): Promise<Buffer[]> {
+	const root = join(dataDir, 'blobs');
+	const out: Buffer[] = [];
+	for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+		if (entry.isFile()) out.push(await readFile(join(entry.parentPath, entry.name)));
+	}
+	return out;
+}
 
 /** The whole phrase, and every two adjacent words in the forms they could be joined. */
 function wordSecrets(words: string[]): Record<string, string> {
@@ -84,6 +99,66 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			// What the server logged. It did log something, including the setup link.
 			expect(server.logs()).toContain('listening');
 			expect(findIn(Buffer.from(server.logs()), secrets)).toEqual([]);
+		});
+
+		test('file names, tags and contents stay on the device', async ({ page }) => {
+			const sent = captureRequests(page);
+			const box = await fileBox();
+			try {
+				await page.goto(server.url);
+				await signIn(page, USERNAME, CANARY_PASSPHRASE);
+				await expectDriveReady(page);
+
+				const secretName = `canary-file-name-Qz81k3-${mode}.txt`;
+				const secretContent = `canary file content Wm29x7 ${mode} `.repeat(50);
+				const secretFolder = `canary-folder-Ty40p9-${mode}`;
+				const secretTag = `CanaryTagHv73n2${mode}`;
+
+				const file = await box.add(secretName, Buffer.from(secretContent));
+				await upload(page, file);
+				await newFolder(page, secretFolder);
+				await act(page, secretName, 'Tags');
+				const dialog = page.getByRole('dialog', { name: `Tags of ${secretName}` });
+				await dialog.getByLabel('New tag').fill(secretTag);
+				await dialog.getByRole('button', { name: 'Add' }).click();
+				await expect(row(page, secretName)).toContainText(secretTag);
+				await dialog.getByRole('button', { name: 'Done' }).click();
+
+				// The tag's page: the address must not give the name away either.
+				await page.getByRole('link', { name: new RegExp(`^${secretTag}`) }).click();
+				await expect(page.getByRole('heading', { name: secretTag })).toBeVisible();
+
+				// Reading it back goes through the same places.
+				await page.goto(server.url);
+				await expectDriveReady(page);
+				expect((await download(page, secretName)).toString()).toBe(secretContent);
+
+				const secrets = {
+					'file name': secretName,
+					'file content': secretContent.slice(0, 40),
+					folder: secretFolder,
+					tag: secretTag
+				};
+				const requests = Buffer.from(sent.join('\n'));
+				const logs = Buffer.from(server.logs());
+				expect(sent.join('\n')).toContain('/uploads');
+
+				if (mode === 'e2e') {
+					expect(findIn(requests, secrets)).toEqual([]);
+					expect(await scanDir(server.dataDir, secrets)).toEqual([]);
+					expect(findIn(logs, secrets)).toEqual([]);
+					await expect(page.getByTestId('not-encrypted')).toHaveCount(0);
+				} else {
+					// No encryption, and it says so: the stored file is the very file.
+					await expect(page.getByTestId('not-encrypted')).toBeVisible();
+					const stored = await storedFiles(server.dataDir);
+					expect(stored.some((bytes) => bytes.equals(file.bytes))).toBe(true);
+					// What is readable on disk still never goes in the logs.
+					expect(findIn(logs, secrets)).toEqual([]);
+				}
+			} finally {
+				await box.remove();
+			}
 		});
 	});
 }

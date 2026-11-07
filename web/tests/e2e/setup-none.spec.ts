@@ -48,7 +48,7 @@ test('full setup without encryption, with no unlock, and a quiet indicator', asy
 	// A reload needs nothing, and there is no lock to choose.
 	await page.reload();
 	await expect(page.getByRole('heading', { name: 'My files' })).toBeVisible();
-	await page.locator('button[aria-haspopup="menu"]').click();
+	await page.getByTestId('account-menu').click();
 	await expect(page.getByRole('menuitem', { name: 'Lock' })).toHaveCount(0);
 	await page.keyboard.press('Escape');
 

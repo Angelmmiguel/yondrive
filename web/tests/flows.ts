@@ -126,7 +126,7 @@ export async function signIn(
 
 /** Picks an entry of the account menu at the top of the app. */
 export async function accountMenu(page: Page, item: string): Promise<void> {
-	await page.locator('button[aria-haspopup="menu"]').click();
+	await page.getByTestId('account-menu').click();
 	await page.getByRole('menuitem', { name: item }).click();
 }
 
