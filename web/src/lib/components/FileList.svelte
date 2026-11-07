@@ -8,21 +8,25 @@
 
 	interface Props {
 		label: string;
+		/** Sits at the head of the column of row checkboxes. */
+		selectAll?: Snippet;
 		children: Snippet;
 	}
 
-	let { label, children }: Props = $props();
+	let { label, selectAll, children }: Props = $props();
 </script>
 
 <div class="frame">
 	<div class="table" role="table" aria-label={label} style:--cols={FILE_COLUMNS}>
 		<div class="head" role="row">
+			<span role="columnheader" class="check">{@render selectAll?.()}</span>
 			<span role="columnheader">Name</span>
 			<span role="columnheader">Tags</span>
 			<span role="columnheader">Shared</span>
 			<span role="columnheader">Modified</span>
 			<span role="columnheader" class="end">Size</span>
 			<span role="columnheader" class="sr">Favorite</span>
+			<span role="columnheader" class="sr">Actions</span>
 		</div>
 		{@render children()}
 	</div>
@@ -37,7 +41,7 @@
 	}
 
 	.table {
-		min-width: 780px;
+		min-width: 880px;
 	}
 
 	.head {
@@ -55,6 +59,11 @@
 
 	.end {
 		text-align: right;
+	}
+
+	.check {
+		display: flex;
+		align-items: center;
 	}
 
 	.sr {

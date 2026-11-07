@@ -1,5 +1,6 @@
 <!-- One file or folder in the grid view: a tinted preview over its name, with a star on top. -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { FILE_KINDS, type FileKind } from './fileKinds';
 	import Icon from './Icon.svelte';
 
@@ -11,6 +12,12 @@
 		starred?: boolean;
 		selected?: boolean;
 		href?: string;
+		/** An image to draw instead of the kind's icon. */
+		thumbnail?: string | null;
+		/** Sits over the preview at the top left, usually a checkbox. */
+		leading?: Snippet;
+		/** Sits under the star, usually a menu. */
+		actions?: Snippet;
 		onselect?: () => void;
 		onstar?: (starred: boolean) => void;
 	}
@@ -23,6 +30,9 @@
 		starred = false,
 		selected = false,
 		href,
+		thumbnail,
+		leading,
+		actions,
 		onselect,
 		onstar
 	}: Props = $props();
@@ -33,7 +43,11 @@
 <div class="tile" class:sel={selected}>
 	{#snippet content()}
 		<span class="preview" style:background={style.soft} style:color={style.ink}>
-			<Icon name={style.icon} size={40} strokeWidth={1.4} />
+			{#if thumbnail}
+				<img src={thumbnail} alt="" />
+			{:else}
+				<Icon name={style.icon} size={40} strokeWidth={1.4} />
+			{/if}
 		</span>
 		<span class="info">
 			<span class="title">{name}</span>
@@ -63,6 +77,8 @@
 	>
 		<Icon name="star" size={16} strokeWidth={1.7} filled={starred} />
 	</button>
+	{#if leading}<span class="lead">{@render leading()}</span>{/if}
+	{#if actions}<span class="more">{@render actions()}</span>{/if}
 </div>
 
 <style>
@@ -108,6 +124,26 @@
 		height: 116px;
 		display: grid;
 		place-items: center;
+	}
+
+	.preview img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.lead {
+		position: absolute;
+		top: 14px;
+		left: 12px;
+	}
+
+	.more {
+		position: absolute;
+		top: 44px;
+		right: 6px;
+		background: var(--surface);
+		border-radius: 10px;
 	}
 
 	.info {

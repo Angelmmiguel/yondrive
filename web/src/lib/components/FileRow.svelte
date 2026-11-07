@@ -3,6 +3,7 @@
   button that selects it; the star is its own toggle button. Meant to sit in a FileList.
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import Avatar from './Avatar.svelte';
 	import { FILE_KINDS, type FileKind } from './fileKinds';
 	import { FILE_COLUMNS } from './fileColumns';
@@ -27,6 +28,12 @@
 		starred?: boolean;
 		selected?: boolean;
 		href?: string;
+		/** An image to draw instead of the kind's icon. */
+		thumbnail?: string | null;
+		/** Sits in the first column, usually a checkbox. */
+		leading?: Snippet;
+		/** Sits in the last column, usually a menu. */
+		actions?: Snippet;
 		onselect?: () => void;
 		onstar?: (starred: boolean) => void;
 	}
@@ -42,6 +49,9 @@
 		starred = false,
 		selected = false,
 		href,
+		thumbnail,
+		leading,
+		actions,
 		onselect,
 		onstar
 	}: Props = $props();
@@ -56,10 +66,15 @@
 	aria-selected={selected}
 	style:--cols={FILE_COLUMNS}
 >
+	<span role="cell" class="lead">{@render leading?.()}</span>
 	<span role="cell" class="name-cell">
 		{#snippet content()}
 			<span class="badge" style:background={style.soft} style:color={style.ink}>
-				<Icon name={style.icon} size={18} />
+				{#if thumbnail}
+					<img src={thumbnail} alt="" />
+				{:else}
+					<Icon name={style.icon} size={18} />
+				{/if}
 			</span>
 			<span class="text">
 				<span class="title">{name}</span>
@@ -103,6 +118,7 @@
 			<Icon name="star" size={17} strokeWidth={1.7} filled={starred} />
 		</button>
 	</span>
+	<span role="cell" class="more">{@render actions?.()}</span>
 </div>
 
 <style>
@@ -155,6 +171,23 @@
 		display: grid;
 		place-items: center;
 		border-radius: 9px;
+		overflow: hidden;
+	}
+
+	.badge img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.lead {
+		display: flex;
+		align-items: center;
+	}
+
+	.more {
+		display: flex;
+		justify-content: center;
 	}
 
 	.text {

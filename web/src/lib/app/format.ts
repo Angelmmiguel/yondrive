@@ -23,6 +23,46 @@ export const QUOTA_OPTIONS = [
 	{ value: '0', label: 'Unlimited' }
 ];
 
+const MINUTE = 60_000;
+const DAY = 24 * 60 * MINUTE;
+
+/** When something happened, as a person would say it. */
+export function formatWhen(when: number, now: number = Date.now()): string {
+	if (!Number.isFinite(when) || when <= 0) return '—';
+	const ago = now - when;
+	if (ago < MINUTE) return 'Just now';
+	if (ago < 60 * MINUTE) return `${Math.floor(ago / MINUTE)} min ago`;
+	const date = new Date(when);
+	const today = new Date(now);
+	const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+	if (when >= startOfToday) {
+		return `Today, ${date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+	}
+	if (when >= startOfToday - DAY) return 'Yesterday';
+	const sameYear = date.getFullYear() === today.getFullYear();
+	return date.toLocaleDateString(undefined, {
+		month: 'short',
+		day: 'numeric',
+		year: sameYear ? undefined : 'numeric'
+	});
+}
+
+/** A day to come, for when something will happen. */
+export function formatDay(when: number): string {
+	return new Date(when).toLocaleDateString(undefined, {
+		year: 'numeric',
+		month: 'long',
+		day: 'numeric'
+	});
+}
+
+export function greeting(hour: number): string {
+	if (hour < 5) return 'Good evening';
+	if (hour < 12) return 'Good morning';
+	if (hour < 19) return 'Good afternoon';
+	return 'Good evening';
+}
+
 export function formatDate(iso: string): string {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString();

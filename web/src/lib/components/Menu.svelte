@@ -42,6 +42,11 @@
 		trigger?: Snippet<[TriggerAttrs]>;
 		align?: 'start' | 'end';
 		width?: number;
+		/**
+		 * Draws in the top layer at the trigger, for a menu inside something that
+		 * clips or transforms, such as a row of a scrolling list.
+		 */
+		floating?: boolean;
 		onselect?: (id: string) => void;
 	}
 
@@ -54,6 +59,7 @@
 		trigger,
 		align = 'end',
 		width = 260,
+		floating = false,
 		onselect
 	}: Props = $props();
 
@@ -63,6 +69,23 @@
 	let list = $state<HTMLElement>();
 	let typed = '';
 	let typedAt = 0;
+	let at = $state<{ left: number; top: number } | null>(null);
+
+	/** Next to the trigger, kept on screen, above it if there is more room there. */
+	function place() {
+		if (!floating || !list || !root) return;
+		list.showPopover?.();
+		const trigger = root.getBoundingClientRect();
+		const menu = list.getBoundingClientRect();
+		const margin = 8;
+		const left = align === 'end' ? trigger.right - menu.width : trigger.left;
+		const below = trigger.bottom + margin;
+		const fits = below + menu.height + margin <= window.innerHeight;
+		at = {
+			left: Math.max(margin, Math.min(left, window.innerWidth - menu.width - margin)),
+			top: fits ? below : Math.max(margin, trigger.top - menu.height - margin)
+		};
+	}
 
 	const buttons = () =>
 		Array.from(list?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? []);
@@ -70,10 +93,13 @@
 	async function show(which: 'first' | 'last' | 'none' = 'first') {
 		open = true;
 		await tick();
+		place();
+		await tick();
+		// Moving the focus must not scroll a list the menu only floats over.
 		const all = buttons();
-		if (which === 'first') all[0]?.focus();
-		else if (which === 'last') all[all.length - 1]?.focus();
-		else list?.focus();
+		if (which === 'first') all[0]?.focus({ preventScroll: true });
+		else if (which === 'last') all[all.length - 1]?.focus({ preventScroll: true });
+		else list?.focus({ preventScroll: true });
 	}
 
 	function hide(refocus = true) {
@@ -155,8 +181,13 @@
 		const away = (event: PointerEvent) => {
 			if (!root?.contains(event.target as Node)) hide(false);
 		};
+		// A floating menu follows its trigger: it is not part of what scrolls.
 		document.addEventListener('pointerdown', away);
-		return () => document.removeEventListener('pointerdown', away);
+		if (floating) window.addEventListener('scroll', place, { capture: true, passive: true });
+		return () => {
+			document.removeEventListener('pointerdown', away);
+			window.removeEventListener('scroll', place, { capture: true });
+		};
 	});
 </script>
 
@@ -173,10 +204,14 @@
 			bind:this={list}
 			id="{uid}-menu"
 			class="list {align}"
+			class:floating
 			role="menu"
 			aria-label={label}
 			tabindex="-1"
+			popover={floating ? 'manual' : undefined}
 			style:width="{width}px"
+			style:left={floating && at ? `${at.left}px` : undefined}
+			style:top={floating && at ? `${at.top}px` : undefined}
 			onkeydown={onmenukeydown}
 		>
 			{#if heading}<span class="heading" role="presentation">{heading}</span>{/if}
@@ -221,6 +256,13 @@
 
 	.list:focus {
 		outline: none;
+	}
+
+	.list.floating {
+		position: fixed;
+		inset: auto;
+		margin: 0;
+		color: inherit;
 	}
 
 	.list.end {

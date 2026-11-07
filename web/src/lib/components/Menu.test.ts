@@ -19,6 +19,25 @@ function setup() {
 const active = () => document.activeElement;
 const item = (name: string) => screen.getByRole('menuitem', { name });
 
+describe('a floating Menu', () => {
+	it('draws at its trigger, and stays open when the page scrolls', async () => {
+		render(Menu, { label: 'Row', triggerLabel: 'More', items, floating: true });
+		const trigger = screen.getByRole('button', { name: 'More' });
+		await fireEvent.click(trigger);
+
+		// This environment has no popover support, so roles do not find the menu.
+		const find = () => document.querySelector<HTMLElement>('[role="menu"]') as HTMLElement;
+		await waitFor(() => expect(find()).not.toBeNull());
+		const menu = find();
+		expect(menu.getAttribute('popover')).toBe('manual');
+		await waitFor(() => expect(menu.style.left).not.toBe(''));
+		expect(menu.style.top).not.toBe('');
+
+		await fireEvent.scroll(window);
+		expect(find()).toBe(menu);
+	});
+});
+
 describe('Menu', () => {
 	it('opens from the trigger and exposes its state', async () => {
 		const { trigger } = setup();
