@@ -1336,6 +1336,11 @@
 		will-change: transform;
 	}
 
+	/* The row numbers span the header's width; the strip has no width of its own. */
+	.heads.rows .inner {
+		right: 0;
+	}
+
 	.row {
 		position: absolute;
 		left: 0;

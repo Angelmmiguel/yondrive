@@ -62,6 +62,13 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(cell(page, 'A3')).toHaveText('31');
 			await goTo(page, 'A3');
 			await expect(formulaBar(page)).toHaveValue('=A1*A2+1');
+			// Each row is numbered, and the active row's number is marked.
+			const rowHead = (n: number) =>
+				grid(page).locator('.heads.rows .hd', { hasText: new RegExp(`^${n}$`) });
+			for (const n of [1, 2, 3, 4]) await expect(rowHead(n)).toBeVisible();
+			expect((await rowHead(3).boundingBox())!.width).toBeGreaterThan(20);
+			await expect(rowHead(3)).toHaveClass(/\bon\b/);
+			await expect(rowHead(2)).not.toHaveClass(/\bon\b/);
 			await expect(saveStatus(page)).toHaveText(/Unsaved changes|Saving…|Saved/);
 			await expect(saveStatus(page)).toHaveText('Saved', { timeout: 30_000 });
 			// The status bar sums the selection.
