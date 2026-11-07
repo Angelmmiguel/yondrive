@@ -21,7 +21,7 @@ import {
 } from '$lib/testing/drive';
 import { ContactKeysChangedError, Contacts, memoryPinStorage } from './contacts';
 import { canChangePlace, canWrite, isOwner } from './roles';
-import { memoryRotationJobs } from './rotation';
+import { memoryRotationJobs, type RotationProgress } from './rotation';
 import { PublicLinkSession, WrongLinkPasswordError } from './public';
 import { UntrustedGrantError } from './sharing';
 
@@ -747,6 +747,63 @@ describe('with keys', () => {
 			SealError
 		);
 		expect(w.server.nodes.get(w.folder.id)?.key_generation).toBe(1);
+	});
+
+	describe('a child whose wrap opens for nobody', () => {
+		const damage = (w: Awaited<ReturnType<typeof world>>, id: string) => {
+			const stored = w.server.nodes.get(id) as NonNullable<ReturnType<typeof w.server.nodes.get>>;
+			const wrap = decodeBase64(stored.wrapped_key);
+			wrap[wrap.length - 1] ^= 1;
+			w.server.nodes.set(id, { ...stored, wrapped_key: encodeBase64(wrap) });
+		};
+
+		it('does not stop a rotation, and is counted where the owner hears of it', async () => {
+			const w = await e2e();
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'editor');
+			const bad = await w.alice.drive.tree.createFolder(w.folder.id, 'Bad');
+			damage(w, bad.id);
+			const progress: RotationProgress[] = [];
+
+			await w.alice.drive.sharing.revoke(grant.id, w.folder.id, (one) => progress.push(one));
+
+			for (const id of [w.folder.id, w.inner.id, w.file.id]) {
+				expect(w.server.nodes.get(id)?.key_generation).toBe(2);
+			}
+			expect(w.server.nodes.get(bad.id)?.key_generation).toBe(1);
+			expect(w.alice.jobs.list()).toEqual([]);
+			expect(progress.at(-1)).toMatchObject({ done: 4, total: 4, unreadable: 1 });
+			expect(progress.at(-1)?.topId).toBe(w.folder.id);
+		});
+
+		it('keeps the count in the job, and does not count one twice on resuming', async () => {
+			const w = await e2e();
+			const bad = await w.alice.drive.tree.createFolder(w.folder.id, 'Bad');
+			damage(w, bad.id);
+			w.alice.jobs.save({ topId: w.folder.id, done: {}, unreadable: [bad.id] });
+			const saved: (string[] | undefined)[] = [];
+			const save = w.alice.jobs.save;
+			w.alice.jobs.save = (job) => {
+				saved.push(job.unreadable);
+				save(job);
+			};
+			const progress: RotationProgress[] = [];
+
+			await w.alice.drive.sharing.resumeRotations((one) => progress.push(one));
+
+			expect(saved.at(-1)).toEqual([bad.id]);
+			expect(progress.at(-1)?.unreadable).toBe(1);
+		});
+
+		it('does not pass over the top: the job stays, to try again', async () => {
+			const w = await e2e();
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			damage(w, w.folder.id);
+
+			await expect(w.alice.drive.sharing.revoke(grant.id, w.folder.id)).rejects.toBeInstanceOf(
+				SealError
+			);
+			expect(w.alice.jobs.list()).toHaveLength(1);
+		});
 	});
 
 	it('leaves someone holding an old key unable to read what comes after', async () => {

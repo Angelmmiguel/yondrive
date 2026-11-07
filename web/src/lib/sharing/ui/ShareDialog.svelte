@@ -27,6 +27,7 @@
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { linkStatus, type LinkStatus } from '../links';
+	import { unrekeyedText } from '../rotation';
 	import type { Person } from '../sharing';
 
 	interface Props {
@@ -129,12 +130,19 @@
 		if (person.access.grant_id === undefined) return;
 		error = '';
 		try {
-			await sharing.revoke(person.access.grant_id, node.id);
+			const unreadable = await sharing.revoke(person.access.grant_id, node.id);
 			revoking = null;
-			toasts.push(
-				'ok',
-				`${person.access.username} no longer has access, and the keys are replaced.`
-			);
+			if (unreadable === 0) {
+				toasts.push(
+					'ok',
+					`${person.access.username} no longer has access, and the keys are replaced.`
+				);
+			} else {
+				toasts.push(
+					'danger',
+					`${person.access.username} no longer has access. ${unrekeyedText(unreadable)}.`
+				);
+			}
 			await load();
 		} catch (e) {
 			revoking = null;

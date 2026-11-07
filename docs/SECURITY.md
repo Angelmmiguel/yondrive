@@ -44,7 +44,10 @@ It cannot see names, types, tags, dates inside metadata, or contents.
   client then rotates the node key and those under it, for future content. The rotation seals
   nothing again: existing versions stay under their old keys, which the revoked user may have,
   and earlier content may have been copied. Until each node is rotated, new content in it is
-  sealed under a key they may hold.
+  sealed under a key they may hold. The server cannot check a wrapped key, so someone with edit
+  rights can write a child whose wrap opens for nobody. A rotation passes over such a node and what
+  is under it, as the owner cannot reach them either, carries on with the rest, and tells the owner
+  how many items could not be re-keyed. The top of a share is never passed over.
 - **The device is trusted.** Malware on an unlocked device can read what the user can read,
   and capture the passphrase.
 - **Zeroing is best effort.** Keys are zeroed on lock and when done with, and all-zero keys

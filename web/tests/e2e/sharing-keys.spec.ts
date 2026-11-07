@@ -4,9 +4,19 @@
  */
 import { expect, test, type Page, type Request } from '@playwright/test';
 import { randomBytes } from 'node:crypto';
-import { newFolder, openDrive, row } from '../drive';
+import { newFolder, openDrive, openFolder, row } from '../drive';
 import { startServer, type Server } from '../server';
-import { addUser, openShared, person, refocus, shareDialog, shareWith } from '../sharing';
+import {
+	addUser,
+	childrenOf,
+	getNode,
+	nodeIdOf,
+	openShared,
+	person,
+	refocus,
+	shareDialog,
+	shareWith
+} from '../sharing';
 import { act } from '../drive';
 
 test.describe.serial('with keys', () => {
@@ -243,5 +253,43 @@ test.describe.serial('with keys', () => {
 		await expect(row(carol, 'First')).toBeVisible({ timeout: 30_000 });
 		await expect(carol.getByTestId('unverified-share')).toHaveCount(0);
 		await carol.context().close();
+	});
+
+	test('a child nobody can open does not stop a rotation, and the owner is told', async () => {
+		await newFolder(alice, 'Fourth');
+		const top = await nodeIdOf(alice, 'Fourth');
+		await openFolder(alice, 'Fourth');
+		await newFolder(alice, 'Damaged');
+		const [child] = await childrenOf(alice, top);
+		await alice.goto(server.url);
+		await expect(row(alice, 'Fourth')).toBeVisible({ timeout: 30_000 });
+		await shareWith(alice, 'Fourth', 'bob', 'editor');
+		await expect(person(alice, 'bob')).toBeVisible();
+
+		// As the editor could leave it: a wrap the server has no way to check.
+		await alice.route(`**/api/v1/nodes/${child.id}`, async (route) => {
+			const response = await route.fetch();
+			const node = await response.json();
+			node.wrapped_key = randomBytes(Buffer.from(node.wrapped_key, 'base64').length).toString(
+				'base64'
+			);
+			await route.fulfill({ response, json: node });
+		});
+		const dialog = shareDialog(alice, 'Fourth');
+		await dialog.getByRole('button', { name: 'Revoke bob' }).click();
+		await dialog.getByRole('button', { name: 'Revoke and replace keys' }).click();
+		await expect(alice.getByText('no longer has access. 1 item could not be re-keyed')).toBeVisible(
+			{
+				timeout: 30_000
+			}
+		);
+		await dialog.getByRole('button', { name: 'Done' }).click();
+		await alice.unroute(`**/api/v1/nodes/${child.id}`);
+
+		const warning = alice.getByTestId('rotation-unrekeyed');
+		await expect(warning).toContainText('1 item could not be re-keyed');
+		expect((await getNode(alice, top)).key_generation).toBe(2);
+		await warning.getByRole('button', { name: 'Dismiss' }).click();
+		await expect(warning).toHaveCount(0);
 	});
 });

@@ -20,6 +20,8 @@ export class SharingState {
 	comparing = $state.raw<{ userId: string; username: string } | null>(null);
 	/** A rotation under way, here or going on from an earlier session. */
 	rotation = $state.raw<RotationProgress | null>(null);
+	/** How many items each rotation could not re-key, until the owner has seen it. */
+	unrekeyed = $state.raw<Record<string, number>>({});
 
 	core: Sharing | null = null;
 
@@ -38,6 +40,7 @@ export class SharingState {
 		this.changed = null;
 		this.comparing = null;
 		this.rotation = null;
+		this.unrekeyed = {};
 	}
 
 	/** What is in `Sharing` now, for the screens. */
@@ -102,15 +105,39 @@ export class SharingState {
 		return this.shared.find((entry) => entry.node.id === nodeId);
 	}
 
-	/** Revokes a grant and replaces the keys, with the progress where the screens can see it. */
-	async revoke(grantId: string, nodeId: string): Promise<void> {
+	/** Where a rotation has got to. What it could not re-key stays after it has ended. */
+	track(progress: RotationProgress | null): void {
+		this.rotation = progress;
+		if (progress?.topId === undefined) return;
+		const next = { ...this.unrekeyed };
+		if (progress.unreadable) next[progress.topId] = progress.unreadable;
+		else delete next[progress.topId];
+		this.unrekeyed = next;
+	}
+
+	get unrekeyedCount(): number {
+		return Object.values(this.unrekeyed).reduce((all, one) => all + one, 0);
+	}
+
+	dismissUnrekeyed(): void {
+		this.unrekeyed = {};
+	}
+
+	/**
+	 * Revokes a grant and replaces the keys, with the progress where the screens can see
+	 * it. Returns how many items of it could not be re-keyed.
+	 */
+	async revoke(grantId: string, nodeId: string): Promise<number> {
 		const core = this.core;
-		if (core === null) return;
+		if (core === null) return 0;
 		this.rotation = { done: 0, total: 1 };
+		let unreadable = 0;
 		try {
 			await core.revoke(grantId, nodeId, (progress) => {
-				this.rotation = progress;
+				unreadable = progress.unreadable ?? 0;
+				this.track(progress);
 			});
+			return unreadable;
 		} finally {
 			this.rotation = null;
 			this.#publish(core);

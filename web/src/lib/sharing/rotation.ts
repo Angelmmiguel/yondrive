@@ -3,7 +3,9 @@
  * node, from the top of the share down, parents first, as each wrap is made under the
  * parent's new key. A job is written down before it starts and notes each node's
  * generation as it goes, so a client that stops can go on: a node at or past the
- * generation noted is done. Nothing about the content is sealed again.
+ * generation noted is done. Nothing about the content is sealed again. A node below the
+ * top whose wrap does not open is passed over and counted, since nobody can open it and
+ * the rest still has to move.
  */
 import type { Api } from '$lib/api/client';
 import {
@@ -24,6 +26,8 @@ export interface RotationJob {
 	topId: string;
 	/** The generation each node reached, by id. */
 	done: Record<string, number>;
+	/** The nodes passed over, as their wrap does not open. */
+	unreadable?: string[];
 }
 
 export interface RotationJobs {
@@ -78,6 +82,9 @@ export interface RotationProgress {
 	done: number;
 	/** What is known so far: it grows as folders are read. */
 	total: number;
+	/** Which job this is, and how many of its nodes could not be re-keyed so far. */
+	topId?: string;
+	unreadable?: number;
 }
 
 export interface RotationDeps {
@@ -95,6 +102,10 @@ export interface RotationDeps {
 	/** Takes a copy of the key if it wants one, as these are zeroed when the job ends. */
 	onRotated?: (record: Node, key: Bytes, hadThumbnail: boolean) => void;
 	now?: () => number;
+}
+
+export function unrekeyedText(count: number): string {
+	return `${count} ${count === 1 ? 'item' : 'items'} could not be re-keyed`;
 }
 
 /** One direct child, as the owner reads it to wrap it again. */
@@ -295,23 +306,37 @@ async function directGrants(id: string, deps: RotationDeps) {
 	);
 }
 
-/** Rotates one node, reading all it names again on a conflict. Returns its current key. */
+/**
+ * Rotates one node, reading all it names again on a conflict. Returns its current key,
+ * or null if its wrap does not open: the server cannot check a wrap, so an editor can
+ * write one that opens for nobody, and that must not hold up everything after it. At the
+ * top this cannot be that, as its owner opened it to share it, so the job stays to retry.
+ */
 async function rotateOne(
 	item: { id: string; parentId: string; parentKey: Bytes; parentGeneration: number },
 	job: RotationJob,
 	reads: Reads,
 	deps: RotationDeps
-): Promise<{ key: Bytes; generation: number; node: Node }> {
+): Promise<{ key: Bytes; generation: number; node: Node } | null> {
 	const { api, sealer, keys, userId } = deps;
 	for (let tried = 1; ; tried++) {
 		const record = await api.getNode(item.id);
-		const oldKey = sealer.unwrapNodeKey(
-			decodeBase64(record.wrapped_key),
-			item.parentKey,
-			item.parentId,
-			item.id
-		);
 		const generation = record.key_generation ?? 1;
+		let oldKey: Bytes;
+		try {
+			oldKey = sealer.unwrapNodeKey(
+				decodeBase64(record.wrapped_key),
+				item.parentKey,
+				item.parentId,
+				item.id
+			);
+		} catch (e) {
+			if (!(e instanceof SealError) || item.id === job.topId) throw e;
+			job.done[item.id] = generation;
+			job.unreadable = [...new Set([...(job.unreadable ?? []), item.id])];
+			deps.jobs.save(job);
+			return null;
+		}
 		const noted = job.done[item.id];
 		if (noted !== undefined && generation >= noted) {
 			return { key: oldKey, generation, node: record };
@@ -405,24 +430,34 @@ export async function runRotation(
 		}
 	];
 	let done = 0;
-	onProgress({ done, total: queue.length });
+	const report = () =>
+		onProgress({
+			done,
+			total: done + queue.length,
+			topId: job.topId,
+			unreadable: job.unreadable?.length ?? 0
+		});
+	report();
 	try {
 		while (queue.length > 0) {
 			const item = queue.shift() as (typeof queue)[number];
-			const { key, generation, node } = await rotateOne(item, job, reads, deps);
-			held.push(key);
-			if (node.kind === 'folder') {
-				for (const child of await childrenOf(node.id, reads, deps)) {
-					queue.push({
-						id: child.id,
-						parentId: node.id,
-						parentKey: key,
-						parentGeneration: generation
-					});
+			const rotated = await rotateOne(item, job, reads, deps);
+			if (rotated !== null) {
+				const { key, generation, node } = rotated;
+				held.push(key);
+				if (node.kind === 'folder') {
+					for (const child of await childrenOf(node.id, reads, deps)) {
+						queue.push({
+							id: child.id,
+							parentId: node.id,
+							parentKey: key,
+							parentGeneration: generation
+						});
+					}
 				}
 			}
 			done += 1;
-			onProgress({ done, total: done + queue.length });
+			report();
 		}
 		jobs.remove(job.topId);
 	} finally {

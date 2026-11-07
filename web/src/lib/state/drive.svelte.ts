@@ -128,9 +128,7 @@ export class DriveState {
 			saveBlob,
 			pins: localPinStorage(account.user.id),
 			rotationJobs: localRotationJobs(account.user.id),
-			onResumeRotation: (progress) => {
-				sharing.rotation = progress;
-			}
+			onResumeRotation: (progress) => sharing.track(progress)
 		});
 		this.core = core;
 		sharing.attach(core.sharing);

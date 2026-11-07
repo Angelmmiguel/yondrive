@@ -69,6 +69,30 @@ describe('sharing state', () => {
 		expect(state.changed).toBe(changed);
 	});
 
+	it('keeps what a rotation could not re-key after it has ended, until dismissed', async () => {
+		const state = new SharingState();
+		state.attach(
+			core({
+				revoke: async (_g, _n, onProgress) => {
+					onProgress?.({ done: 3, total: 3, topId: 'n', unreadable: 2 });
+				}
+			} as Partial<Sharing>)
+		);
+
+		expect(await state.revoke('g', 'n')).toBe(2);
+		expect(state.rotation).toBeNull();
+		expect(state.unrekeyedCount).toBe(2);
+
+		// A resumed job in the same session adds to it, and the same job replaces its own.
+		state.track({ done: 1, total: 1, topId: 'm', unreadable: 1 });
+		state.track({ done: 1, total: 1, topId: 'n', unreadable: 2 });
+		state.track(null);
+		expect(state.unrekeyedCount).toBe(3);
+
+		state.dismissUnrekeyed();
+		expect(state.unrekeyedCount).toBe(0);
+	});
+
 	it('shows a rotation while it runs, and ends it however it goes', async () => {
 		const state = new SharingState();
 		const seen: unknown[] = [];
