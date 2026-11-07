@@ -2068,7 +2068,7 @@ components:
       type: apiKey
       in: cookie
       name: yondrive_session
-      description: HttpOnly, SameSite=Strict session cookie set by login.
+      description: HttpOnly, SameSite=Strict session cookie set by login, named `__Host-yondrive_session` over HTTPS.
     bearerToken:
       type: http
       scheme: bearer

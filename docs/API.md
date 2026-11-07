@@ -45,7 +45,7 @@ There are three kinds of credential, and each route lists which it accepts.
 
 | Credential | Who uses it | How it is sent |
 | --- | --- | --- |
-| Session cookie `yondrive_session` | The web app | HttpOnly, `SameSite=Strict`, set by `POST /api/v1/auth/login` |
+| Session cookie `yondrive_session`, `__Host-yondrive_session` over HTTPS | The web app | HttpOnly, `SameSite=Strict`, set by `POST /api/v1/auth/login` |
 | Bearer token | Native clients and scripts | `Authorization: Bearer <secret>` |
 | Setup token | The first-run wizard only | `X-Setup-Token`, from the link in the server's log |
 

@@ -154,6 +154,9 @@ func (s *ssoFixture) signIn() *client {
 	}
 	c := cookieNamed(resp, "yondrive_session")
 	if c == nil {
+		c = cookieNamed(resp, "__Host-yondrive_session")
+	}
+	if c == nil {
 		s.t.Fatal("no session cookie")
 	}
 	return &client{e: s.e, cookie: c.Name + "=" + c.Value}

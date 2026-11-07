@@ -262,7 +262,7 @@ func (e *env) loginKey(username string, authKey []byte, extra ...any) *client {
 	resp := e.loginWith(username, authKey, extra...)
 	resp.wantStatus(e.t, http.StatusOK)
 	for _, c := range (&http.Response{Header: resp.header}).Cookies() {
-		if c.Name == "yondrive_session" {
+		if c.Name == "yondrive_session" || c.Name == "__Host-yondrive_session" {
 			return &client{e: e, cookie: c.Name + "=" + c.Value, body: resp.body}
 		}
 	}

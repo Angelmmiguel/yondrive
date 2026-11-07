@@ -360,7 +360,10 @@ func TestSettingsWarnAboutAnUntrustedProxy(t *testing.T) {
 		var got struct {
 			ProxyUntrusted bool `json:"proxy_untrusted"`
 		}
-		resp := e.call(http.MethodGet, settingsPath, nil, append([]string{"Cookie", c.cookie}, header...)...)
+		// The session was made over plain HTTP; a trusted proxy's https makes the
+		// server read the __Host- name, so the browser would hold both.
+		cookie := c.cookie + "; __Host-" + c.cookie
+		resp := e.call(http.MethodGet, settingsPath, nil, append([]string{"Cookie", cookie}, header...)...)
 		resp.wantStatus(t, http.StatusOK)
 		resp.decode(t, &got)
 		if got.ProxyUntrusted != want {

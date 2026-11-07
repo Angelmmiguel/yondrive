@@ -188,6 +188,29 @@ func TestCookieIsNotSecureOverPlainHTTP(t *testing.T) {
 	}
 }
 
+// Over HTTPS the session cookie is __Host-, which a sibling subdomain or plain
+// HTTP cannot set. A cookie under the old name, from before the server was
+// behind HTTPS, is not read: that session simply ends.
+func TestSessionCookieOverHTTPSIsHostOnlyByName(t *testing.T) {
+	e := configured(t, "none", server.Config{Secure: server.SecureAlways})
+	c := e.login("root")
+	if !strings.HasPrefix(c.cookie, "__Host-yondrive_session=") {
+		t.Fatalf("cookie = %q", c.cookie)
+	}
+	c.call(http.MethodGet, "/api/v1/me", nil).wantStatus(t, http.StatusOK)
+	old := strings.TrimPrefix(c.cookie, "__Host-")
+	e.call(http.MethodGet, "/api/v1/me", nil, "Cookie", old).wantError(t, http.StatusUnauthorized, "unauthorized")
+	logout := c.call(http.MethodPost, "/api/v1/auth/logout", nil)
+	if got := logout.header.Get("Set-Cookie"); !strings.HasPrefix(got, "__Host-yondrive_session=;") {
+		t.Errorf("logout cookie = %q", got)
+	}
+
+	plain := configured(t, "none", server.Config{Secure: server.SecureNever})
+	if c := plain.login("root"); !strings.HasPrefix(c.cookie, "yondrive_session=") {
+		t.Errorf("plain cookie = %q", c.cookie)
+	}
+}
+
 func TestWrongCredentialsLookTheSame(t *testing.T) {
 	e := configured(t, "e2e", server.Config{})
 	wrongKey := e.loginWith("root", key("wrong"))

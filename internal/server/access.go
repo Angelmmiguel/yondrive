@@ -11,8 +11,22 @@ import (
 	"github.com/Angelmmiguel/yondrive/internal/store"
 )
 
-// sessionCookie is the name of the session cookie set on login.
-const sessionCookie = "yondrive_session"
+// The session cookie. Over HTTPS it carries the __Host- prefix, so the browser
+// holds it to this host, with Secure and Path=/, and refuses one set by a sibling
+// subdomain or over plain HTTP. Each name is read only in its own mode: a server
+// moved to HTTPS ignores the old cookie, which ends that session.
+const (
+	sessionCookiePlain  = "yondrive_session"
+	sessionCookieSecure = "__Host-yondrive_session"
+)
+
+// sessionCookieName is the name of the session cookie for a request.
+func (s *Server) sessionCookieName(r *http.Request) string {
+	if s.requestSecure(r) {
+		return sessionCookieSecure
+	}
+	return sessionCookiePlain
+}
 
 // sessionTouchInterval is how stale a session's idle deadline may get before a
 // request moves it: often enough for the deadline to stay meaningful, rarely
@@ -190,7 +204,7 @@ func (s *Server) authenticateBearer(ctx context.Context, r *http.Request) (princ
 // authenticateSession resolves the session cookie, ending the session if a
 // deadline has passed and extending its idle window otherwise.
 func (s *Server) authenticateSession(ctx context.Context, r *http.Request) (principal, error) {
-	c, err := r.Cookie(sessionCookie)
+	c, err := r.Cookie(s.sessionCookieName(r))
 	if err != nil {
 		return principal{}, errUnauthorized
 	}
@@ -239,12 +253,13 @@ func (s *Server) activeUser(ctx context.Context, id string) (store.User, error) 
 // sessionCookieHeader returns the Set-Cookie value for a token. An empty token
 // clears the cookie.
 func (s *Server) sessionCookieHeader(ctx context.Context, token string) *string {
+	r := requestFrom(ctx)
 	c := http.Cookie{ //nolint:gosec // Secure follows YONDRIVE_SECURE: plain HTTP is a supported setup
-		Name:     sessionCookie,
+		Name:     s.sessionCookieName(r),
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.requestSecure(requestFrom(ctx)),
+		Secure:   s.requestSecure(r),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(s.cfg.SessionMaxAge.Seconds()),
 	}

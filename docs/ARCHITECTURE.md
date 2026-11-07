@@ -404,8 +404,8 @@ comparison treats a missing hash like a wrong one. Only the right key learns
 `user_disabled` or `totp_required`. Login returns the account document, and `GET /me`
 returns it again so that a locked client can unlock.
 
-**Sessions.** A random token in an HttpOnly, SameSite=Strict cookie, `Secure` as
-`YONDRIVE_SECURE` says, with a 24 h idle and a 7 day absolute lifetime. The database
+**Sessions.** A random token in an HttpOnly, SameSite=Strict cookie, `Secure` and named
+`__Host-yondrive_session` (otherwise `yondrive_session`) when `YONDRIVE_SECURE` says the request is HTTPS, with a 24 h idle and a 7 day absolute lifetime. The database
 holds its hash, so a restart keeps people signed in. The idle deadline moves on use, at
 most once a minute.
 
@@ -637,7 +637,9 @@ standard fonts, CMaps or wasm decoders embedded, so a PDF relying on those draws
 
 **Workers and the CSP.** A worker takes its policy from the response that delivered its script, not from the page, so
 `web/embed.go` gives each script under `_app/immutable/workers/` and `service-worker.js` its own: its origin's scripts and
-`connect-src 'self'`, nothing else.
+`connect-src 'self'`, nothing else. Every other response, the API, the other scripts, redirects and errors, carries
+`default-src 'none'; frame-ancestors 'none'` from the server's middleware, which the shell, the workers and the
+blob routes replace with their own.
 
 **Journal.** Read on focus and once a minute. It starts at the end, since the first read of the tree has it all. Each
 changed node is read again, and beyond 100 of them the tree is.

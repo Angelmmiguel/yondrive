@@ -123,8 +123,17 @@ func TestSecurityHeaders(t *testing.T) {
 	if got := resp.Header.Get("Strict-Transport-Security"); got != "" {
 		t.Errorf("HSTS = %q over plain HTTP, want none", got)
 	}
-	if got := resp.Header.Get("Content-Security-Policy"); got != "" {
-		t.Errorf("CSP = %q, want none (the web app owns it)", got)
+	// What is never a page loads nothing and is framed by nothing; the shell sets
+	// its own policy over this one.
+	if got := resp.Header.Values("Content-Security-Policy"); len(got) != 1 || got[0] != "default-src 'none'; frame-ancestors 'none'" {
+		t.Errorf("CSP = %q", got)
+	}
+	ui := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'")
+	})
+	resp = do(t, newServer(t, server.Config{UI: ui}), http.MethodGet, "/", nil)
+	if got := resp.Header.Values("Content-Security-Policy"); len(got) != 1 || got[0] != "default-src 'self'" {
+		t.Errorf("shell CSP = %q", got)
 	}
 }
 

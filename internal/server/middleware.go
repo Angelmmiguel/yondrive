@@ -45,11 +45,16 @@ func (s *Server) limitBody(next http.Handler) http.Handler {
 	})
 }
 
+// defaultContentSecurityPolicy lets a response load nothing and be framed by
+// nothing, for any route that does not say otherwise.
+const defaultContentSecurityPolicy = "default-src 'none'; frame-ancestors 'none'"
+
 // securityHeaders sets the headers that apply to every response.
 //
-// The Content-Security-Policy is not among them: the web app authors its own
-// policy at build time, because only it knows the hashes of the scripts it
-// inlines, and the web package serves it with the app shell.
+// The Content-Security-Policy set here is the default for what is never a page:
+// JSON, scripts, redirects and errors. The web app authors the shell's policy at
+// build time, because only it knows the hashes of the scripts it inlines, and
+// the shell, the workers and the blob routes each set their own over this one.
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -59,6 +64,7 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("Cross-Origin-Resource-Policy", "same-origin")
 		h.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+		h.Set("Content-Security-Policy", defaultContentSecurityPolicy)
 		if s.requestSecure(r) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
