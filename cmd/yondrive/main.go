@@ -47,6 +47,10 @@ func main() {
 		run = admin
 	case "backup":
 		run = backup
+	case "restore":
+		run = restore
+	case "migrate":
+		run = migrate
 	default:
 		usage()
 		os.Exit(2)
@@ -65,6 +69,11 @@ usage:
   yondrive backup [--data dir] <dest>
                      take a consistent snapshot into an empty directory, beside
                      a running server
+  yondrive restore [--data dir] <backup>
+                     copy a backup into a new, empty data directory
+  yondrive migrate [--data dir] [--check]
+                     apply the schema migrations with the server stopped, or
+                     with --check only report them; serve also applies them
   yondrive admin reset-totp [--data dir] <username>
                      turn off a user's TOTP, with the server stopped
 

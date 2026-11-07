@@ -316,13 +316,14 @@ func newHarness(t *testing.T, st *store.Store) *harness {
 
 func (h *harness) close() { h.srv.Close() }
 
-func (h *harness) setup() {
+func (h *harness) setup() { h.setupMode("none") }
+
+// setupMode completes setup in a mode, with root as the administrator.
+func (h *harness) setupMode(mode string) {
 	h.t.Helper()
-	salt := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 16))
-	authKey := base64.StdEncoding.EncodeToString(auth.HashToken("root"))
 	body, _ := json.Marshal(map[string]any{
-		"settings": map[string]any{"name": "Home", "public_url": "http://x", "default_quota_bytes": 0, "language": "en", "time_zone": "UTC", "mode": "none"},
-		"admin":    map[string]any{"username": "root", "auth_key": authKey, "kdf": map[string]any{"name": "argon2id", "m": 65536, "t": 3, "p": 1, "salt": salt}},
+		"settings": map[string]any{"name": "Home", "public_url": "http://x", "default_quota_bytes": 0, "language": "en", "time_zone": "UTC", "mode": mode},
+		"admin":    newAccount("root", mode),
 	})
 	req, _ := http.NewRequest(http.MethodPost, h.srv.URL+"/api/v1/setup/complete", bytes.NewReader(body))
 	req.Header.Set("X-Setup-Token", "tok")
