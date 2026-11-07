@@ -29,6 +29,7 @@ var version = "dev"
 const (
 	shutdownTimeout      = 10 * time.Second
 	sessionPurgeInterval = time.Minute
+	sweepInterval        = time.Hour
 )
 
 func main() {
@@ -42,6 +43,8 @@ func main() {
 		run = serve
 	case "admin":
 		run = admin
+	case "backup":
+		run = backup
 	default:
 		usage()
 		os.Exit(2)
@@ -57,6 +60,9 @@ func usage() {
 
 usage:
   yondrive serve [flags]
+  yondrive backup [--data dir] <dest>
+                     take a consistent snapshot into an empty directory, beside
+                     a running server
   yondrive admin reset-totp [--data dir] <username>
                      turn off a user's TOTP, with the server stopped
 
@@ -166,6 +172,7 @@ func serve(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go srv.PurgeExpiredSessions(ctx, sessionPurgeInterval)
+	go srv.RunSweeper(ctx, sweepInterval)
 
 	errc := make(chan error, 1)
 	go func() {
