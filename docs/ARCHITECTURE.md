@@ -883,7 +883,9 @@ at `/notes` in the app shell and `/notes/[id]` full screen.
 by id, so renaming either note, or moving it, breaks nothing; the text is what was typed and the panel shows the
 current title. A `[[Title]]` written elsewhere is read too, by title. Pictures are `![alt](yondrive:node/<id>)` over
 a file uploaded beside the note and marked `attachment: {note}`; the editor reads it through the drive, shows only
-what its bytes say is a picture the browser may draw, and fetches nothing else. Typing `[[` offers notes and Drive
+what its bytes say is a picture the browser may draw, and fetches nothing else. Such files go with their note: moved
+to its new notebook (numbered on a clash), to the trash and back, and deleted with it; the export leaves out those
+of a note in the trash. Typing `[[` offers notes and Drive
 files; `/` offers blocks; `# `, `- `, `1. `, `[] `, `> ` and three backticks at the start of a line set one.
 Callouts are GitHub's `> [!NOTE]`, a quote with a kind in the document model, which the Markdown reader and
 writer carry.

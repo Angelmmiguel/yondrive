@@ -7,6 +7,7 @@
 import { isApiError } from '$lib/api/types';
 import { markNew } from '$lib/editing/fresh';
 import { createWith, saveVersion, type SaveDeps } from '$lib/editing/save';
+import { rawMetadata } from '$lib/drive/metadata';
 import type { DriveNode, DriveTree } from '$lib/drive/tree';
 import { numbered } from '$lib/editing/save';
 import {
@@ -52,6 +53,9 @@ async function withFreeName<T>(name: string, attempt: (name: string) => Promise<
 		}
 	}
 }
+
+/** The note a file is kept beside, if it is a picture or attachment of one. */
+const ownerOf = (node: DriveNode): unknown => rawMetadata(node.raw.attachment).note;
 
 const byOldest = (a: DriveNode, b: DriveNode) => a.created - b.created || (a.id < b.id ? -1 : 1);
 
@@ -184,8 +188,52 @@ export class Notes {
 		return parseNoteMeta(node.raw);
 	}
 
-	move(id: string, folderId: string): Promise<DriveNode> {
-		return this.#tree.move(id, folderId);
+	/** The pictures and files kept beside a note for it, in the folder it is in. */
+	attachmentsOf(noteId: string): DriveNode[] {
+		const folder = this.#tree.nodes.get(noteId)?.parentId;
+		if (folder == null) return [];
+		return this.attachmentsIn(folder).filter((n) => ownerOf(n) === noteId);
+	}
+
+	/** Moves a note, and what is kept beside it for it, so its pictures go where it goes. */
+	async move(id: string, folderId: string): Promise<DriveNode> {
+		const files = this.attachmentsOf(id);
+		const moved = await this.#tree.move(id, folderId);
+		for (const file of files) await this.#moveNumbered(file, folderId);
+		return moved;
+	}
+
+	/** Moves a file, numbering its name if the folder already has one like it. */
+	async #moveNumbered(file: DriveNode, folderId: string): Promise<void> {
+		for (let n = 1; ; n++) {
+			try {
+				if (n > 1) await this.#tree.rename(file.id, numbered(file.name, n));
+				await this.#tree.move(file.id, folderId);
+				return;
+			} catch (e) {
+				if (!isApiError(e, 'name_conflict') || n >= 50) throw e;
+			}
+		}
+	}
+
+	/** Puts a note in the trash with what is kept beside it for it. */
+	async trashNote(id: string): Promise<void> {
+		const files = this.attachmentsOf(id);
+		await this.#tree.trash(id);
+		for (const file of files) await this.#tree.trash(file.id);
+	}
+
+	/** Takes a note or notebook out of the trash with what went there with it, as `trash` lists it. */
+	async restore(id: string, trash: readonly DriveNode[]): Promise<DriveNode> {
+		const restored = await this.#tree.restore(id);
+		for (const file of trash) if (ownerOf(file) === id) await this.#tree.restore(file.id);
+		return restored;
+	}
+
+	/** Deletes a note or notebook for good, with what went to the trash with it. */
+	async purge(id: string, trash: readonly DriveNode[]): Promise<void> {
+		await this.#tree.purge(id);
+		for (const file of trash) if (ownerOf(file) === id) await this.#tree.purge(file.id);
 	}
 
 	async readText(node: DriveNode): Promise<string> {
@@ -245,6 +293,9 @@ export class Notes {
 			}
 			for (const node of this.attachmentsIn(id)) {
 				if (node.currentVersion === null) continue;
+				// Left behind by a note trashed before its files went with it.
+				const owner = ownerOf(node);
+				if (typeof owner === 'string' && this.#tree.nodes.get(owner)?.trashedAt != null) continue;
 				files.push({ id: node.id, folder, name: node.name, bytes: await this.readBytes(node) });
 			}
 		}

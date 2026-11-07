@@ -213,13 +213,15 @@
 	}
 
 	async function restore(node: DriveNode) {
-		await drive.run((core) => core.tree.restore(node.id));
+		const trash = drive.allTrash;
+		await notes.run((core) => core.restore(node.id, trash));
 		await drive.loadTrash();
 		notes.treeChanged();
 	}
 
 	async function purge(node: DriveNode) {
-		await drive.run((core) => core.tree.purge(node.id));
+		const trash = drive.allTrash;
+		await notes.run((core) => core.purge(node.id, trash));
 		await drive.loadTrash();
 	}
 

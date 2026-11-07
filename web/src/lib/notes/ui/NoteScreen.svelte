@@ -653,7 +653,7 @@
 		else if (id === 'print') window.print();
 		else if (id === 'trash') {
 			await session?.flush();
-			await drive.run((core) => core.tree.trash(node.id));
+			await notes.run((core) => core.trashNote(node.id));
 			void drive.loadTrash();
 			toasts.push('ok', `“${title}” is in the trash.`);
 			await goto(resolve('/notes'));

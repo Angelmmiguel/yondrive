@@ -92,6 +92,55 @@ describe.each(SUITES)('notes in mode %s', (_, suite) => {
 		]);
 	});
 
+	it('keeps a note’s pictures with it when it moves, goes to the trash and comes back', async () => {
+		const { drive, notes } = wired(suite);
+		await drive.start();
+		const root = await notes.ensureRoot();
+		const a = await notes.createNotebook(root.id, 'A');
+		const b = await notes.createNotebook(root.id, 'B');
+		const png = new Uint8Array([137, 80, 78, 71]);
+		const note = await notes.createNote(a.id, 'Trip', 'x\n');
+		const pic = await notes.attach(a.id, 'map.png', png, note.id);
+		const other = await notes.attach(a.id, 'other.png', png, 'f'.repeat(32));
+		// B already has a file of that name.
+		await notes.attach(b.id, 'map.png', png, 'e'.repeat(32));
+
+		await notes.move(note.id, b.id);
+		expect(drive.tree.nodes.get(pic.id)?.parentId).toBe(b.id);
+		expect(drive.tree.nodes.get(pic.id)?.name).toBe('map (2).png');
+		expect(drive.tree.nodes.get(other.id)?.parentId).toBe(a.id);
+		// The notebook it came from can go: the picture is not in it.
+		await drive.tree.trash(a.id);
+		expect(notes.attachmentsOf(note.id).map((n) => n.id)).toEqual([pic.id]);
+
+		await notes.trashNote(note.id);
+		expect(drive.tree.nodes.get(pic.id)?.trashedAt).not.toBeNull();
+		const names = async () =>
+			readZip(await notes.exportAll(root.id))
+				.entries.map((e) => e.name)
+				.sort();
+		expect(await names()).toEqual(['B/map.png']);
+
+		await notes.restore(note.id, await drive.tree.listTrash());
+		expect(drive.tree.nodes.get(pic.id)?.trashedAt).toBeNull();
+		expect(await names()).toEqual(['B/Trip.md', 'B/map (2).png', 'B/map.png']);
+
+		await notes.trashNote(note.id);
+		await notes.purge(note.id, await drive.tree.listTrash());
+		expect(drive.tree.nodes.get(pic.id)?.removeAt).not.toBeNull();
+	});
+
+	it('leaves out of the export the files of a note in the trash', async () => {
+		const { drive, notes } = wired(suite);
+		await drive.start();
+		const root = await notes.ensureRoot();
+		const note = await notes.createNote(root.id, 'Gone', 'x\n');
+		await notes.attach(root.id, 'pic.png', new Uint8Array([137, 80, 78, 71]), note.id);
+		// Trashed by an earlier build, which left its files behind.
+		await drive.tree.trash(note.id);
+		expect(readZip(await notes.exportAll(root.id)).entries).toEqual([]);
+	});
+
 	it('makes notes and notebooks, and links survive a rename', async () => {
 		const { drive, notes } = wired(suite);
 		await drive.start();
