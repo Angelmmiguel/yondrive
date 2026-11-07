@@ -26,6 +26,9 @@ import {
 
 export class DocError extends Error {}
 
+/** Fields nested deeper than this are read as their text. */
+const MAX_FIELD_DEPTH = 32;
+
 /** The most text a document may hold, in characters. */
 export const DOC_LIMITS = { chars: 32 * 1024 * 1024 };
 
@@ -397,7 +400,10 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 	let rows: Row[] = [];
 	let cells: Cell[] = [];
 	let cellParas: Paragraph[] = [];
+	/** Open fields, innermost last. `link` is the address its result's text takes. */
 	const fields: { phase: 'inst' | 'result'; inst: string; link?: string }[] = [];
+	/** Fields begun past the depth kept, whose separators and ends are passed over. */
+	let deeper = 0;
 	let pictures = 0;
 
 	const marksAt = (fc: number): Marks => {
@@ -412,7 +418,7 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (c.highlight) m.highlight = c.highlight;
 		const font = c.font !== undefined && c.font > 0 ? fontName(fonts[c.font]) : undefined;
 		if (font) m.font = font;
-		const link = [...fields].reverse().find((f) => f.phase === 'result' && f.link)?.link;
+		const link = fields.at(-1)?.link;
 		if (link) m.link = link;
 		return cleanMarks(m);
 	};
@@ -474,7 +480,12 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 			const field = fields[fields.length - 1];
 			if (code === 0x13) {
 				flush();
-				fields.push({ phase: 'inst', inst: '' });
+				if (fields.length >= MAX_FIELD_DEPTH) deeper++;
+				else fields.push({ phase: 'inst', inst: '' });
+				continue;
+			}
+			if ((code === 0x14 || code === 0x15) && deeper > 0) {
+				if (code === 0x15) deeper--;
 				continue;
 			}
 			if (code === 0x14 && field) {
@@ -482,7 +493,11 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 				field.phase = 'result';
 				const m = /HYPERLINK\s+(\\l\s+)?"([^"]*)"/.exec(field.inst);
 				if (m) field.link = m[1] ? `#${m[2]}` : m[2];
-				else tally.add('Fields, kept as their text', 'changed');
+				else {
+					// The result of a field inside a link's result is still in the link.
+					field.link = fields.at(-2)?.link;
+					tally.add('Fields, kept as their text', 'changed');
+				}
 				continue;
 			}
 			if (code === 0x15 && field) {

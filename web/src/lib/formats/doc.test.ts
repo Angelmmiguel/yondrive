@@ -50,6 +50,31 @@ describe('doc', () => {
 		expect(census.items.some((i) => i.label.startsWith('Converted to .docx'))).toBe(true);
 	});
 
+	it('links the result of a hyperlink field, and stays quick with fields nested deep', () => {
+		const linked = readDoc(
+			makeDoc([
+				{
+					runs: [
+						{
+							text: 'see \u0013 HYPERLINK "https://example.org" \u0014the \u0013 PAGE \u00141\u0015 page\u0015 now'
+						}
+					]
+				}
+			])
+		).model.blocks[0] as Paragraph;
+		expect(linked.content).toEqual([
+			{ type: 'text', text: 'see ', marks: {} },
+			{ type: 'text', text: 'the 1 page', marks: { link: 'https://example.org' } },
+			{ type: 'text', text: ' now', marks: {} }
+		]);
+		const deep = makeDoc([{ runs: [{ text: '\u0013x\u0014y'.repeat(30000) }] }]);
+		const started = performance.now();
+		const { model } = readDoc(deep);
+		expect(performance.now() - started).toBeLessThan(1000);
+		// Past the depth kept, a field's instructions are read as text.
+		expect(plainText(model)).toBe('y'.repeat(32) + 'xy'.repeat(30000 - 32));
+	});
+
 	it('refuses what it cannot read', () => {
 		expect(() => readDoc(writeCfb([{ name: 'Other', data: new Uint8Array(10) }]))).toThrow();
 		const doc = makeDoc([{ runs: [{ text: 'x' }] }], 1);
