@@ -372,6 +372,35 @@ function metadataVector() {
 	};
 }
 
+function smallBlobVectors() {
+	const nodeId = 'node-1';
+	const blobId = 'blob-1';
+	const image = bytes(70, 40);
+	const segment = bytes(71, 40);
+	const thumbKey = hkdf(nodeKey, 'yondrive/thumb/v1');
+	const indexKey = hkdf(master, 'yondrive/index/v1');
+	return {
+		thumbnail: {
+			nodeKey: hex(nodeKey),
+			nodeId,
+			blobId,
+			thumbKey: hex(thumbKey),
+			...wrap(
+				thumbKey,
+				bytes(72, 24),
+				fields('yondrive/blob/thumb/v1', utf8(nodeId), utf8(blobId)),
+				image
+			)
+		},
+		index: {
+			masterKey: hex(master),
+			blobId,
+			indexKey: hex(indexKey),
+			...wrap(indexKey, bytes(73, 24), fields('yondrive/blob/index/v1', utf8(blobId)), segment)
+		}
+	};
+}
+
 const childWrapKey = hkdf(parentKey, 'yondrive/node-wrap/v1');
 
 const content = contentVector();
@@ -430,7 +459,8 @@ const vectors = {
 	content,
 	contentNone: contentNoneVector(),
 	manifest: manifestVector(content.contentHash),
-	pinning: pinningVector()
+	pinning: pinningVector(),
+	smallBlobs: smallBlobVectors()
 };
 
 process.stdout.write(`${JSON.stringify(vectors, null, '\t')}\n`);

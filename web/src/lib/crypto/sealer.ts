@@ -55,6 +55,7 @@ import {
 } from './persist';
 import { constantTimeEqual, zero } from './random';
 import { formatRecoveryKey, generateRecoveryKey, parseRecoveryKey } from './recovery';
+import { openIndexSegment, openThumbnail, sealIndexSegment, sealThumbnail } from './small-blob';
 
 export const SUITE_E2E = 'xchacha20poly1305-v1';
 export const SUITE_NONE = 'none';
@@ -138,9 +139,21 @@ export interface Sealer {
 	nameTag(parentKey: Uint8Array, name: string): Bytes;
 
 	openVersion(nodeKey: Uint8Array, ref: VersionRef): VersionCipher;
+	/**
+	 * The one key a version's frames need, to hand to a worker without giving it
+	 * the node key and with that everything under the node. Empty in suite `none`.
+	 */
+	versionKey(nodeKey: Uint8Array, ref: VersionRef): Bytes;
+	/** `openVersion` from that key, which it takes over: closing zeroes it. */
+	openVersionKey(versionKey: Bytes, ref: VersionRef): VersionCipher;
 	signVersion(manifest: VersionManifest, keys: UserKeys): Bytes;
 	/** Throws `SealError('signature')` unless the author's key signed this manifest. */
 	verifyVersion(manifest: VersionManifest, signature: Uint8Array, author: PublicKeys): void;
+
+	sealThumbnail(nodeKey: Uint8Array, nodeId: string, blobId: string, image: Uint8Array): Bytes;
+	openThumbnail(nodeKey: Uint8Array, nodeId: string, blobId: string, stored: Uint8Array): Bytes;
+	sealIndexSegment(masterKey: Uint8Array, blobId: string, segment: Uint8Array): Bytes;
+	openIndexSegment(masterKey: Uint8Array, blobId: string, stored: Uint8Array): Bytes;
 }
 
 function frameDigest(data: Uint8Array): Bytes {
@@ -149,6 +162,22 @@ function frameDigest(data: Uint8Array): Bytes {
 
 function checkFrameDigest(frame: SealedFrame): void {
 	if (!constantTimeEqual(frameDigest(frame.data), frame.sha256)) throw new SealError('integrity');
+}
+
+function e2eCipher(versionKey: Bytes, ref: VersionRef): VersionCipher {
+	return {
+		sealFrame(position, plaintext) {
+			const data = encryptFrame(versionKey, ref, position, plaintext);
+			return { data, sha256: frameDigest(data) };
+		},
+		openFrame(position, frame) {
+			checkFrameDigest(frame);
+			return decryptFrame(versionKey, ref, position, frame.data);
+		},
+		close() {
+			zero(versionKey);
+		}
+	};
 }
 
 const e2eSealer: Sealer = {
@@ -195,24 +224,17 @@ const e2eSealer: Sealer = {
 	openMetadata,
 	nameTag: nameHmac,
 
-	openVersion(nodeKey, ref) {
-		const versionKey = deriveVersionKey(nodeKey, ref);
-		return {
-			sealFrame(position, plaintext) {
-				const data = encryptFrame(versionKey, ref, position, plaintext);
-				return { data, sha256: frameDigest(data) };
-			},
-			openFrame(position, frame) {
-				checkFrameDigest(frame);
-				return decryptFrame(versionKey, ref, position, frame.data);
-			},
-			close() {
-				zero(versionKey);
-			}
-		};
-	},
+	openVersion: (nodeKey, ref) => e2eCipher(deriveVersionKey(nodeKey, ref), ref),
+	versionKey: deriveVersionKey,
+	openVersionKey: e2eCipher,
 	signVersion: (manifest, keys) => signVersion(manifest, keys.identity.ed25519.privateKey),
-	verifyVersion: (manifest, signature, author) => verifyVersion(manifest, signature, author.ed25519)
+	verifyVersion: (manifest, signature, author) =>
+		verifyVersion(manifest, signature, author.ed25519),
+
+	sealThumbnail,
+	openThumbnail,
+	sealIndexSegment,
+	openIndexSegment
 };
 
 const empty = (): Bytes => new Uint8Array(0);
@@ -224,6 +246,21 @@ function emptyUserKeys(): UserKeys {
 			x25519: { publicKey: empty(), privateKey: empty() },
 			ed25519: { publicKey: empty(), privateKey: empty() }
 		}
+	};
+}
+
+function noneCipher(ref: VersionRef): VersionCipher {
+	return {
+		sealFrame(position, plaintext) {
+			assertFrameLength(ref, position, plaintext.length);
+			return { data: plaintext.slice() as Bytes, sha256: frameDigest(plaintext) };
+		},
+		openFrame(position, frame) {
+			assertFrameLength(ref, position, frame.data.length);
+			checkFrameDigest(frame);
+			return frame.data.slice();
+		},
+		close() {}
 	};
 }
 
@@ -270,22 +307,16 @@ const noneSealer: Sealer = {
 	nameTag: (_parentKey, name) =>
 		sha256(encodeFields('yondrive/name/none/v1', utf8(normalizeName(name)))) as Bytes,
 
-	openVersion(_nodeKey, ref) {
-		return {
-			sealFrame(position, plaintext) {
-				assertFrameLength(ref, position, plaintext.length);
-				return { data: plaintext.slice() as Bytes, sha256: frameDigest(plaintext) };
-			},
-			openFrame(position, frame) {
-				assertFrameLength(ref, position, frame.data.length);
-				checkFrameDigest(frame);
-				return frame.data.slice();
-			},
-			close() {}
-		};
-	},
+	openVersion: (_nodeKey, ref) => noneCipher(ref),
+	versionKey: empty,
+	openVersionKey: (_versionKey, ref) => noneCipher(ref),
 	signVersion: empty,
-	verifyVersion: () => {}
+	verifyVersion: () => {},
+
+	sealThumbnail: (_nodeKey, _nodeId, _blobId, image) => image.slice() as Bytes,
+	openThumbnail: (_nodeKey, _nodeId, _blobId, stored) => stored.slice() as Bytes,
+	sealIndexSegment: (_masterKey, _blobId, segment) => segment.slice() as Bytes,
+	openIndexSegment: (_masterKey, _blobId, stored) => stored.slice() as Bytes
 };
 
 /** The sealer of a suite. */

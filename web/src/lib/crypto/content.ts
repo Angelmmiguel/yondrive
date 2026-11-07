@@ -101,6 +101,20 @@ function frameAad(ref: VersionRef, position: FramePosition): Bytes {
 }
 
 /**
+ * The content hash of a version from its frame digests, 32 bytes each, in order.
+ * Comparing it to a signed manifest ties every digest to the signature, so a
+ * single frame can be checked on its own, as seeking needs.
+ */
+export function contentHashOf(frameHashes: Uint8Array): Bytes {
+	if (frameHashes.length % 32 !== 0) throw new SealError('manifest');
+	const hasher = contentHasher();
+	for (let at = 0; at < frameHashes.length; at += 32) {
+		hasher.add(frameHashes.subarray(at, at + 32));
+	}
+	return hasher.digest();
+}
+
+/**
  * Accumulates the content hash of a version from the SHA-256 of each stored
  * frame, in order. It covers what is stored, so anyone holding the frames can
  * check it without keys.

@@ -31,6 +31,7 @@ import {
 } from './node';
 import { checkPin, fingerprint, safetyNumber } from './pinning';
 import { formatRecoveryKey, parseRecoveryKey } from './recovery';
+import { openIndexSegment, openThumbnail, sealIndexSegment, sealThumbnail } from './small-blob';
 import { sealerFor, SUITE_E2E, SUITE_NONE } from './sealer';
 import { FrameReader, FrameWriter } from './stream';
 
@@ -304,6 +305,42 @@ describe('content', () => {
 			);
 		}
 		expect(() => reader.finish()).not.toThrow();
+	});
+});
+
+describe('small blobs', () => {
+	const { thumbnail: t, index: i } = v.smallBlobs;
+
+	it('seals and opens a thumbnail', () => {
+		fixRandom(t.nonce);
+
+		expect(bytesToHex(sealThumbnail(h(t.nodeKey), t.nodeId, t.blobId, h(t.plaintext)))).toBe(
+			t.sealed
+		);
+		expect(bytesToHex(openThumbnail(h(t.nodeKey), t.nodeId, t.blobId, h(t.sealed)))).toBe(
+			t.plaintext
+		);
+	});
+
+	it('seals and opens an index segment', () => {
+		fixRandom(i.nonce);
+
+		expect(bytesToHex(sealIndexSegment(h(i.masterKey), i.blobId, h(i.plaintext)))).toBe(i.sealed);
+		expect(bytesToHex(openIndexSegment(h(i.masterKey), i.blobId, h(i.sealed)))).toBe(i.plaintext);
+	});
+
+	it('stores them as they are in suite none', () => {
+		const none = sealerFor(SUITE_NONE);
+		const nothing = new Uint8Array(0);
+
+		expect(bytesToHex(none.sealThumbnail(nothing, t.nodeId, t.blobId, h(t.plaintext)))).toBe(
+			t.plaintext
+		);
+		expect(bytesToHex(none.openThumbnail(nothing, t.nodeId, t.blobId, h(t.plaintext)))).toBe(
+			t.plaintext
+		);
+		expect(bytesToHex(none.sealIndexSegment(nothing, i.blobId, h(i.plaintext)))).toBe(i.plaintext);
+		expect(bytesToHex(none.openIndexSegment(nothing, i.blobId, h(i.plaintext)))).toBe(i.plaintext);
 	});
 });
 

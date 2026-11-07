@@ -6,7 +6,16 @@
  */
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { SealError } from './aead';
-import { encodeFields, idBytes, u32, u64, utf8, type Bytes } from './encoding';
+import {
+	decodeBase64,
+	encodeBase64,
+	encodeFields,
+	idBytes,
+	u32,
+	u64,
+	utf8,
+	type Bytes
+} from './encoding';
 import { assertKey } from './random';
 
 export const CONTENT_HASH_LENGTH = 32;
@@ -21,6 +30,51 @@ export interface VersionManifest {
 	frameSize: number;
 	frameCount: number;
 	contentHash: Bytes;
+}
+
+/** How a manifest travels: UTF-8 JSON, kept as sent by the server, which does not read it. */
+export function encodeManifest(manifest: VersionManifest): Bytes {
+	return utf8(
+		JSON.stringify({
+			nodeId: manifest.nodeId,
+			versionId: manifest.versionId,
+			suite: manifest.suite,
+			size: manifest.size,
+			frameSize: manifest.frameSize,
+			frameCount: manifest.frameCount,
+			contentHash: encodeBase64(manifest.contentHash)
+		})
+	);
+}
+
+/** Reads a manifest off the wire. Anything but the shape above is `SealError('manifest')`. */
+export function decodeManifest(bytes: Uint8Array): VersionManifest {
+	try {
+		const m: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+		if (m !== null && typeof m === 'object') {
+			const { nodeId, versionId, suite, size, frameSize, frameCount, contentHash } = m as Record<
+				string,
+				unknown
+			>;
+			if (
+				typeof nodeId === 'string' &&
+				typeof versionId === 'string' &&
+				typeof suite === 'string' &&
+				typeof size === 'number' &&
+				typeof frameSize === 'number' &&
+				typeof frameCount === 'number' &&
+				typeof contentHash === 'string'
+			) {
+				const hash = decodeBase64(contentHash);
+				if (hash.length === CONTENT_HASH_LENGTH) {
+					return { nodeId, versionId, suite, size, frameSize, frameCount, contentHash: hash };
+				}
+			}
+		}
+	} catch {
+		// Falls through to the one refusal.
+	}
+	throw new SealError('manifest');
 }
 
 /** The exact bytes that are signed. */

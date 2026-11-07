@@ -172,7 +172,11 @@ A grant does not authenticate its sender.
 
 ## 9. Metadata
 
-Metadata is a JSON value (`name`, `type`, dates, tags). Its bytes are its UTF-8 JSON text.
+Metadata is a JSON value. Its bytes are its UTF-8 JSON text. On a file or folder it has
+`name`, `type` (a media type, as the browser reported it), `created` and `modified` (Unix
+milliseconds), `size` (plaintext bytes), `tags` (tag ids) and `favorite`. On a root it has
+`tags`, the user's list of tags: `id`, `name` and `tone`. A client MUST keep fields it does
+not know when it rewrites metadata, and treat what is missing as empty.
 
 ```
 Seal(meta subkey, utf8(json), fields("yondrive/meta/seal/v1", utf8(node id)))
@@ -266,6 +270,12 @@ who holds edit rights, and refuse a manifest whose `frameCount` disagrees with `
 `frameSize`, or whose suite differs from the server's. After a full read, it MUST compare
 the size and the content hash.
 
+The manifest travels as UTF-8 JSON with these fields, `contentHash` in the base64 of section 1.
+The server keeps it as sent and reads nothing in it. A reader MUST check its `nodeId` and
+`versionId` against the version it asked for, and its `contentHash` against the frame hashes
+the API gives with the version, which ties each hash to the signature, so a single frame can
+be checked on its own.
+
 Restoring a version makes a new version over the same stored frames, without touching them.
 Those frames stay sealed and signed under the id they were written with, so the API gives
 each version a `content_version_id` and a `content_author_id` next to its `id` and author.
@@ -285,6 +295,7 @@ The same operations with no keys:
 | Stored frame | the plaintext frame, unchanged, so a stored version is byte-identical to the file |
 | Frame digest, content hash | as in section 11, over the plaintext frames |
 | `frameSize`, framing | as in section 11, with an overhead of 0 |
+| Thumbnail, index segment | the bytes, unchanged |
 
 ## 14. Mode guard
 
@@ -328,6 +339,8 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/meta/v1` | HKDF info, plain |
 | `yondrive/name/v1` | HKDF info, plain |
 | `yondrive/content/v1` | HKDF info, plain |
+| `yondrive/thumb/v1` | HKDF info, plain |
+| `yondrive/index/v1` | HKDF info, plain |
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
 | `yondrive/master/passphrase/v1` | AAD |
@@ -340,6 +353,8 @@ A client pins a contact's fingerprint on first use and warns if it changes.
 | `yondrive/node/grant/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
+| `yondrive/blob/thumb/v1` | AAD |
+| `yondrive/blob/index/v1` | AAD |
 | `yondrive/content/hash/v1` | hash prefix |
 | `yondrive/name/none/v1` | hash input |
 | `yondrive/version/v1` | signed message |
@@ -356,3 +371,20 @@ lacks), and `web/src/lib/crypto/vectors.test.ts` checks the client code against 
 
 Adding a vector is fine. Changing an expected output means changing the format, which needs
 a new label.
+
+## 18. Thumbnails and index segments
+
+These are stored whole, in one blob under an id the client chooses. A client can make them
+again, so they have no frames and no signature. Each is bound to the id of its blob, so the
+server cannot serve one in place of another.
+
+```
+thumbnail key = HKDF(node key, "yondrive/thumb/v1")
+stored        = Seal(thumbnail key, image bytes, fields("yondrive/blob/thumb/v1", utf8(node id), utf8(blob id)))
+
+index key     = HKDF(master key, "yondrive/index/v1")
+stored        = Seal(index key, segment bytes, fields("yondrive/blob/index/v1", utf8(blob id)))
+```
+
+A thumbnail is an image in a format every browser decodes, JPEG or WebP, whatever the file was.
+A client MUST draw it as an image and nothing else, since the server chooses which bytes it gets.
