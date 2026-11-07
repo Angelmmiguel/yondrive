@@ -58,15 +58,25 @@ describe('the notes index', () => {
 		expect([...index.entries.keys()]).toEqual([A]);
 	});
 
-	it('round-trips through bytes, and reads nothing from bytes that are not an index', () => {
+	it('round-trips an entry through bytes, and reads nothing from bytes that are not one', () => {
 		const index = build();
-		const back = NotesIndex.decode(index.encode());
-		expect([...back.entries]).toEqual([...index.entries]);
-		expect(
-			NotesIndex.decode(new TextEncoder().encode('{"v":1,"entries":[["x",{"version":1}]]}')).entries
-				.size
-		).toBe(0);
-		expect(NotesIndex.decode(new Uint8Array([1, 2, 3])).entries.size).toBe(0);
+		const entry = index.get(B)!;
+		expect(NotesIndex.decodeEntry(NotesIndex.encodeEntry(entry))).toEqual(entry);
+		const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
+		expect(NotesIndex.decodeEntry(bytes({ v: 2, entry: { version: 1 } }))).toBeNull();
+		expect(NotesIndex.decodeEntry(bytes({ v: 1, entry }))).toBeNull();
+		expect(NotesIndex.decodeEntry(new Uint8Array([1, 2, 3]))).toBeNull();
+	});
+
+	it('hands over only what changed since it was last stored', () => {
+		const index = build();
+		expect(index.takeChanges().put.map(([id]) => id)).toEqual([A, B, C]);
+		expect(index.takeChanges()).toEqual({ put: [], drop: [] });
+		index.set(B, 'v2', analyze('Moved on.\n'));
+		index.retain(new Set([A, B]));
+		const { put, drop } = index.takeChanges();
+		expect(put.map(([id, e]) => [id, e.version])).toEqual([[B, 'v2']]);
+		expect(drop).toEqual([C]);
 	});
 });
 
@@ -119,9 +129,7 @@ describe('a note made to slow the index down', () => {
 			target: `t${i}`,
 			context: ''
 		}));
-		const bytes = new TextEncoder().encode(
-			JSON.stringify({ v: 1, entries: [[H, { ...entry, links }]] })
-		);
-		expect(NotesIndex.decode(bytes).get(H)?.links).toHaveLength(MAX_FACTS);
+		const bytes = new TextEncoder().encode(JSON.stringify({ v: 2, entry: { ...entry, links } }));
+		expect(NotesIndex.decodeEntry(bytes)?.links).toHaveLength(MAX_FACTS);
 	});
 });

@@ -8,7 +8,7 @@ import { memorySegmentCache } from '$lib/search/cache';
 import { fakeDriveServer, fakeUser, SUITES, USER_ID } from '$lib/testing/drive';
 import { entryData, readZip } from '$lib/formats/zip';
 import { backlinks, NoteRefs } from './index';
-import { NotesIndexer, sealedNotesCache, NOTES_INDEX_ID } from './indexer';
+import { entryId, NotesIndexer, sealedNotesCache, NOTES_INDEX_ID } from './indexer';
 import { isNotesRoot, parseNoteMeta, titleOf } from './model';
 import { Notes } from './notes';
 import { nodeHref } from './parse';
@@ -144,17 +144,46 @@ describe.each(SUITES)('notes in mode %s', (_, suite) => {
 		expect(await text('Work/Plan.md')).toBe('![sketch](sketch.png)\n');
 	});
 
-	it('stores the index sealed on the device, and reads it back', async () => {
+	it('stores the index sealed on the device, an entry per note, and reads it back', async () => {
 		const store = memorySegmentCache();
+		const sealer = sealerFor(suite);
 		const key = new Uint8Array(32).fill(7);
-		const cache = sealedNotesCache(store, sealerFor(suite), key);
+		const cache = sealedNotesCache(store, sealer, key);
+		const N1 = '1'.repeat(32);
+		const N2 = '2'.repeat(32);
+		// What an earlier build kept: every entry in one blob.
+		store.items.set(NOTES_INDEX_ID, new Uint8Array([1]));
 		const indexer = new NotesIndexer({ cache, read: async () => 'A #tag\n', onchange: () => {} });
-		await indexer.reconcile([{ id: 'n'.repeat(32), version: 'v1', size: 7 }]);
+		await indexer.reconcile([
+			{ id: N1, version: 'v1', size: 7 },
+			{ id: N2, version: 'v1', size: 7 }
+		]);
 		await indexer.flush();
-		const stored = store.items.get(NOTES_INDEX_ID)!;
-		expect(new TextDecoder().decode(stored).includes('#tag')).toBe(!sealerFor(suite).encrypted);
+		expect([...store.items.keys()].sort()).toEqual([entryId(N1), entryId(N2)]);
+		const stored = store.items.get(entryId(N1))!;
+		expect(new TextDecoder().decode(stored).includes('#tag')).toBe(!sealer.encrypted);
 		const again = await cache.load();
-		expect(again.get('n'.repeat(32))?.tags).toEqual(['tag']);
+		expect(again.get(N1)?.tags).toEqual(['tag']);
+
+		// A save writes the note that changed, and nothing else.
+		const put = vi.spyOn(store, 'put');
+		const del = vi.spyOn(store, 'delete');
+		indexer.saved(N2, 'v2', 'B #other\n');
+		await indexer.flush();
+		expect(put.mock.calls.map(([id]) => id)).toEqual([entryId(N2)]);
+		await indexer.reconcile([{ id: N2, version: 'v2', size: 9 }]);
+		await indexer.flush();
+		expect(del.mock.calls.map(([id]) => id)).toEqual([entryId(N1)]);
+		expect(put).toHaveBeenCalledTimes(1);
 		indexer.stop();
+
+		// Each entry is bound to its note: one put in another's place does not open as it.
+		if (sealer.encrypted) {
+			store.items.set(entryId(N1), store.items.get(entryId(N2))!);
+			const swapped = await cache.load();
+			expect(swapped.get(N1)).toBeUndefined();
+			expect(swapped.get(N2)?.tags).toEqual(['other']);
+			expect(store.items.has(entryId(N1))).toBe(false);
+		}
 	});
 });

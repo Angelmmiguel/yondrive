@@ -512,8 +512,9 @@ holds, the ids it removes, and for each word a list of `document index << 2 | fi
 segments as they like, so nothing else about them is fixed.
 
 The web client also keeps the notes index (links, tags and tasks of each note) sealed the same
-way under the blob id `notes-index`, which no stored blob can have since blob ids are hex. It
-stays on the device and is never uploaded, so its format is the client's own.
+way, an entry per note under the blob id `notes-index/<note id>`, which no stored blob can have
+since blob ids are hex. Binding each entry to its note's id means one note's entry never opens
+as another's. It stays on the device and is never uploaded, so its format is the client's own.
 
 A thumbnail is an image in a format every browser decodes, JPEG or WebP, whatever the file was.
 A client MUST draw it as an image and nothing else, since the server chooses which bytes it gets.

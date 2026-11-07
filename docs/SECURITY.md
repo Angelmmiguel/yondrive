@@ -42,8 +42,8 @@ it sees files: ids, sizes and times. It cannot tell a note from another file, or
 a folder, as what marks them (the folder of notes, a notebook's colour, a note's pin, archive,
 reminder and tags) is sealed metadata. Links between notes are written into the sealed content
 by id. The notes index (links, tags, tasks and text, for backlinks and mentions) never reaches
-the server: it is kept in IndexedDB on the device, sealed under the search index's key and
-bound to its own id, and forgotten on signing out.
+the server: it is kept in IndexedDB on the device, an entry per note, each sealed under the
+search index's key and bound to the index and the note, and forgotten on signing out.
 
 It cannot see names, types, tags, dates inside metadata, or contents.
 

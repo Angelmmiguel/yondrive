@@ -2,24 +2,26 @@
  * The notes index: what each note's Markdown says (links, tags, tasks, pictures
  * and its text), by note and by the version it was read from. Backlinks, tags and
  * unlinked mentions are answered from it, on the device. It is kept current by
- * reading again the notes whose version moved, and stored only on this device,
- * sealed under the search index's key (see `cache.ts`). Pure, and plain data.
+ * reading again the notes whose version moved, and stored only on this device, an
+ * entry per note, each sealed under the search index's key (see `indexer.ts`).
+ * Pure, and plain data.
  */
 import type { NoteFacts, NoteLink, NoteTask } from './parse';
 import { around, MAX_FACTS, mentionAt } from './parse';
 import { normalizeName } from '$lib/crypto/metadata';
 
-export const NOTES_INDEX_VERSION = 1;
+/** 2: an entry per note, stored on its own. 1 was every entry in one. */
+export const NOTES_INDEX_VERSION = 2;
 
 export interface IndexEntry extends NoteFacts {
 	/** The version the facts were read from. */
 	version: string;
 }
 
-/** What `encode` writes: a version and the entries. */
-interface Stored {
+/** What `encodeEntry` writes: a version and one note's entry. */
+interface StoredEntry {
 	v: typeof NOTES_INDEX_VERSION;
-	entries: [string, IndexEntry][];
+	entry: IndexEntry;
 }
 
 export interface NoteRef {
@@ -41,6 +43,8 @@ export class NotesIndex {
 	readonly entries = new Map<string, IndexEntry>();
 	/** Moves on with each change, so what is worked out from the entries is kept until then. */
 	revision = 0;
+	/** Notes whose entry was set or dropped since the index was last stored. */
+	readonly #changed = new Set<string>();
 
 	get(id: string): IndexEntry | undefined {
 		return this.entries.get(id);
@@ -53,6 +57,7 @@ export class NotesIndex {
 
 	set(id: string, version: string, facts: NoteFacts): void {
 		this.entries.set(id, { ...facts, version });
+		this.#changed.add(id);
 		this.revision++;
 	}
 
@@ -62,6 +67,7 @@ export class NotesIndex {
 		for (const id of [...this.entries.keys()]) {
 			if (!keep.has(id)) {
 				this.entries.delete(id);
+				this.#changed.add(id);
 				changed = true;
 			}
 		}
@@ -69,28 +75,36 @@ export class NotesIndex {
 		return changed;
 	}
 
-	encode(): Uint8Array {
-		const stored: Stored = { v: NOTES_INDEX_VERSION, entries: [...this.entries] };
+	/** What changed since the last call: the entries to store again, and the notes to forget. */
+	takeChanges(): { put: [string, IndexEntry][]; drop: string[] } {
+		const put: [string, IndexEntry][] = [];
+		const drop: string[] = [];
+		for (const id of this.#changed) {
+			const entry = this.entries.get(id);
+			if (entry === undefined) drop.push(id);
+			else put.push([id, entry]);
+		}
+		this.#changed.clear();
+		return { put, drop };
+	}
+
+	/** One note's entry as stored. */
+	static encodeEntry(entry: IndexEntry): Uint8Array {
+		const stored: StoredEntry = { v: NOTES_INDEX_VERSION, entry };
 		return new TextEncoder().encode(JSON.stringify(stored));
 	}
 
-	/** An index from stored bytes; what does not read is left out, and is read again. */
-	static decode(bytes: Uint8Array): NotesIndex {
-		const index = new NotesIndex();
+	/** One note's entry from stored bytes, or null if they do not read: it is read again. */
+	static decodeEntry(bytes: Uint8Array): IndexEntry | null {
 		let stored: unknown;
 		try {
 			stored = JSON.parse(new TextDecoder().decode(bytes));
 		} catch {
-			return index;
+			return null;
 		}
-		const s = stored as Partial<Stored> | null;
-		if (s === null || typeof s !== 'object' || s.v !== NOTES_INDEX_VERSION) return index;
-		for (const item of Array.isArray(s.entries) ? s.entries : []) {
-			if (!Array.isArray(item) || typeof item[0] !== 'string') continue;
-			const entry = checkEntry(item[1]);
-			if (entry !== null) index.entries.set(item[0], entry);
-		}
-		return index;
+		const s = stored as Partial<StoredEntry> | null;
+		if (s === null || typeof s !== 'object' || s.v !== NOTES_INDEX_VERSION) return null;
+		return checkEntry(s.entry);
 	}
 }
 

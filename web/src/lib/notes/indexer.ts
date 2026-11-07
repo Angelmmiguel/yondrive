@@ -1,30 +1,39 @@
 /**
  * Keeping the notes index equal to the notes: after each change to the tree, the
  * notes whose current version the index has not read are read, a couple at a
- * time, and what has gone is dropped. The index is kept on this device only,
- * sealed like a search segment under the search index's key, in a database of its
- * own; another device builds its own from the notes. Losing it costs a read of
- * each note, nothing more.
+ * time, and what has gone is dropped. The index is kept on this device only, an
+ * entry per note sealed like a search segment under the search index's key, in a
+ * database of its own, and only the entries that changed are written again;
+ * another device builds its own from the notes. Losing it costs a read of each
+ * note, nothing more.
  */
 import type { Sealer } from '$lib/crypto/sealer';
 import { Limiter } from '$lib/drive/retry';
 import type { SegmentCache } from '$lib/search/cache';
-import { NotesIndex } from './index';
+import { NotesIndex, type IndexEntry } from './index';
 import { analyze } from './parse';
 
-/** The id the sealed index is kept under, and bound to. */
+/** The index's id: each note's entry is kept under `notes-index/<note id>`, and bound to it. */
 export const NOTES_INDEX_ID = 'notes-index';
+
+const ENTRY = `${NOTES_INDEX_ID}/`;
+export const entryId = (noteId: string) => `${ENTRY}${noteId}`;
 
 /** A note larger than this is not read for the index. */
 export const NOTE_READ_LIMIT = 4 * 1024 * 1024;
 
 export interface NotesCache {
 	load(): Promise<NotesIndex>;
+	/** Stores what changed since the last save, and only that. */
 	save(index: NotesIndex): Promise<void>;
 	forget(): Promise<void>;
 }
 
-/** The index sealed under `key`, in a store of sealed segments. */
+/**
+ * The index in a store of sealed segments, an entry per note, each sealed under
+ * `key` and bound to the index and the note, so one note's entry never opens as
+ * another's.
+ */
 export function sealedNotesCache(
 	store: SegmentCache,
 	sealer: Pick<Sealer, 'sealIndexSegmentWith' | 'openIndexSegmentWith'>,
@@ -32,19 +41,40 @@ export function sealedNotesCache(
 ): NotesCache {
 	return {
 		async load() {
-			const bytes = await store.get(NOTES_INDEX_ID);
-			if (bytes === null) return new NotesIndex();
-			try {
-				return NotesIndex.decode(sealer.openIndexSegmentWith(key, NOTES_INDEX_ID, bytes));
-			} catch {
-				return new NotesIndex();
-			}
+			const index = new NotesIndex();
+			const ids = await store.ids();
+			// Earlier builds kept every entry in one blob, written whole on each change.
+			if (ids.includes(NOTES_INDEX_ID)) await store.delete(NOTES_INDEX_ID);
+			await Promise.all(
+				ids
+					.filter((id) => id.startsWith(ENTRY))
+					.map(async (id) => {
+						const bytes = await store.get(id);
+						if (bytes === null) return;
+						let entry: IndexEntry | null = null;
+						try {
+							entry = NotesIndex.decodeEntry(sealer.openIndexSegmentWith(key, id, bytes));
+						} catch {
+							// Read again from the note below.
+						}
+						if (entry !== null) index.entries.set(id.slice(ENTRY.length), entry);
+						// One that does not open or read is read again from the note, if it is still there.
+						else await store.delete(id);
+					})
+			);
+			return index;
 		},
 		async save(index) {
-			await store.put(
-				NOTES_INDEX_ID,
-				sealer.sealIndexSegmentWith(key, NOTES_INDEX_ID, index.encode())
-			);
+			const { put, drop } = index.takeChanges();
+			await Promise.all([
+				...put.map(([noteId, entry]) =>
+					store.put(
+						entryId(noteId),
+						sealer.sealIndexSegmentWith(key, entryId(noteId), NotesIndex.encodeEntry(entry))
+					)
+				),
+				...drop.map((noteId) => store.delete(entryId(noteId)))
+			]);
 		},
 		forget: () => store.clear()
 	};

@@ -897,10 +897,13 @@ id.
 **The index** holds, per note and version, its links, tags, tasks, pictures, a preview and its text. A note may be
 someone else's, shared, so at most 1,000 of each are read from one (`MAX_FACTS`), a link to the same note counts
 once, and its text is cut at 20,000 characters. Backlinks are worked out once per change of the index or the notes,
-looking titles up in a map (`NoteRefs`), not note by note for each link. After each change to the tree the notes whose version it has not read are read, two at a time, and what has gone is dropped;
-a save hands over the text in hand. It is kept only on the device, in IndexedDB, sealed with the search index's key
-under the id `notes-index`, and forgotten on signing out; another device builds its own. Searching words goes
-through the search index, which reads notes as it reads any Markdown; `#` filters by tag and `[[` by title.
+looking titles up in a map (`NoteRefs`), not note by note for each link. After each change to the tree the notes
+whose version it has not read are read, two at a time, and what has gone is dropped; a save hands over the text in
+hand. It is kept only on the device, in IndexedDB, an entry per note under the id `notes-index/<note id>`, each
+sealed with the search index's key and bound to that id, so a change writes only the entries that changed (a few
+kilobytes, not every note again) and a dropped note's entry is deleted. An entry that does not open is read again
+from its note. All of it is forgotten on signing out; another device builds its own. Searching words goes through
+the search index, which reads notes as it reads any Markdown; `#` filters by tag and `[[` by title.
 
 **Drive** leaves the folder of notes out of My files, favorites, recent, tags and its trash; the search palette and
 Drive's editors open what is in it, or a note shared on its own, in Notes. **Sharing** a note or a notebook is the
