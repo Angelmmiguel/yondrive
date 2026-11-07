@@ -59,6 +59,15 @@
       '';
     };
 
+    # What the release workflow needs beside the build: keyless signing with
+    # the repository's GitHub identity, and the SBOM. `nix develop .#release`.
+    devShells.release = pkgs.mkShell {
+      packages = with pkgs; [
+        cosign
+        syft
+      ];
+    };
+
     formatter = pkgs.nixfmt-rfc-style;
   });
 }

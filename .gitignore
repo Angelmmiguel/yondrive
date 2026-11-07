@@ -39,6 +39,7 @@ result
 # Go (project-local caches set by the flake shellHook)
 .go/
 /bin/
+/dist/
 
 # Local data directory written by `just serve`
 /data/

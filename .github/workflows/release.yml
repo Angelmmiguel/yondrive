@@ -1,0 +1,219 @@
+# Releases. Pushing a tag vX.Y.Z runs the whole CI suite on that commit and,
+# only once it passes, builds and publishes the release:
+#
+#   - static binaries for linux and darwin on amd64 and arm64 (`just dist`),
+#     the web app's hash list, SHA256SUMS and an SBOM;
+#   - the container image for linux/amd64 and linux/arm64;
+#   - keyless signatures (cosign, with this repository's GitHub OIDC identity)
+#     over SHA256SUMS and the image, and build provenance for both;
+#   - a GitHub release carrying all of it, with notes from CHANGELOG.md.
+#
+# Every tool comes from the flake: the build from the default shell, cosign and
+# syft from the `release` one. docs/RELEASE.md says how to verify the result.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# One run per tag; a second push of the same tag waits rather than racing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/angelmmiguel/yondrive
+
+jobs:
+  suites:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    # The called workflow's publish job asks for packages: write, so the call
+    # must allow it, although that job runs only for main and is skipped here.
+    permissions:
+      contents: read
+      packages: write
+
+  binaries:
+    name: Binaries, checksums and SBOM
+    needs: [suites]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless signing and provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      # The same stamp `just` derives from git: the tag without its v, the
+      # commit, and the commit's time.
+      - name: Stamp
+        run: |
+          echo "YONDRIVE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "YONDRIVE_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Install
+        run: nix develop --command just web-install
+
+      # Four static binaries and web-bundle.sha256, with the flags of `just build`.
+      - name: Build
+        run: nix develop --command just dist
+
+      # Two SBOMs: the Go modules linked into the binary, read from its build
+      # information, and every package in the web app's lockfile (build-time
+      # tools included, as the lockfile does not tell them apart).
+      - name: SBOM
+        run: |
+          nix develop .#release --command syft scan file:dist/yondrive-linux-amd64 \
+            --source-name yondrive --source-version "$YONDRIVE_VERSION" \
+            -o spdx-json=dist/yondrive-go.spdx.json
+          nix develop .#release --command syft scan file:web/pnpm-lock.yaml \
+            --source-name yondrive-web --source-version "$YONDRIVE_VERSION" \
+            -o spdx-json=dist/yondrive-web.spdx.json
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum yondrive-* web-bundle.sha256 > SHA256SUMS && cat SHA256SUMS
+
+      # The signature is a Sigstore bundle: the signature, the short-lived
+      # certificate naming this workflow at this tag, and the transparency log
+      # entry. No key exists to leak.
+      - name: Sign the checksums
+        run: nix develop .#release --command cosign sign-blob --yes --bundle dist/SHA256SUMS.sigstore.json dist/SHA256SUMS
+
+      - name: Provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-checksums: dist/SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  image:
+    name: Image
+    needs: [suites]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Stamp
+        run: |
+          echo "YONDRIVE_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The release's version, its minor and major lines, and latest.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      # The Dockerfile cross-compiles for each platform on the runner's own,
+      # so the arm64 binary in the image is the one `just dist` builds. The
+      # layers take the commit's time rather than the build's.
+      - id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          build-args: |
+            VERSION=${{ env.YONDRIVE_VERSION }}
+            COMMIT=${{ github.sha }}
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          outputs: type=image,push=true,rewrite-timestamp=true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+
+      # Signed by digest, so the signature covers every platform and no tag
+      # can be moved under it.
+      - name: Sign the image
+        run: nix develop .#release --command cosign sign --yes "$IMAGE@${{ steps.push.outputs.digest }}"
+
+      - name: Provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  release:
+    name: GitHub release
+    needs: [binaries, image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # The section of CHANGELOG.md headed with this version, up to the next
+      # one. A tag without a section fails here, before anything is published.
+      - name: Notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## / { if (found) exit; if (index($0, "## [" v "]") == 1) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+          if grep -q '^## \['"$version"'\] - Unreleased' CHANGELOG.md; then
+            echo "CHANGELOG.md still marks $version as unreleased"; exit 1
+          fi
+          {
+            echo
+            echo "Image: \`${IMAGE}:${version}\` (\`${IMAGE}@${{ needs.image.outputs.digest }}\`)"
+            echo "Web app: \`$(sha256sum dist/web-bundle.sha256 | cut -d' ' -f1)\`"
+            echo
+            echo "Verify the downloads, the signatures and the provenance as docs/RELEASE.md describes."
+          } >> notes.md
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "YonDrive ${GITHUB_REF_NAME#v}" --notes-file notes.md

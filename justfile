@@ -15,10 +15,11 @@ export YONDRIVE_VERSION := env("YONDRIVE_VERSION", `git describe --tags --match 
 export YONDRIVE_COMMIT := env("YONDRIVE_COMMIT", `git rev-parse HEAD 2>/dev/null || echo unknown`)
 export SOURCE_DATE_EPOCH := env("SOURCE_DATE_EPOCH", `git log -1 --format=%ct 2>/dev/null || echo 0`)
 
-# The flags of every release build: no cgo, no paths of the machine that built
-# it, no VCS stamp (the commit is set explicitly) and no build id. The
-# Dockerfile repeats them; `just verify-reproducible` checks the two agree.
-go_build := 'CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=$YONDRIVE_VERSION -X main.commit=$YONDRIVE_COMMIT"'
+# Every release build: the official Go release (see release-go), no cgo, no
+# paths of the machine that built it, no VCS stamp (the commit is set
+# explicitly) and no build id. The Dockerfile repeats the flags;
+# `just verify-reproducible docker=true` checks the two agree.
+go_build := 'CGO_ENABLED=0 "$(just release-go)" build -trimpath -buildvcs=false -ldflags="-s -w -buildid= -X main.version=$YONDRIVE_VERSION -X main.commit=$YONDRIVE_COMMIT"'
 
 default: test
 
@@ -51,6 +52,39 @@ build: web-build
     {{go_build}} -o bin/yondrive ./cmd/yondrive
     bin/yondrive assets > bin/web-bundle.sha256
     bin/yondrive version
+
+# Build the release binaries for linux and darwin, on amd64 and arm64, into
+# dist/, with the web app's hash list beside them. The release workflow
+# publishes these.
+dist: web-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf dist && mkdir dist
+    for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+        os=${target%/*} arch=${target#*/}
+        GOOS=$os GOARCH=$arch {{go_build}} -o "dist/yondrive-$os-$arch" ./cmd/yondrive
+    done
+    "$(just release-go)" run ./cmd/yondrive assets > dist/web-bundle.sha256
+    ls -l dist
+
+# Print the path of the official Go release of the version the flake pins,
+# which release builds use. nixpkgs patches its Go to find time zones, MIME
+# types and service names under /nix/store, which writes store paths into every
+# binary: they would differ from a build anywhere else, and look in the wrong
+# places outside Nix. The go command fetches the unmodified release as a
+# module, checked against Go's checksum database, into the module cache.
+[private]
+release-go:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    module="golang.org/toolchain@v0.0.1-$(go env GOVERSION).$(go env GOHOSTOS)-$(go env GOHOSTARCH)"
+    tmp=$(mktemp -d)
+    dir=$(cd "$tmp" && go mod download -json "$module" | sed -n 's/^\t"Dir": "\(.*\)",$/\1/p')
+    rmdir "$tmp"
+    # The module cache keeps files read-only; the go command marks a fetched
+    # toolchain's programs executable the same way before it runs one.
+    chmod u+x "$dir"/bin/* "$dir"/pkg/tool/*/*
+    echo "$dir/bin/go"
 
 # Build the committed tree twice, each in a clean directory of its own with a
 # fresh Go build cache, and fail unless the binaries and the web app's hashes

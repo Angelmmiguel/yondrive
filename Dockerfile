@@ -9,10 +9,11 @@ ARG VERSION=dev
 ARG COMMIT=unknown
 ARG SOURCE_DATE_EPOCH=0
 
-# The web app, compiled into web/build for the Go binary to embed. Corepack
+# The web app, compiled into web/build for the Go binary to embed, once for
+# every platform since its output does not depend on one. Corepack
 # picks the pnpm version pinned in package.json. Install scripts are disabled
 # by web/.npmrc, and the lockfile is not allowed to change.
-FROM node:22.23.4-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
+FROM --platform=$BUILDPLATFORM node:22.23.4-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 WORKDIR /src/web
@@ -25,8 +26,10 @@ ARG SOURCE_DATE_EPOCH
 RUN YONDRIVE_COMMIT=${COMMIT} SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH} pnpm build
 
 # The server, statically linked so it can run from scratch, with the flags of
-# `just build`.
-FROM golang:1.26.10-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS server
+# `just build`. It is cross-compiled on the builder's own platform for the
+# target's, which is fast under emulation-free multi-platform builds and gives
+# the very binary `just dist` builds for that platform.
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine@sha256:87c65a688975c0b1d4585d204874c45ca78354670e3a5f11368c5a492303d696 AS server
 RUN apk add --no-cache ca-certificates
 WORKDIR /src
 COPY go.mod go.sum* ./
@@ -38,7 +41,9 @@ COPY web/*.go web/
 COPY --from=web /src/web/build web/build
 ARG VERSION
 ARG COMMIT
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -buildvcs=false \
     -ldflags="-s -w -buildid= -X main.version=${VERSION} -X main.commit=${COMMIT}" \
     -o /yondrive ./cmd/yondrive
 # scratch has no shell, so the data directory is made here, owned by the user
