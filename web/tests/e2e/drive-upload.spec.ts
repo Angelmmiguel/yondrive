@@ -2,6 +2,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
 	act,
+	clearUploads,
 	download,
 	expectDriveReady,
 	fileBox,
@@ -82,6 +83,23 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await openFolder(page, 'inner');
 			expect((await download(page, 'b.txt')).toString()).toBe('further in');
 			await myFiles(page);
+		});
+
+		test('takes files dropped on the page', async () => {
+			const name = `dropped-${mode}.txt`;
+			const transfer = await page.evaluateHandle((fileName) => {
+				const data = new DataTransfer();
+				data.items.add(new File(['dropped bytes'], fileName, { type: 'text/plain' }));
+				return data;
+			}, name);
+			await page.dispatchEvent('body', 'dragover', { dataTransfer: transfer });
+			await expect(page.getByText('Drop to upload here')).toBeVisible();
+			await page.dispatchEvent('body', 'drop', { dataTransfer: transfer });
+
+			await expect(page.getByText('Drop to upload here')).toHaveCount(0);
+			await expect(uploadRow(page, name)).toHaveAttribute('data-status', 'done');
+			await clearUploads(page);
+			expect((await download(page, name)).toString()).toBe('dropped bytes');
 		});
 
 		test('goes on with an upload after a reload, from what had arrived', async () => {

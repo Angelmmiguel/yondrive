@@ -341,7 +341,7 @@
 				/>
 			{/snippet}
 			{#each shown as node (node.id)}
-				<div use:lazyThumb={node}>
+				<div class="item" use:lazyThumb={node}>
 					<FileRow
 						name={node.name}
 						kind={fileKindOf(node)}
@@ -429,6 +429,11 @@
 		font-weight: 500;
 		color: var(--text-strong);
 		margin-right: 4px;
+	}
+
+	/* A row draws no border as the last child of its wrapper, so the list draws them. */
+	.item + .item {
+		border-top: 1px solid var(--divider);
 	}
 
 	.grid {

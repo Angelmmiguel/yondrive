@@ -174,6 +174,23 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.getByRole('button', { name: 'Close', exact: true }).click();
 		});
 
+		test('a service worker the browser stopped gets its key again from the page', async () => {
+			await act(page, `sound-${mode}.wav`, 'Open');
+			const audio = page.getByTestId('viewer').locator('audio');
+			const source = (await audio.getAttribute('src')) as string;
+			const cdp = await page.context().newCDPSession(page);
+			await cdp.send('ServiceWorker.enable');
+			await cdp.send('ServiceWorker.stopAllWorkers');
+
+			const first = await page.evaluate(async (url) => {
+				const res = await fetch(url, { headers: { Range: 'bytes=0-3' } });
+				return { status: res.status, text: await res.text() };
+			}, source);
+			expect(first).toEqual({ status: 206, text: 'RIFF' });
+			await cdp.detach();
+			await page.getByRole('button', { name: 'Close', exact: true }).click();
+		});
+
 		test('a lock takes the keys out of the service worker', async () => {
 			test.skip(mode === 'none', 'there is nothing to lock in this mode');
 			await act(page, `sound-${mode}.wav`, 'Open');
