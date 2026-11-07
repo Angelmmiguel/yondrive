@@ -1836,3 +1836,54 @@ func TestAFrameThatStallsRunsOutOfTime(t *testing.T) {
 		t.Errorf("frames = %v", status.Frames)
 	}
 }
+
+func TestOneFileThatWillNotGoDoesNotStallTheRest(t *testing.T) {
+	e, alice, _ := driveEnv(t, "none")
+	root := alice.root()
+	file := alice.create(root.ID, "file", "f")
+	frames := alice.frames(10, 1)
+	abort := func(id string) {
+		alice.call(http.MethodDelete, api+"/uploads/"+id, nil).wantStatus(t, http.StatusNoContent)
+	}
+
+	// A directory with something in it cannot be unlinked, and is not a missing
+	// file either. Several, so that one is sure to come up ahead of the others.
+	var stuck, fine []string
+	for range 8 {
+		u := alice.startUpload(file.ID, frames)
+		if err := os.Remove(e.uploadFile(u.ID)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Join(e.uploadFile(u.ID), "inner"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		abort(u.ID)
+		stuck = append(stuck, u.ID)
+	}
+	for range 8 {
+		u := alice.startUpload(file.ID, frames)
+		abort(u.ID)
+		fine = append(fine, u.ID)
+	}
+	if err := e.srv.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range fine {
+		if exists(e.uploadFile(id)) {
+			t.Errorf("file of %s stayed behind one that would not go", id)
+		}
+	}
+	// The ones that failed are still queued, and go once they can.
+	for _, id := range stuck {
+		if err := os.RemoveAll(e.uploadFile(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.srv.Sweep(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := e.st.PendingFileRemovals(ctx, 100)
+	if err != nil || len(pending) != 0 {
+		t.Errorf("pending %v, %v", pending, err)
+	}
+}

@@ -92,26 +92,32 @@ func (s *Server) drainRemovals(ctx context.Context) error {
 }
 
 // drainLocked forgets a file only once it is gone, so that a crash in between
-// repeats the unlink, which is harmless.
+// repeats the unlink, which is harmless. A file that cannot be removed is
+// logged and left queued for the next pass, so that it does not hold up the
+// ones behind it.
 func (s *Server) drainLocked(ctx context.Context) error {
 	for {
 		pending, err := s.store.PendingFileRemovals(ctx, drainBatch)
 		if err != nil {
 			return err
 		}
+		cleared := 0
 		for _, r := range pending {
 			remove := s.files.RemoveBlob
 			if r.Kind == store.RemoveUpload {
 				remove = s.files.RemoveUpload
 			}
 			if err := remove(r.ID); err != nil {
-				return err
+				s.log.Error("file not removed", "kind", r.Kind, "id", r.ID, "error", err)
+				continue
 			}
 			if err := s.store.ClearFileRemoval(ctx, r); err != nil {
 				return err
 			}
+			cleared++
 		}
-		if len(pending) < drainBatch {
+		// Another batch only helps if this one made room in the queue.
+		if len(pending) < drainBatch || cleared == 0 {
 			return nil
 		}
 	}
