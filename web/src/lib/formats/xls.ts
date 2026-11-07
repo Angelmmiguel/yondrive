@@ -31,19 +31,60 @@ interface Rec {
 	at: number;
 }
 
-function records(stream: Uint8Array): Rec[] {
-	const out: Rec[] = [];
-	const v = new DataView(stream.buffer, stream.byteOffset, stream.byteLength);
-	let p = 0;
-	while (p + 4 <= stream.length) {
-		const type = v.getUint16(p, true);
-		const len = v.getUint16(p + 2, true);
-		if (p + 4 + len > stream.length) break;
-		out.push({ type, data: stream.subarray(p + 4, p + 4 + len), at: p });
-		if (out.length > XLS_LIMITS.records) throw new XlsError('too many records');
-		p += 4 + len;
+/**
+ * The stream's records as offsets in typed arrays: millions of records cost a
+ * few bytes each rather than an object and a view each, which are made only
+ * for the record being read.
+ */
+class Records {
+	readonly length: number;
+	readonly #stream: Uint8Array;
+	readonly #at: Uint32Array;
+
+	constructor(stream: Uint8Array) {
+		const v = new DataView(stream.buffer, stream.byteOffset, stream.byteLength);
+		const walk = (each: (i: number, p: number) => void) => {
+			let n = 0;
+			let p = 0;
+			while (p + 4 <= stream.length) {
+				const len = v.getUint16(p + 2, true);
+				if (p + 4 + len > stream.length) break;
+				if (n >= XLS_LIMITS.records) throw new XlsError('too many records');
+				each(n++, p);
+				p += 4 + len;
+			}
+			return n;
+		};
+		this.#stream = stream;
+		this.length = walk(() => {});
+		this.#at = new Uint32Array(this.length);
+		walk((i, p) => (this.#at[i] = p));
 	}
-	return out;
+
+	type(i: number): number {
+		const p = this.#at[i];
+		return this.#stream[p] | (this.#stream[p + 1] << 8);
+	}
+
+	get(i: number): Rec {
+		const p = this.#at[i];
+		const len = this.#stream[p + 2] | (this.#stream[p + 3] << 8);
+		return { type: this.type(i), data: this.#stream.subarray(p + 4, p + 4 + len), at: p };
+	}
+
+	/** The record starting at a stream offset, or -1. */
+	indexAt(offset: number): number {
+		let lo = 0;
+		let hi = this.length - 1;
+		while (lo <= hi) {
+			const mid = (lo + hi) >> 1;
+			const at = this.#at[mid];
+			if (at === offset) return mid;
+			if (at < offset) lo = mid + 1;
+			else hi = mid - 1;
+		}
+		return -1;
+	}
 }
 
 /** Reads across a record and the CONTINUE records after it, as strings in the SST span them. */
@@ -555,7 +596,7 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 		throw new XlsError(
 			cfb.get('Book') ? 'Excel 5 workbooks are not supported' : 'no workbook stream'
 		);
-	const recs = records(stream);
+	const recs = new Records(stream);
 	const tally = new Tally();
 	const palette = [...PALETTE];
 	const fonts: Font[] = [];
@@ -570,11 +611,11 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 	let books = 0;
 	let names = 0;
 
-	const first = recs[0];
+	const first = recs.length > 0 ? recs.get(0) : undefined;
 	if (!first || first.type !== 0x0809 || one(first.data).u16() !== 0x0600)
 		throw new XlsError('not a BIFF8 workbook');
-	for (let i = 1; i < recs.length && recs[i].type !== 0x000a; i++) {
-		const r = recs[i];
+	for (let i = 1; i < recs.length && recs.type(i) !== 0x000a; i++) {
+		const r = recs.get(i);
 		const d = r.data;
 		const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
 		try {
@@ -596,8 +637,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 				}
 				case 0x00fc: {
 					const segs = [d];
-					for (let k = i + 1; k < recs.length && recs[k].type === 0x003c; k++)
-						segs.push(recs[k].data);
+					for (let k = i + 1; k < recs.length && recs.type(k) === 0x003c; k++)
+						segs.push(recs.get(k).data);
 					const rd = new Reader(segs);
 					rd.u32();
 					const unique = rd.u32();
@@ -757,7 +798,6 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 		const b = bound[x.first];
 		return b ? sheetNames.get(b) : undefined;
 	};
-	const byOffset = new Map(recs.map((r, k) => [r.at, k]));
 	let budget = XLS_LIMITS.cells;
 	const uncached: Cell[] = [];
 	let unmapped = 0;
@@ -767,8 +807,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 	for (const [origin, s] of sheets.entries()) {
 		const info = book.addSheet(sheetNames.get(s) as string, undefined, origin);
 		if (s.hidden) info.hidden = true;
-		const start = byOffset.get(s.at);
-		if (start === undefined || recs[start].type !== 0x0809) continue;
+		const start = recs.indexAt(s.at);
+		if (start < 0 || recs.type(start) !== 0x0809) continue;
 		const shared = new Map<string, { rgce: Uint8Array; area: Area }>();
 		const pendingShared: { row: number; col: number; key: string; value: Scalar; style: number }[] =
 			[];
@@ -780,8 +820,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 			if (--budget < 0) throw new XlsError('too many cells');
 			engine.load(info.id, row, col, { value, style: styleOf(ixfe) });
 		};
-		for (let k = start + 1; k < recs.length && recs[k].type !== 0x000a; k++) {
-			const r = recs[k];
+		for (let k = start + 1; k < recs.length && recs.type(k) !== 0x000a; k++) {
+			const r = recs.get(k);
 			const d = r.data;
 			const dv = new DataView(d.buffer, d.byteOffset, d.byteLength);
 			const expecting = stringResult;
@@ -793,8 +833,8 @@ export function readXls(bytes: Uint8Array): OpenedSheets {
 						// A chart or other substream inside the sheet: skip to its end.
 						let depth = 1;
 						while (++k < recs.length && depth > 0) {
-							if (recs[k].type === 0x0809) depth++;
-							else if (recs[k].type === 0x000a) depth--;
+							if (recs.type(k) === 0x0809) depth++;
+							else if (recs.type(k) === 0x000a) depth--;
 						}
 						k--;
 						count('Chart');

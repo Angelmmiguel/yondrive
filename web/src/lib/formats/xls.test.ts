@@ -158,3 +158,25 @@ describe('string results of shared formulas in .xls', () => {
 		expect(c.value).toBe('x');
 	});
 });
+
+describe('large .xls streams', () => {
+	it('walks millions of records without an object for each', () => {
+		// As many as the test writer can hold.
+		const n = 1_600_000;
+		const head = bof(5);
+		const stream = new Uint8Array(head.length + n * 4 + EOF.length);
+		stream.set(head);
+		for (let i = 0; i < n; i++) stream[head.length + i * 4] = 0x99;
+		stream.set(EOF, head.length + n * 4);
+		const file = writeCfb([{ name: 'Workbook', data: stream }]);
+		globalThis.gc?.();
+		const before = process.memoryUsage().heapUsed;
+		let peak = before;
+		const t = performance.now();
+		const { book } = readXls(file);
+		peak = Math.max(peak, process.memoryUsage().heapUsed);
+		expect(book.sheets).toEqual([]);
+		expect(performance.now() - t).toBeLessThan(3000);
+		expect(peak - before).toBeLessThan(200 * 1024 * 1024);
+	});
+});
