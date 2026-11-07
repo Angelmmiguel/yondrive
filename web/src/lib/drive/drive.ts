@@ -17,7 +17,14 @@ import {
 import { Sharing, UntrustedGrantError } from '$lib/sharing/sharing';
 import { openVersion, readAll, type VerifiedVersion } from './download/reader';
 import type { FramePool } from './frame-pool';
-import { ChangeFeed, changedNodes, nodesChangedBy, REFRESH_ONE_BY_ONE } from './journal';
+import {
+	ChangeFeed,
+	changedNodes,
+	JournalExpiredError,
+	nodesChangedBy,
+	REFRESH_ONE_BY_ONE,
+	revokedNotRotated
+} from './journal';
 import type { NodeOpener } from './node-opener';
 import { Limiter } from './retry';
 import type { StreamClient } from './stream/client';
@@ -134,7 +141,7 @@ export class Drive {
 
 	/** Opens the root and shows what is there; the rest of the tree fills in behind. */
 	async start(): Promise<void> {
-		await this.feed.catchUp();
+		const past = await this.feed.catchUp();
 		await this.tree.start();
 		const root = this.tree.rootId as string;
 		await this.tree.loadFolder(root);
@@ -142,7 +149,8 @@ export class Drive {
 		void this.#findInterrupted().catch(() => {});
 		await this.sharing.refreshShared().catch(() => {});
 		await this.sharing.refreshMade().catch(() => {});
-		void this.#resumeRotations();
+		// Also what was revoked while away, as nobody else is going to replace those keys.
+		void this.sharing.queueRotations(revokedNotRotated(past)).then(() => this.#resumeRotations());
 	}
 
 	/** Goes on with rotations a previous session left, since a revoked user may hold those keys. */
@@ -255,7 +263,14 @@ export class Drive {
 
 	/** Reads the journal and brings what changed up to date. Returns whether anything did. */
 	async poll(): Promise<boolean> {
-		const changes = await this.feed.next();
+		let changes;
+		try {
+			changes = await this.feed.next();
+		} catch (e) {
+			if (!(e instanceof JournalExpiredError)) throw e;
+			await this.#readEverything();
+			return true;
+		}
 		const ids = changedNodes(changes);
 		if (ids.length === 0) return false;
 		const sharingChanged = nodesChangedBy(changes, 'granted', 'role_changed', 'revoked', 'rotated');
@@ -263,11 +278,13 @@ export class Drive {
 			this.sharing.contacts.refresh();
 			await this.sharing.refreshShared().catch(() => {});
 			await this.sharing.refreshMade().catch(() => {});
+			// Someone holding a share may have kept its keys, whoever ended it.
+			void this.sharing.queueRotations(revokedNotRotated(changes)).then((queued) => {
+				if (queued) void this.#resumeRotations();
+			});
 		}
 		if (ids.length > REFRESH_ONE_BY_ONE) {
-			await this.tree.start();
-			await this.tree.loadFolder(this.tree.rootId as string, true);
-			void this.tree.walk(this.#walk.signal).catch(() => {});
+			await this.#readEverything();
 			return true;
 		}
 		const rotated = new Set(nodesChangedBy(changes, 'rotated'));
@@ -285,6 +302,34 @@ export class Drive {
 			}
 		}
 		return true;
+	}
+
+	/** Everything this user can reach, as the server has it now. */
+	async #readEverything(): Promise<void> {
+		this.sharing.contacts.refresh();
+		await this.sharing.refreshShared().catch(() => {});
+		this.tree.invalidate();
+		await this.tree.start();
+		await this.tree.loadFolder(this.tree.rootId as string, true);
+		void this.walkEverything(this.#walk.signal).catch(() => {});
+	}
+
+	/** Reads every folder of this user's own and of each share that verifies. */
+	async walkEverything(signal?: AbortSignal): Promise<void> {
+		await this.tree.walk(signal);
+		for (const id of this.sharedTops()) {
+			if (signal?.aborted) return;
+			// A share that does not open stays out of what is known here.
+			await this.tree.resolve(id).catch(() => {});
+			if (this.tree.nodes.has(id)) await this.tree.walk(signal, id).catch(() => {});
+		}
+	}
+
+	/** The top of each share whose grant verifies: the only shares anything here opens. */
+	sharedTops(): string[] {
+		return this.sharing.shared
+			.filter((entry) => entry.trust === 'verified')
+			.map((entry) => entry.node.id);
 	}
 
 	/** A lock: keys zeroed, workers ended, uploads stopped where they can resume from. */

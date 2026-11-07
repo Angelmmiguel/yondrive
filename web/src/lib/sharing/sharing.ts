@@ -28,6 +28,7 @@ import { buildLink, linkUrl, urlOfLink, type LinkOptions } from './links';
 import {
 	runRotation,
 	type RotationDeps,
+	type RotationJob,
 	type RotationJobs,
 	type RotationProgress
 } from './rotation';
@@ -108,6 +109,7 @@ export class Sharing {
 	#shared = new Map<string, SharedEntry>();
 	#made: { grant: Grant; node: Node }[] = [];
 	#links: { link: Link; node: Node }[] = [];
+	readonly #running = new Map<string, Promise<void>>();
 
 	constructor(deps: SharingDeps) {
 		this.#deps = deps;
@@ -346,14 +348,46 @@ export class Sharing {
 			if (known === undefined) jobs.remove(nodeId);
 			throw e;
 		}
-		await runRotation(job, this.#rotation(), onProgress);
+		await this.#run(job, onProgress);
 		await this.refreshMade().catch(() => {});
 	}
 
-	/** Gives up a grant this user holds. Nothing to rotate: the owner decides about that. */
+	/** One rotation of a job at a time: a job can be started from a revocation and from the journal. */
+	#run(job: RotationJob, onProgress?: (progress: RotationProgress) => void): Promise<void> {
+		const running = this.#running.get(job.topId);
+		if (running !== undefined) return running;
+		const run = runRotation(job, this.#rotation(), onProgress).finally(() => {
+			this.#running.delete(job.topId);
+		});
+		this.#running.set(job.topId, run);
+		return run;
+	}
+
+	/**
+	 * Gives up a grant this user holds. Nothing to rotate from here: the owner's client
+	 * does that, from the `revoked` row in their journal.
+	 */
 	async leave(grantId: string, nodeId: string): Promise<void> {
 		await this.#deps.api.deleteGrant(grantId);
 		this.#shared.delete(nodeId);
+	}
+
+	/**
+	 * Writes down a rotation for each of these nodes this user owns, and has none for
+	 * already: one in hand is this device's own revocation. What cannot be read now is
+	 * left, and the journal still shows it at the next unlock. Whether any was added.
+	 */
+	async queueRotations(nodeIds: readonly string[]): Promise<boolean> {
+		const { api, jobs, userId } = this.#deps;
+		let queued = false;
+		for (const id of nodeIds) {
+			if (jobs.list().some((job) => job.topId === id)) continue;
+			const node = await api.getNode(id).catch(() => null);
+			if (node?.owner_id !== userId() || node.parent_id === undefined) continue;
+			jobs.save({ topId: id, done: {} });
+			queued = true;
+		}
+		return queued;
 	}
 
 	/** Rotations a previous session left unfinished. */
@@ -362,9 +396,12 @@ export class Sharing {
 	}
 
 	async resumeRotations(onProgress?: (progress: RotationProgress) => void): Promise<void> {
+		// One that cannot finish does not keep the others under old keys.
+		const failed: unknown[] = [];
 		for (const job of this.#deps.jobs.list()) {
-			await runRotation(job, this.#rotation(), onProgress);
+			await this.#run(job, onProgress).catch((e: unknown) => failed.push(e));
 		}
+		if (failed.length > 0) throw failed[0];
 	}
 
 	/** All that this user has shared: the "shared by me" page and the people on a row. */

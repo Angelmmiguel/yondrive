@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type Change } from '$lib/api/types';
-import { changedNodes, ChangeFeed } from './journal';
+import { changedNodes, ChangeFeed, revokedNotRotated } from './journal';
 import { categoryOf, extensionOf, fileKindOf, inferType } from './kinds';
 import { parseMetadata, parseRootMetadata, rawMetadata, nextTone } from './metadata';
 import { cleanName } from './names';
@@ -403,6 +403,23 @@ describe('the journal', () => {
 		log.push(change(2501, 'new'));
 		expect((await feed.next()).map((c) => c.node_id)).toEqual(['new']);
 		expect(await feed.next()).toEqual([]);
+	});
+
+	it('finds what was revoked and has not been rotated since', () => {
+		const at = (seq: number, node_id: string, op: Change['op']): Change => ({
+			...change(seq, node_id),
+			op
+		});
+		expect(
+			revokedNotRotated([
+				at(1, 'done', 'revoked'),
+				at(2, 'done', 'rotated'),
+				at(3, 'open', 'revoked'),
+				at(4, 'again', 'rotated'),
+				at(5, 'again', 'revoked'),
+				at(6, 'other', 'updated')
+			])
+		).toEqual(['open', 'again']);
 	});
 
 	it('names each node once, in order', () => {

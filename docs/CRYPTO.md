@@ -257,7 +257,9 @@ node under it, parents first, so that each `wrapped_key` is made under the paren
 Each rotation stands alone, and a node's generation shows whether it has been done, so a client
 that stops can resume. Grants above the node keep working, as the node's new key is wrapped
 under its parent. A `rotate_conflict` means that someone has just added a child, grant or link:
-read them again and seal again.
+read them again and seal again. A holder who gives up a grant may have kept the keys as well, so an
+owner's client treats a `revoked` row in its journal with no `rotated` row after it, for a node it
+owns, in the same way.
 
 ## 9. Metadata
 

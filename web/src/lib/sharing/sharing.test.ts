@@ -330,6 +330,101 @@ describe.each(SUITES)('sharing in mode %s', (_, suite) => {
 		expect(w.carol.drive.tree.generationOf(w.folder.id)).toBe(2);
 	});
 
+	describe('when a holder gives up a share', () => {
+		const generations = (w: Awaited<ReturnType<typeof world>>) =>
+			[w.folder.id, w.inner.id, w.file.id].map((id) => w.server.nodes.get(id)?.key_generation);
+
+		async function left(w: Awaited<ReturnType<typeof world>>) {
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			await w.alice.drive.poll();
+			await w.bob.drive.sharing.refreshShared();
+			await w.bob.drive.sharing.leave(grant.id, w.folder.id);
+		}
+
+		it('rotates on the owner reading the journal, and only there', async () => {
+			const w = await world(suite);
+			await left(w);
+
+			await w.bob.drive.poll();
+			expect(w.bob.jobs.list()).toEqual([]);
+			expect(generations(w)).toEqual([1, 1, 1]);
+
+			await w.alice.drive.poll();
+			await vi.waitFor(() => expect(generations(w)).toEqual([2, 2, 2]), { interval: 5 });
+			await vi.waitFor(() => expect(w.alice.jobs.list()).toEqual([]), { interval: 5 });
+		});
+
+		it('rotates at the next unlock what happened while the owner was away', async () => {
+			const w = await world(suite);
+			await left(w);
+
+			await w.alice.make().start();
+
+			await vi.waitFor(() => expect(generations(w)).toEqual([2, 2, 2]), { interval: 5 });
+		});
+
+		it('resumes as any other job does when the rotation stops', async () => {
+			const w = await world(suite);
+			await left(w);
+			const stop = new ApiError(0, 'network');
+			w.server.state.failRotation = [() => null, (id) => (id === w.inner.id ? stop : null)];
+
+			await w.alice.drive.poll();
+			await vi.waitFor(() => expect(generations(w)).toEqual([2, 1, 1]), { interval: 5 });
+			expect(w.alice.jobs.list()).toHaveLength(1);
+
+			await w.alice.make().start();
+			await vi.waitFor(() => expect(generations(w)).toEqual([2, 2, 2]), { interval: 5 });
+			await vi.waitFor(() => expect(w.alice.jobs.list()).toEqual([]), { interval: 5 });
+		});
+
+		it('does not rotate twice what the owner revoked', async () => {
+			const w = await world(suite);
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			await w.alice.drive.poll();
+			await w.alice.drive.sharing.revoke(grant.id, w.folder.id);
+
+			await w.alice.drive.poll();
+			await w.alice.make().start();
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			expect(generations(w)).toEqual([2, 2, 2]);
+		});
+
+		it('leaves a revocation still under way to the job that has it', async () => {
+			const w = await world(suite);
+			const grant = await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			await w.alice.drive.poll();
+			const stop = new ApiError(0, 'network');
+			w.server.state.failRotation = [(id) => (id === w.folder.id ? stop : null)];
+			await expect(w.alice.drive.sharing.revoke(grant.id, w.folder.id)).rejects.toBe(stop);
+
+			expect(await w.alice.drive.sharing.queueRotations([w.folder.id])).toBe(false);
+			expect(w.alice.jobs.list()).toHaveLength(1);
+		});
+
+		it('does not wait behind a job that cannot finish', async () => {
+			const w = await world(suite);
+			await left(w);
+			const other = await w.alice.drive.tree.createFolder(w.root, 'Other');
+			const stop = new ApiError(0, 'network');
+			w.alice.jobs.save({ topId: other.id, done: {} });
+			w.server.state.failRotation = [() => stop];
+
+			await w.alice.drive.poll();
+
+			await vi.waitFor(() => expect(generations(w)).toEqual([2, 2, 2]), { interval: 5 });
+			expect(w.alice.jobs.list().map((job) => job.topId)).toEqual([other.id]);
+		});
+
+		it('queues nothing for what someone else owns, or what has gone', async () => {
+			const w = await world(suite);
+			await w.alice.drive.sharing.share(w.folder.id, 'bob', 'viewer');
+			expect(await w.bob.drive.sharing.queueRotations([w.folder.id, 'f'.repeat(32)])).toBe(false);
+			expect(w.bob.jobs.list()).toEqual([]);
+		});
+	});
+
 	it('starts an upload over when a rotation overtakes it', async () => {
 		const w = await world(suite);
 		await w.alice.drive.sharing.share(w.folder.id, 'bob', 'editor');
