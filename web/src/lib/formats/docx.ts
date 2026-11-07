@@ -115,6 +115,7 @@ const MARK_PROPS = new Set([
 	'w:u',
 	'w:strike',
 	'w:dstrike',
+	'w:vertAlign',
 	'w:sz',
 	'w:szCs',
 	'w:color',
@@ -536,6 +537,9 @@ class BodyReader {
 		const u = attr(child(rPr, 'w:u'), 'w:val');
 		if (child(rPr, 'w:u') && u !== 'none') m.underline = true;
 		if (on(child(rPr, 'w:strike')) || on(child(rPr, 'w:dstrike'))) m.strike = true;
+		const va = attr(child(rPr, 'w:vertAlign'), 'w:val');
+		if (va === 'superscript') m.script = 'super';
+		else if (va === 'subscript') m.script = 'sub';
 		const fonts = child(rPr, 'w:rFonts');
 		const font = fontName(fonts && (fonts.attrs['w:ascii'] ?? fonts.attrs['w:hAnsi']));
 		if (font) m.font = font;
@@ -1137,6 +1141,8 @@ function genRPr(marks: Marks, w: Writer): string {
 	}
 	if (marks.underline) out += '<w:u w:val="single"/>';
 	out += shd;
+	if (marks.script)
+		out += `<w:vertAlign w:val="${marks.script === 'super' ? 'superscript' : 'subscript'}"/>`;
 	return out === '' ? '' : `<w:rPr>${out}</w:rPr>`;
 }
 

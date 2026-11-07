@@ -108,6 +108,24 @@ describe('the editor model', () => {
 		expect(fromDoc(s.doc)[0]).toMatchObject({ list: { kind: 'check', level: 0, checked: false } });
 	});
 
+	it('keeps superscript and subscript apart, through every format that holds them', async () => {
+		let s = run(stateOf('x2'), toggleMark(schema.marks.sup));
+		expect(fromDoc(s.doc)[0]).toMatchObject({ content: [{ marks: { script: 'super' } }] });
+		s = run(s, toggleMark(schema.marks.sub));
+		const marks = fromDoc(s.doc)[0] as Paragraph;
+		expect(marks.content).toMatchObject([{ marks: { script: 'sub' } }]);
+		expect(s.doc.firstChild!.firstChild!.marks.map((m) => m.type.name)).toEqual(['sub']);
+		const blocks = fromDoc(s.doc);
+		for (const f of ['docx', 'odt', 'rtf'] as const) {
+			expect(CAPS[f].marks.has('script')).toBe(true);
+			const bytes = await writeDocument(f, { blocks, images: {} });
+			expect((await readDocument(bytes, f)).model.blocks[0], f).toMatchObject({
+				content: [{ marks: { script: 'sub' } }]
+			});
+		}
+		expect(CAPS.md.marks.has('script')).toBe(false);
+	});
+
 	it('writes a font, size, colour or alignment into CSS only when it is one', () => {
 		const html = (marks: Record<string, unknown>, align?: string) => {
 			const doc = toDoc({

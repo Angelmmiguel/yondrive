@@ -312,6 +312,48 @@ describe('odt', () => {
 		);
 	});
 
+	it('keeps a superscript and a subscript when its paragraph is edited', async () => {
+		const saved = await writeOdt({
+			blocks: [
+				{ type: 'paragraph', style: 'normal', content: [{ type: 'text', text: 'x', marks: {} }] }
+			],
+			images: {}
+		});
+		const xml = (await content(saved))
+			.replace(
+				/<office:automatic-styles\/>|<office:automatic-styles>[\s\S]*?<\/office:automatic-styles>/,
+				'<office:automatic-styles>' +
+					'<style:style style:name="Up" style:family="text"><style:text-properties style:text-position="super 58%"/></style:style>' +
+					'<style:style style:name="Dn" style:family="text"><style:text-properties style:text-position="-33% 58%"/></style:style>' +
+					'</office:automatic-styles>'
+			)
+			.replace(
+				/<text:p [^>]*>x<\/text:p>/,
+				'<text:p text:style-name="Standard">m<text:span text:style-name="Up">2</text:span> H<text:span text:style-name="Dn">2</text:span>O</text:p>'
+			);
+		const bytes = await writeZip(readZip(saved), [{ name: 'content.xml', data: enc.encode(xml) }]);
+		const { model } = await readOdt(bytes);
+		const p = paras(model)[0];
+		expect(p.content.map((i) => i.type === 'text' && i.marks.script)).toEqual([
+			undefined,
+			'super',
+			undefined,
+			'sub',
+			undefined
+		]);
+		p.content.push({ type: 'text', text: '!', marks: {} });
+		const out = await writeOdt(model, bytes);
+		const back = paras((await readOdt(out)).model)[0];
+		expect(back.content.map((i) => i.type === 'text' && i.marks.script)).toEqual([
+			undefined,
+			'super',
+			undefined,
+			'sub',
+			undefined
+		]);
+		expect(await content(out)).toContain('style:text-position="super 58%"');
+	});
+
 	it('makes a template that reads back empty', async () => {
 		expect((await readOdt(await odtTemplate())).model.blocks).toEqual([]);
 	});

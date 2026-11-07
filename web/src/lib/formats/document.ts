@@ -74,6 +74,7 @@ const ALL_MARKS = new Set<keyof Marks>([
 	'italic',
 	'underline',
 	'strike',
+	'script',
 	'code',
 	'font',
 	'size',

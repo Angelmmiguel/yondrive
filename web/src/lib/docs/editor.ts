@@ -8,6 +8,7 @@ import { EditorState, type Transaction } from 'prosemirror-state';
 import { goToNextCell, tableEditing } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import type { Caps } from '$lib/formats/document';
+import type { Marks } from '$lib/formats/model';
 import { backspaceList, enter, insertBreak, shiftLevel, toggleMark } from './commands';
 import type { ImageStore } from './images';
 import { find, imageView, lists, lockedGuard, paste } from './plugins';
@@ -28,9 +29,9 @@ export interface EditorOptions {
 
 export function createState(doc: PMNode, o: Omit<EditorOptions, 'doc' | 'onUpdate'>): EditorState {
 	const mark =
-		(name: keyof typeof schema.marks) =>
+		(name: keyof typeof schema.marks, cap: keyof Marks = name as keyof Marks) =>
 		(state: EditorState, dispatch?: (tr: Transaction) => void) =>
-			o.caps().marks.has(name as never) && toggleMark(schema.marks[name])(state, dispatch);
+			o.caps().marks.has(cap) && toggleMark(schema.marks[name])(state, dispatch);
 	return EditorState.create({
 		doc,
 		plugins: [
@@ -43,6 +44,8 @@ export function createState(doc: PMNode, o: Omit<EditorOptions, 'doc' | 'onUpdat
 				'Mod-b': mark('bold'),
 				'Mod-i': mark('italic'),
 				'Mod-u': mark('underline'),
+				'Mod-.': mark('sup', 'script'),
+				'Mod-,': mark('sub', 'script'),
 				'Mod-s': () => {
 					o.onSave();
 					return true;

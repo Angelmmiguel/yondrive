@@ -70,6 +70,7 @@ interface CharProps {
 	italic?: boolean;
 	underline?: boolean;
 	strike?: boolean;
+	script?: 'super' | 'sub';
 	size?: number;
 	color?: string;
 	highlight?: string;
@@ -185,6 +186,9 @@ function charProps(r: Reader, from: number, to: number): CharProps {
 			case 0x0837:
 			case 0x2a53:
 				p.strike = toggle(op, p.strike);
+				break;
+			case 0x2a48:
+				p.script = op === 1 ? 'super' : op === 2 ? 'sub' : undefined;
 				break;
 			case 0x2a3e:
 				p.underline = op !== 0;
@@ -413,6 +417,7 @@ export function readDoc(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (c.italic) m.italic = true;
 		if (c.underline) m.underline = true;
 		if (c.strike) m.strike = true;
+		if (c.script) m.script = c.script;
 		if (c.size && c.size !== 12 && c.size !== 10 && c.size < 1600) m.size = c.size;
 		if (c.color && c.color !== '#000000') m.color = c.color;
 		if (c.highlight) m.highlight = c.highlight;

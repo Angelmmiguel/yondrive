@@ -11,6 +11,25 @@ const paras = (m: DocModel) => m.blocks.filter((b): b is Paragraph => b.type ===
 const textOf = (b: Block) => plainText({ blocks: [b] });
 
 describe('markdown', () => {
+	it('keeps superscript and subscript as plain text, with no syntax of its own', () => {
+		const model: DocModel = {
+			blocks: [
+				{
+					type: 'paragraph',
+					style: 'normal',
+					content: [
+						{ type: 'text', text: 'm', marks: {} },
+						{ type: 'text', text: '2', marks: { script: 'super' } },
+						{ type: 'text', text: ' H', marks: {} },
+						{ type: 'text', text: '2', marks: { script: 'sub' } }
+					]
+				}
+			],
+			images: {}
+		};
+		expect(writeMarkdown(model).trim()).toBe('m2 H2');
+	});
+
 	it('reads blocks and inline marks', () => {
 		const { model } = readMarkdown(sample);
 		const ps = paras(model);

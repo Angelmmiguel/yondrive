@@ -8,7 +8,7 @@
 	import type { EditorView } from 'prosemirror-view';
 	import { Icon, Menu, type IconName, type MenuItem } from '$lib/components';
 	import type { Caps } from '$lib/formats/document';
-	import type { BlockStyle } from '$lib/formats/model';
+	import type { BlockStyle, Marks } from '$lib/formats/model';
 	import {
 		currentParagraph,
 		insertTable,
@@ -114,15 +114,16 @@
 	}
 
 	const markTool = (
-		name: 'bold' | 'italic' | 'underline' | 'strike' | 'code',
+		name: 'bold' | 'italic' | 'underline' | 'strike' | 'sup' | 'sub' | 'code',
 		label: string,
-		icon: IconName
+		icon: IconName,
+		cap: keyof Marks = name as keyof Marks
 	): Tool => ({
 		id: name,
 		label,
 		icon,
 		on: isMarkActive(state, schema.marks[name]),
-		show: caps.marks.has(name),
+		show: caps.marks.has(cap),
 		run: () => run(toggleMark(schema.marks[name]))
 	});
 
@@ -132,6 +133,8 @@
 			markTool('italic', 'Italic', 'italic'),
 			markTool('underline', 'Underline', 'underline'),
 			markTool('strike', 'Strikethrough', 'strike'),
+			markTool('sup', 'Superscript (Ctrl+.)', 'superscript', 'script'),
+			markTool('sub', 'Subscript (Ctrl+,)', 'subscript', 'script'),
 			markTool('code', 'Inline code', 'code')
 		],
 		[

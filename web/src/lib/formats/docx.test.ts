@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { docxTemplate, readDocx, writeDocx } from './docx';
-import { plainText, type Block, type DocModel, type Paragraph } from './model';
+import { normalizeInlines, plainText, type Block, type DocModel, type Paragraph } from './model';
 import { decodeXml } from './xml';
 import { entryData, readZip, writeZip } from './zip';
 
@@ -13,6 +13,7 @@ async function part(bytes: Uint8Array, name: string): Promise<string> {
 }
 
 const paras = (m: DocModel) => m.blocks.filter((b): b is Paragraph => b.type === 'paragraph');
+const normalize = (c: Paragraph['content']) => normalizeInlines(c);
 const textOf = (b: Block) => plainText({ blocks: [b] });
 
 /** Every entry but `except` has the same local record, compressed bytes included. */
@@ -356,6 +357,32 @@ describe('docx', () => {
 		expect(xml.split('fr-FR').length).toBeLessThanOrEqual(2);
 		const back = paras((await readDocx(await writeDocx(model, bytes))).model)[0];
 		expect(textOf(back)).toBe('bold sup under more bold more italic');
+	});
+
+	it('keeps a superscript and a subscript when its paragraph is edited', async () => {
+		const bytes = await withParagraph(
+			'<w:p><w:r><w:t xml:space="preserve">E = mc</w:t></w:r>' +
+				'<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:t>2</w:t></w:r>' +
+				'<w:r><w:t xml:space="preserve"> and H</w:t></w:r>' +
+				'<w:r><w:rPr><w:b/><w:vertAlign w:val="subscript"/></w:rPr><w:t>2</w:t></w:r>' +
+				'<w:r><w:rPr><w:vertAlign w:val="baseline"/></w:rPr><w:t>O</w:t></w:r></w:p>'
+		);
+		const { model } = await readDocx(bytes);
+		const p = paras(model)[0];
+		expect(p.content.map((i) => i.type === 'text' && i.marks)).toEqual([
+			{},
+			{ script: 'super' },
+			{},
+			{ bold: true, script: 'sub' },
+			{}
+		]);
+		p.content.push({ type: 'text', text: '!', marks: {} });
+		const saved = await writeDocx(model, bytes);
+		const xml = await part(saved, 'word/document.xml');
+		expect(xml).toContain('<w:vertAlign w:val="superscript"/>');
+		expect(xml).toContain('<w:vertAlign w:val="subscript"/>');
+		const back = paras((await readDocx(saved)).model)[0];
+		expect(back.content).toEqual(normalize(p.content));
 	});
 
 	it('locks a paragraph whose runs hold what the editor would drop', async () => {

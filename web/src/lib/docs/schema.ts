@@ -282,6 +282,28 @@ const marks: Record<string, MarkSpec> = {
 		],
 		toDOM: () => ['s', 0]
 	},
+	sup: {
+		excludes: 'sup sub',
+		parseDOM: [
+			{ tag: 'sup' },
+			{
+				style: 'vertical-align',
+				getAttrs: (v: string) => (v === 'super' ? null : false)
+			}
+		],
+		toDOM: () => ['sup', 0]
+	},
+	sub: {
+		excludes: 'sup sub',
+		parseDOM: [
+			{ tag: 'sub' },
+			{
+				style: 'vertical-align',
+				getAttrs: (v: string) => (v === 'sub' ? null : false)
+			}
+		],
+		toDOM: () => ['sub', 0]
+	},
 	code: {
 		parseDOM: [{ tag: 'code' }],
 		toDOM: () => ['code', 0]

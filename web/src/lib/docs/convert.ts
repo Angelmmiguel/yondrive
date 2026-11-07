@@ -25,6 +25,7 @@ function marksOf(m: Marks): Mark[] {
 	if (m.italic) out.push(schema.marks.italic.create());
 	if (m.underline) out.push(schema.marks.underline.create());
 	if (m.strike) out.push(schema.marks.strike.create());
+	if (m.script) out.push(schema.marks[m.script === 'super' ? 'sup' : 'sub'].create());
 	if (m.code) out.push(schema.marks.code.create());
 	if (m.font) out.push(schema.marks.font.create({ family: m.font }));
 	if (m.size) out.push(schema.marks.size.create({ pt: m.size }));
@@ -111,6 +112,12 @@ function marksFrom(marks: readonly Mark[]): Marks {
 			case 'strike':
 			case 'code':
 				m[mark.type.name] = true;
+				break;
+			case 'sup':
+				m.script = 'super';
+				break;
+			case 'sub':
+				m.script = 'sub';
 				break;
 			case 'font':
 				m.font = mark.attrs.family as string;

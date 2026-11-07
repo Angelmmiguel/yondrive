@@ -81,6 +81,7 @@ interface CharState {
 	italic: boolean;
 	underline: boolean;
 	strike: boolean;
+	script: 'super' | 'sub' | null;
 	font: number | null;
 	size: number | null;
 	color: number;
@@ -116,6 +117,7 @@ const plainChar = (): CharState => ({
 	italic: false,
 	underline: false,
 	strike: false,
+	script: null,
 	font: null,
 	size: null,
 	color: 0,
@@ -226,6 +228,7 @@ export function readRtf(bytes: Uint8Array): { model: DocModel; census: Census } 
 		if (c.italic && !base.italic) m.italic = true;
 		if (c.underline) m.underline = true;
 		if (c.strike) m.strike = true;
+		if (c.script) m.script = c.script;
 		const font = c.font === null ? undefined : fontName(fonts.get(c.font));
 		const styleFont = cs?.char.font ?? base.font;
 		if (font && c.font !== styleFont && c.font !== 0) m.font = font;
@@ -645,6 +648,15 @@ function applyChar(c: CharState, word: string, param: number | null): void {
 		case 'striked':
 			c.strike = on;
 			break;
+		case 'super':
+			c.script = on ? 'super' : null;
+			break;
+		case 'sub':
+			c.script = on ? 'sub' : null;
+			break;
+		case 'nosupersub':
+			c.script = null;
+			break;
 		case 'f':
 			c.font = param;
 			break;
@@ -735,6 +747,7 @@ export async function writeRtf(model: DocModel): Promise<Uint8Array> {
 		if (m.italic) fmt += '\\i';
 		if (m.underline) fmt += '\\ul';
 		if (m.strike) fmt += '\\strike';
+		if (m.script) fmt += m.script === 'super' ? '\\super' : '\\sub';
 		if (m.font) fmt += `\\f${fontIndex(m.font)}`;
 		if (m.size) fmt += `\\fs${Math.round(m.size * 2)}`;
 		if (m.color) fmt += `\\cf${colorIndex(m.color)}`;

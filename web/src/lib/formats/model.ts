@@ -15,6 +15,8 @@ export interface Marks {
 	italic?: true;
 	underline?: true;
 	strike?: true;
+	/** Raised or lowered text; the two exclude each other. */
+	script?: 'super' | 'sub';
 	code?: true;
 	/** A font family name. */
 	font?: string;
@@ -142,6 +144,7 @@ const MARK_ORDER: (keyof Marks)[] = [
 	'italic',
 	'underline',
 	'strike',
+	'script',
 	'code',
 	'font',
 	'size',

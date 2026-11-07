@@ -192,6 +192,8 @@ const MARK_NAMES: Record<string, keyof Marks> = {
 	italic: 'italic',
 	underline: 'underline',
 	strike: 'strike',
+	sup: 'script',
+	sub: 'script',
 	code: 'code',
 	font: 'font',
 	size: 'size',

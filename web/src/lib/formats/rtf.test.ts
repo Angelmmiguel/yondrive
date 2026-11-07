@@ -25,6 +25,18 @@ describe('rtf', () => {
 		expect(text).toContain('Closing paragraph');
 	});
 
+	it('reads and writes superscript and subscript', async () => {
+		const src = '{\\rtf1\\ansi m{\\super 2} H{\\sub 2}O{\\super x\\nosupersub y}\\par}';
+		const { model } = readRtf(enc.encode(src));
+		const marks = paras(model)[0].content.map((i) => (i.type === 'text' ? i.marks.script : null));
+		expect(marks).toEqual([undefined, 'super', undefined, 'sub', undefined, 'super', undefined]);
+		const out = new TextDecoder().decode(await writeRtf(model));
+		expect(out).toContain('\\super');
+		expect(out).toContain('\\sub');
+		const back = paras(readRtf(enc.encode(out)).model)[0];
+		expect(back.content).toEqual(paras(model)[0].content);
+	});
+
 	it('decodes code pages and unicode escapes', () => {
 		const src = "{\\rtf1\\ansi\\ansicpg1252\\uc1 caf\\'e9 \\u8212? end\\par}";
 		expect(plainText(readRtf(enc.encode(src)).model)).toBe('café — end');

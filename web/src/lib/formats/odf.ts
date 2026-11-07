@@ -74,6 +74,7 @@ const MARK_PROPS = new Set([
 	'fo:font-size',
 	'fo:color',
 	'fo:background-color',
+	'style:text-position',
 	'style:use-window-font-color',
 	'style:font-family-generic',
 	'style:font-pitch',
@@ -520,6 +521,14 @@ class Reader {
 				if (s2 !== 'none') m.strike = true;
 				else delete m.strike;
 			}
+			const pos = t['style:text-position'];
+			if (pos !== undefined) {
+				const first = pos.trim().split(/\s+/)[0];
+				const n = parseFloat(first);
+				if (first.startsWith('super') || n > 0) m.script = 'super';
+				else if (first.startsWith('sub') || n < 0) m.script = 'sub';
+				else delete m.script;
+			}
 			const family =
 				t['fo:font-family'] ??
 				(t['style:font-name']
@@ -946,6 +955,7 @@ class Writer {
 				' style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"';
 		if (rest.strike)
 			props += ' style:text-line-through-style="solid" style:text-line-through-type="single"';
+		if (rest.script) props += ` style:text-position="${rest.script} 58%"`;
 		if (rest.font) props += ` fo:font-family="${escapeAttr(quoteFont(rest.font))}"`;
 		if (rest.size) props += ` fo:font-size="${rest.size}pt"`;
 		if (rest.color) props += ` fo:color="${rest.color}"`;
