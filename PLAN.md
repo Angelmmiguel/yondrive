@@ -394,7 +394,11 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 | pdf.js (`pdfjs-dist`) | PDF viewing | Apache-2.0 |
 | `@noble/*`, `@scure/*` | Cryptography | MIT |
 | DOMPurify | Sanitising | MPL-2.0 or Apache-2.0 |
-| `modernc.org/sqlite` | Metadata | BSD-style |
+| `modernc.org/sqlite` | Metadata | BSD-3-Clause; carries SQLite (public domain) |
+| `modernc.org/libc`, `mathutil`, `memory`, `golang.org/x/sys`, `remyoudompheng/bigfft`, `google/uuid` | Linked through the SQLite driver and the API runtime | BSD-3-Clause |
+| `dustin/go-humanize`; musl and `go-netdb` inside `modernc.org/libc` | Linked through the SQLite driver | MIT |
+| `oapi-codegen/runtime` | Runtime of the generated server code | Apache-2.0 |
+| `apapsch/go-jsonmerge` | Linked through `oapi-codegen/runtime` | MIT |
 | Geist, Geist Mono, Source Serif 4 | Fonts | OFL-1.1 |
 | `oapi-codegen`, `openapi-typescript` | Code generation at build time | Apache-2.0, MIT |
 
