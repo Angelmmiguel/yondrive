@@ -756,7 +756,8 @@ const cellEq = (c: Cell | undefined, src: CellSrc) => {
 };
 
 function setAttr(tag: string, name: string, value: string | null): string {
-	const re = new RegExp(`(\\s)${name.replace(/[.:]/g, '\\$&')}="[^"]*"`);
+	// Either quote, and space around `=`, as XML allows.
+	const re = new RegExp(`(\\s)${name.replace(/[.:]/g, '\\$&')}\\s*=\\s*(?:"[^"]*"|'[^']*')`);
 	if (value === null) return tag.replace(re, '');
 	if (re.test(tag)) return tag.replace(re, `$1${name}="${escapeAttr(value)}"`);
 	const at = tag.endsWith('/>') ? tag.length - 2 : tag.length - 1;
@@ -1206,7 +1207,9 @@ function patchSheet(xml: string, scan: SheetScan, info: SheetInfo, ctx: WriteCtx
 		(whole, attrs: string | undefined, inner: string) => {
 			const n = (inner.match(new RegExp(`<${ctx.prefix}dataValidation[\\s>/]`, 'g')) ?? []).length;
 			if (n === 0) return '';
-			return attrs?.includes('count=') ? whole.replace(/count="\d*"/, `count="${n}"`) : whole;
+			if (!attrs || !/\scount\s*=/.test(attrs)) return whole;
+			const open = `<${ctx.prefix}dataValidations${attrs}>`;
+			return setAttr(open, 'count', String(n)) + whole.slice(open.length);
 		}
 	);
 	return { xml: out, changed: true, formulasMoved, staleText };
@@ -1348,7 +1351,7 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		elText = setAttr(
 			elText,
 			'state',
-			info.hidden ? (/state="veryHidden"/.test(elText) ? 'veryHidden' : 'hidden') : null
+			info.hidden ? (/\sstate\s*=\s*["']veryHidden["']/.test(elText) ? 'veryHidden' : 'hidden') : null
 		);
 		sheetEls.push(elText);
 		const scan = scanSheet(source, strings.base, engine.date1904, { cells: SHEET_LIMITS.cells });
@@ -1400,7 +1403,7 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 			(m, n: string, attrs: string, close: string) => {
 				let t = `<${n}${attrs}${close}>`;
 				for (const a of ['activeTab', 'firstSheet']) {
-					const v = Number(new RegExp(`${a}="(\\d+)"`).exec(attrs)?.[1] ?? 0);
+					const v = Number(new RegExp(`\\s${a}\\s*=\\s*["'](\\d+)["']`).exec(attrs)?.[1] ?? 0);
 					if (v >= listed.length) t = setAttr(t, a, '0');
 				}
 				return t;
@@ -1424,7 +1427,7 @@ export async function writeXlsx(book: Book, original?: Uint8Array): Promise<Uint
 		const unique = strings.base.texts.length + strings.added.length;
 		sst = sst.replace(/<((?:\w+:)?sst)\b([^>]*)>/, (m, n: string, attrs: string) => {
 			let t = `<${n}${attrs}>`;
-			const count = Number(/\scount="(\d+)"/.exec(attrs)?.[1] ?? NaN);
+			const count = Number(/\scount\s*=\s*["'](\d+)["']/.exec(attrs)?.[1] ?? NaN);
 			if (Number.isFinite(count))
 				t = setAttr(t, 'count', String(Math.max(0, count + strings.refsDelta)));
 			if (/uniqueCount=/.test(attrs)) t = setAttr(t, 'uniqueCount', String(unique));

@@ -251,6 +251,31 @@ describe('writing .xlsx back', () => {
 		expect(sheet).toContain('<c r="B2"><f>A2*100</f><v>200</v></c>');
 	});
 
+	it('rewrites attributes in single quotes in place', async () => {
+		const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+		const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+		const bytes = await xlsxOf(
+			[
+				"<sheetData><row r='1'><c r='A1'><v>1</v></c></row><row r = '2'><c r='A2'><v>2</v></c></row></sheetData>"
+			],
+			{
+				'xl/workbook.xml': `<workbook xmlns="${MAIN}" xmlns:r="${R}"><sheets><sheet name='S1' sheetId='1' r:id='rId1'/></sheets></workbook>`
+			}
+		);
+		const { book } = await readXlsx(bytes);
+		const s = book.engine.sheets[0].id;
+		book.engine.renameSheet(s, 'Data');
+		book.insertRows(s, 0, 1);
+		const out = await writeXlsx(book, bytes);
+		const wb = (await part(out, 'xl/workbook.xml'))!;
+		expect(wb).toContain('<sheet name="Data" sheetId=\'1\' r:id=\'rId1\'/>');
+		const sheet = (await part(out, 'xl/worksheets/sheet1.xml'))!;
+		expect(sheet).not.toMatch(/\sr\s*=\s*'/);
+		const again = (await readXlsx(out)).book.engine;
+		expect(again.sheets[0].name).toBe('Data');
+		expect([1, 2].map((r) => again.cell(s, r, 0)!.value)).toEqual([1, 2]);
+	});
+
 	it('never writes characters XML cannot carry', async () => {
 		const bytes = await xlsxOf([
 			'<sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>a&#1;b</t></is></c></row></sheetData>'
