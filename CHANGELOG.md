@@ -5,7 +5,7 @@ workflow publishes the section of a version as its release notes, and refuses a
 tag whose section is missing or still marked unreleased
 ([docs/RELEASE.md](docs/RELEASE.md)).
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-11-07
 
 The first release: a private drive with documents, spreadsheets, notes and
 sharing, in one binary and one data directory, with end-to-end encryption by
