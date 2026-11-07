@@ -26,6 +26,10 @@ describe('parseInput', () => {
 		expect(parseInput('#N/A')).toEqual({ input: { value: { error: '#N/A' } } });
 		expect(parseInput('007 agents')).toEqual({ input: { value: '007 agents' } });
 	});
+
+	it('gives dates in the 1904 date system when the workbook uses it', () => {
+		expect(parseInput('1/31/2024', true)).toEqual({ input: { value: 43860 }, numFmt: 'm/d/yyyy' });
+	});
 });
 
 describe('the sheet service', () => {

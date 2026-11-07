@@ -47,8 +47,11 @@ export function num(n: number): number | ErrorValue {
 
 const NUMERIC = /^([+-]?)\s*(\$?)\s*(\d{1,3}(?:,\d{3})+|\d*)(\.\d*)?(?:[eE]([+-]?\d+))?\s*(%?)$/;
 
-/** Numbers as Excel reads them from text: thousands, decimals, exponent, `%`, `$`, dates and times. */
-export function numberFromText(text: string): number | null {
+/**
+ * Numbers as Excel reads them from text: thousands, decimals, exponent, `%`, `$`,
+ * dates and times. Dates are serials of the workbook's date system.
+ */
+export function numberFromText(text: string, date1904 = false): number | null {
 	const s = text.trim();
 	if (s === '') return null;
 	let neg = false;
@@ -68,7 +71,7 @@ export function numberFromText(text: string): number | null {
 		return neg ? -n : n;
 	}
 	if (neg) return null;
-	return dateFromText(s);
+	return dateFromText(s, date1904);
 }
 
 /** Excel's own text for a number, as `&` and text functions give it: 15 significant digits. */
@@ -92,12 +95,12 @@ export function numberToText(n: number): string {
 
 export type Coerced<T> = T | ErrorValue;
 
-export function toNumber(v: Scalar): Coerced<number> {
+export function toNumber(v: Scalar, date1904 = false): Coerced<number> {
 	if (typeof v === 'number') return v;
 	if (v === null) return 0;
 	if (typeof v === 'boolean') return v ? 1 : 0;
 	if (typeof v === 'string') {
-		const n = numberFromText(v);
+		const n = numberFromText(v, date1904);
 		return n === null ? err('#VALUE!') : n;
 	}
 	return v;

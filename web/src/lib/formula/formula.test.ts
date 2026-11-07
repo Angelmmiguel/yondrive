@@ -355,6 +355,21 @@ describe('text of numbers', () => {
 });
 
 describe('the engine', () => {
+	it('reads text dates in the 1904 date system', () => {
+		const e = new Engine({ date1904: true });
+		const s = e.addSheet('S');
+		e.set(s, 0, 0, { value: 43860 });
+		e.set(s, 0, 1, { value: '1/31/2024' });
+		e.set(s, 1, 0, { formula: '"1/31/2024"+0' });
+		e.set(s, 2, 0, { formula: 'COUNTIF(A1,"1/31/2024")' });
+		e.set(s, 3, 0, { formula: 'VALUE("1/31/2024")' });
+		e.set(s, 4, 0, { formula: 'B1*1' });
+		e.set(s, 5, 0, { formula: 'YEAR("1/31/2024")' });
+		expect([1, 2, 3, 4, 5].map((r) => e.cell(s, r, 0)!.value)).toEqual([
+			43860, 1, 43860, 43860, 2024
+		]);
+	});
+
 	it('recalculates what depends on a change, through ranges', () => {
 		const e = new Engine();
 		const s = e.addSheet('S');

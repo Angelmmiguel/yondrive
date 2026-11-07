@@ -38,7 +38,7 @@ const scalar = (n: Node, c: Ctx): Scalar => (n.type === 'missing' ? null : deref
 
 function number(n: Node | undefined, c: Ctx, fallback = 0): number | ErrorValue {
 	if (isMissing(n)) return fallback;
-	return toNumber(scalar(n as Node, c));
+	return toNumber(scalar(n as Node, c), c.date1904);
 }
 
 function text(n: Node | undefined, c: Ctx): string | ErrorValue {
@@ -62,7 +62,7 @@ function numbers(args: Node[], c: Ctx): number[] | ErrorValue {
 			if (e) return e;
 		} else {
 			if (o === null) continue;
-			const n = toNumber(o);
+			const n = toNumber(o, c.date1904);
 			if (isError(n)) return n;
 			out.push(n);
 		}
@@ -149,7 +149,7 @@ function conditional(kind: 'sum' | 'count' | 'average'): Fn {
 	return (args, c) => {
 		const range = needRef(c.ev(args[0]));
 		if (isError(range)) return range;
-		const crit = criterion(scalar(args[1], c));
+		const crit = criterion(scalar(args[1], c), c.date1904);
 		if (kind === 'count') {
 			let n = 0;
 			let nonBlank = 0;
@@ -292,7 +292,7 @@ const checkLength = (s: string): string | ErrorValue => (s.length > MAX_TEXT ? e
 function datePart(part: 'year' | 'month' | 'day'): Fn {
 	return (args, c) => {
 		const v = scalar(args[0], c);
-		const n = typeof v === 'string' && v.trim() === '' ? err('#VALUE!') : toNumber(v);
+		const n = typeof v === 'string' && v.trim() === '' ? err('#VALUE!') : toNumber(v, c.date1904);
 		if (isError(n)) return n;
 		if (n < 0) return err('#NUM!');
 		const ymd = serialToYmd(n, c.date1904);
@@ -330,7 +330,7 @@ export const FUNCTIONS: Record<string, FunctionSpec> = {
 				const o = c.ev(a);
 				if (isRef(o)) c.each(o.sheet, o.area, (v) => void (typeof v === 'number' && n++));
 				else if (typeof o === 'number' || typeof o === 'boolean') n++;
-				else if (typeof o === 'string' && numberFromText(o) !== null) n++;
+				else if (typeof o === 'string' && numberFromText(o, c.date1904) !== null) n++;
 			}
 			return n;
 		}
@@ -597,7 +597,7 @@ export const FUNCTIONS: Record<string, FunctionSpec> = {
 			const f = text(args[1], c);
 			if (isError(f)) return f;
 			if (typeof v === 'string') {
-				const n = numberFromText(v);
+				const n = numberFromText(v, c.date1904);
 				if (n !== null) v = n;
 			}
 			if (v === null) v = 0;
@@ -612,7 +612,7 @@ export const FUNCTIONS: Record<string, FunctionSpec> = {
 			if (isError(v) || typeof v === 'number') return v;
 			if (v === null) return 0;
 			if (typeof v === 'boolean') return err('#VALUE!');
-			const n = numberFromText(v);
+			const n = numberFromText(v, c.date1904);
 			return n === null ? err('#VALUE!') : n;
 		}
 	},

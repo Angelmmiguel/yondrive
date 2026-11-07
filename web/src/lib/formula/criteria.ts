@@ -50,17 +50,18 @@ export function wildcard(pattern: string): (s: string) => boolean {
 	};
 }
 
-const numEq = (n: number) => (v: Scalar) =>
+const numEq = (n: number, date1904: boolean) => (v: Scalar) =>
 	(typeof v === 'number' && sameNumber(v, n)) ||
 	(typeof v === 'string' &&
 		(() => {
-			const x = numberFromText(v);
+			const x = numberFromText(v, date1904);
 			return x !== null && sameNumber(x, n);
 		})());
 
-export function criterion(c: Scalar): Criterion {
+/** A criterion as SUMIF reads it; text dates are serials of the workbook's date system. */
+export function criterion(c: Scalar, date1904 = false): Criterion {
 	if (c === null) c = 0;
-	if (typeof c === 'number') return numEq(c);
+	if (typeof c === 'number') return numEq(c, date1904);
 	if (typeof c === 'boolean') return (v) => v === c;
 	if (isError(c)) return (v) => isError(v) && v.error === c.error;
 	const m = /^(<=|>=|<>|<|>|=)?([\s\S]*)$/.exec(c)!;
@@ -72,9 +73,9 @@ export function criterion(c: Scalar): Criterion {
 		if (op === '<>') return (v) => v !== null;
 		return () => false;
 	}
-	const n = numberFromText(operand);
+	const n = numberFromText(operand, date1904);
 	if (n !== null) {
-		const eq = numEq(n);
+		const eq = numEq(n, date1904);
 		switch (op) {
 			case '':
 			case '=':

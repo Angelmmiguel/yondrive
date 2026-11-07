@@ -99,8 +99,14 @@ export interface SortKey {
 	desc?: boolean;
 }
 
-/** What a typed text is: a formula, a value, or nothing; and the number format it suggests. */
-export function parseInput(text: string): { input: CellInput | null; numFmt?: string } {
+/**
+ * What a typed text is: a formula, a value, or nothing; and the number format it
+ * suggests. Dates become serials of the workbook's date system.
+ */
+export function parseInput(
+	text: string,
+	date1904 = false
+): { input: CellInput | null; numFmt?: string } {
 	if (text === '') return { input: null };
 	if (text.startsWith("'")) return { input: { value: text.slice(1) } };
 	if (text.startsWith('=') && text.length > 1) return { input: { formula: text.slice(1) } };
@@ -128,7 +134,7 @@ export function parseInput(text: string): { input: CellInput | null; numFmt?: st
 		const n = Number(t);
 		if (Number.isFinite(n)) return { input: { value: n } };
 	}
-	const d = /\d/.test(t) && !/^\d+$/.test(t) ? dateFromText(t) : null;
+	const d = /\d/.test(t) && !/^\d+$/.test(t) ? dateFromText(t, date1904) : null;
 	if (d !== null) {
 		const hasTime = /:/.test(t);
 		const ampm = /\s*(am|pm|a|p)$/i.test(t);
@@ -289,7 +295,7 @@ export class SheetService {
 	setCells(edits: { sheet: number; row: number; col: number; text: string }[]): EditResult {
 		const b = this.#b;
 		return this.#newStyles(b.styles.length, () => {
-			const parsed = edits.map((e) => ({ ...e, ...parseInput(e.text) }));
+			const parsed = edits.map((e) => ({ ...e, ...parseInput(e.text, b.date1904) }));
 			const changes = b.engine.setMany(
 				parsed.map((p) => ({ sheet: p.sheet, row: p.row, col: p.col, input: p.input }))
 			);

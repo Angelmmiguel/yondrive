@@ -75,11 +75,11 @@ export function evaluate(node: Node, c: Ctx): Operand {
 		case 'unary': {
 			const v = deref(evaluate(node.arg, c), c);
 			if (node.op === '+') return v;
-			const n = toNumber(v);
+			const n = toNumber(v, c.date1904);
 			return isError(n) ? n : num(-n);
 		}
 		case 'percent': {
-			const n = toNumber(deref(evaluate(node.arg, c), c));
+			const n = toNumber(deref(evaluate(node.arg, c), c), c.date1904);
 			return isError(n) ? n : num(n / 100);
 		}
 		case 'binary': {
@@ -98,9 +98,9 @@ export function evaluate(node: Node, c: Ctx): Operand {
 				node.op === '/' ||
 				node.op === '^'
 			) {
-				const x = toNumber(a);
+				const x = toNumber(a, c.date1904);
 				if (isError(x)) return x;
-				const y = toNumber(b);
+				const y = toNumber(b, c.date1904);
 				if (isError(y)) return y;
 				return arithmetic(node.op, x, y);
 			}
