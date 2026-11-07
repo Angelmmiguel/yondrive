@@ -26,6 +26,9 @@ import { localPinStorage } from '$lib/sharing/contacts';
 import { canWrite } from '$lib/sharing/roles';
 import { localRotationJobs } from '$lib/sharing/rotation';
 import { formatBytes } from '$lib/app/format';
+import { notesSubtree } from '$lib/notes/items';
+import { isNotesRoot, marksNote } from '$lib/notes/model';
+import { notes } from './notes.svelte';
 import { search } from './search.svelte';
 import { session } from './session.svelte';
 import { sharing } from './sharing.svelte';
@@ -91,7 +94,10 @@ export class DriveState {
 	strays = $state.raw<StrayUpload[]>([]);
 	storage = $state.raw<Storage | null>(null);
 	lastBackup = $state.raw<string | null>(null);
+	/** The trash of Drive: what is in the trash outside of Notes. */
 	trash = $state.raw<DriveNode[]>([]);
+	/** Everything in the trash, notes included, for Notes to pick its own from. */
+	allTrash = $state.raw<DriveNode[]>([]);
 	trashLoaded = $state(false);
 	/** Where an upload goes from here, set by the folder on screen. */
 	folder = $state<string | null>(null);
@@ -146,11 +152,13 @@ export class DriveState {
 		sharing.attach(core.sharing);
 		if (session.keys !== null) {
 			search.attach(core, sealer, session.keys.masterKey, account.user.id);
+			notes.attach(core, sealer, session.keys.masterKey, account.user.id);
 		}
 		this.#stops.push(() => opener.stop());
 		core.tree.onchange = () => {
 			this.#changed();
 			search.treeChanged();
+			notes.treeChanged();
 		};
 		core.queue.onchange = () => {
 			const wasActive = this.uploads.some((i) => i.status === 'uploading');
@@ -168,6 +176,7 @@ export class DriveState {
 				if (this.core !== core) return;
 				this.status = 'ready';
 				search.start();
+				notes.start();
 				void sharing.sync();
 				void this.refreshStorage();
 				void this.loadTrash().catch(() => {});
@@ -195,10 +204,14 @@ export class DriveState {
 		this.#stops = [];
 		sharing.detach();
 		const forget = search.detach();
+		const forgetNotes = notes.detach();
 		// This runs as an effect's teardown, which reads the state from before: a moment
 		// later the session says what really happened.
 		queueMicrotask(() => {
-			if (session.status === 'signed-out') void forget();
+			if (session.status === 'signed-out') {
+				void forget();
+				void forgetNotes();
+			}
 		});
 		this.core?.stop();
 		this.core = null;
@@ -209,6 +222,7 @@ export class DriveState {
 		this.storage = null;
 		this.lastBackup = null;
 		this.trash = [];
+		this.allTrash = [];
 		this.trashLoaded = false;
 		this.folder = null;
 		this.viewing = null;
@@ -263,9 +277,16 @@ export class DriveState {
 		return this.core?.tree.nodes.get(id);
 	}
 
+	/** A folder's children. At the root, the folder of notes stays out: Notes shows it. */
 	children(id: string): DriveNode[] {
 		void this.rev;
-		return this.core?.tree.childrenOf(id) ?? [];
+		const all = this.core?.tree.childrenOf(id) ?? [];
+		return id === this.rootId ? all.filter((n) => !isNotesRoot(n)) : all;
+	}
+
+	/** Whether a node is in the folder of notes, which Drive's lists leave to Notes. */
+	inNotes(id: string): boolean {
+		return this.core?.tree.breadcrumbs(id).some(isNotesRoot) ?? false;
 	}
 
 	folderLoaded(id: string): boolean {
@@ -275,7 +296,10 @@ export class DriveState {
 
 	#live(): DriveNode[] {
 		void this.rev;
-		return this.core?.tree.live() ?? [];
+		const tree = this.core?.tree;
+		if (tree === undefined) return [];
+		const hidden = notesSubtree(tree);
+		return tree.live().filter((n) => !hidden.has(n.id));
 	}
 
 	get tags(): TagDefinition[] {
@@ -390,7 +414,9 @@ export class DriveState {
 
 	async loadTrash(): Promise<void> {
 		if (this.core === null) return;
-		this.trash = await this.core.tree.listTrash();
+		const all = await this.core.tree.listTrash();
+		this.allTrash = all;
+		this.trash = all.filter((n) => !this.inNotes(n.id));
 		this.trashLoaded = true;
 	}
 
@@ -466,9 +492,14 @@ export class DriveState {
 		const kind = editorFor(node.name);
 		if (kind === null) return;
 		this.viewing = null;
+		// A note, such as one shared on its own, opens in Notes.
+		const path =
+			kind === 'doc' && (marksNote(node) || this.inNotes(node.id))
+				? (`/notes/${node.id}` as const)
+				: editorPath(kind, node.id);
 		// Loaded when needed, so that this module stays free of the router.
 		void Promise.all([import('$app/navigation'), import('$app/paths')]).then(([nav, paths]) =>
-			nav.goto(paths.resolve(editorPath(kind, node.id)))
+			nav.goto(paths.resolve(path))
 		);
 	}
 

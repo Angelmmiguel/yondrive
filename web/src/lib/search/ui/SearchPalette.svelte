@@ -71,6 +71,17 @@
 	async function choose(hit: SearchHit) {
 		close();
 		try {
+			// What lives in Notes opens there: a note in its editor, a notebook in the list.
+			if (drive.inNotes(hit.id)) {
+				if (hit.kind === 'file' && hit.name.toLowerCase().endsWith('.md')) {
+					await goto(resolve(`/notes/${hit.id}`));
+					return;
+				}
+				if (hit.kind === 'folder') {
+					await goto(resolve('/notes'));
+					return;
+				}
+			}
 			if (hit.kind === 'folder') {
 				await goto(resolve(`/files/${hit.id}`));
 				return;
@@ -85,6 +96,7 @@
 	async function jump(hit: SearchHit) {
 		close();
 		if (hit.parent === null) await goto(resolve('/shared'));
+		else if (drive.inNotes(hit.parent)) await goto(resolve('/notes'));
 		else await goto(resolve(`/files/${hit.parent}`));
 	}
 

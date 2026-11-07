@@ -149,6 +149,17 @@ export class SearchState {
 		}, TYPING_MS);
 	}
 
+	/** Asks the index directly, for a screen with a search of its own. Nothing leaves the device. */
+	async find(text: string, limit = 500): Promise<SearchHit[]> {
+		const service = this.#service;
+		if (service === null || text.trim() === '') return [];
+		try {
+			return (await service.search({ text, limit })).hits;
+		} catch {
+			return [];
+		}
+	}
+
 	async askNow(): Promise<void> {
 		const service = this.#service;
 		if (service === null) return;

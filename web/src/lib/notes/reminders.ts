@@ -51,6 +51,8 @@ export function givenStore(
 	storage: Storage | null = globalThis.localStorage ?? null
 ) {
 	const key = `${KEY}-${userId}`;
+	// What this tab gave, for when storage is not there to remember it.
+	const here = new Set<string>();
 	const read = (): string[] => {
 		try {
 			const value = JSON.parse(storage?.getItem(key) ?? '[]') as unknown;
@@ -60,8 +62,9 @@ export function givenStore(
 		}
 	};
 	return {
-		load: () => new Set(read()),
+		load: () => new Set([...read(), ...here]),
 		add(given: string): void {
+			here.add(given);
 			const list = [...read().filter((v) => v !== given), given].slice(-KEEP);
 			try {
 				storage?.setItem(key, JSON.stringify(list));

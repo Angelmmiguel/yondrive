@@ -6,6 +6,7 @@ import { openNodes } from '$lib/drive/open-nodes';
 import { memoryResumeStore } from '$lib/drive/upload/resume';
 import { memorySegmentCache } from '$lib/search/cache';
 import { fakeDriveServer, fakeUser, SUITES, USER_ID } from '$lib/testing/drive';
+import { entryData, readZip } from '$lib/formats/zip';
 import { backlinks } from './index';
 import { NotesIndexer, sealedNotesCache, NOTES_INDEX_ID } from './indexer';
 import { isNotesRoot, parseNoteMeta, titleOf } from './model';
@@ -120,6 +121,25 @@ describe.each(SUITES)('notes in mode %s', (_, suite) => {
 		expect(await notes.readText(after)).toBe(
 			`The [sync engine](${nodeHref(target.id)}) beta works.\n`
 		);
+	});
+
+	it('exports every note with its links rewritten and its files beside it', async () => {
+		const { drive, notes } = wired(suite);
+		await drive.start();
+		const root = await notes.ensureRoot();
+		const work = await notes.createNotebook(root.id, 'Work');
+		const pic = await notes.attach(work.id, 'sketch.png', new Uint8Array([137, 80, 78, 71]), 'x');
+		const plan = await notes.createNote(work.id, 'Plan', `![sketch](${nodeHref(pic.id)})\n`);
+		await notes.createNote(root.id, 'Index', `[Plan](${nodeHref(plan.id)})\n`);
+		const zip = readZip(await notes.exportAll(root.id));
+		const text = async (name: string) => new TextDecoder().decode(await entryData(zip.get(name)!));
+		expect(zip.entries.map((e) => e.name).sort()).toEqual([
+			'Index.md',
+			'Work/Plan.md',
+			'Work/sketch.png'
+		]);
+		expect(await text('Index.md')).toBe('[Plan](Work/Plan.md)\n');
+		expect(await text('Work/Plan.md')).toBe('![sketch](sketch.png)\n');
 	});
 
 	it('stores the index sealed on the device, and reads it back', async () => {

@@ -27,6 +27,7 @@ import {
 	type NoteMeta,
 	type NotebookColor
 } from './model';
+import { buildExport, type ExportFile, type ExportNote } from './export';
 import { linkMention } from './parse';
 import { BUILTIN_TEMPLATES, fillTemplate } from './templates';
 
@@ -208,6 +209,31 @@ export class Notes {
 		return this.createNote(journal.id, title, fillTemplate(daily?.body ?? '', { title, now }), {
 			daily: today
 		});
+	}
+
+	/** A file's bytes, such as an attachment's. */
+	readBytes(node: DriveNode): Promise<Uint8Array> {
+		return this.#deps.read(node);
+	}
+
+	/** Every note and every file beside them, as a ZIP of plain Markdown with links intact. */
+	async exportAll(rootId: string): Promise<Uint8Array> {
+		const notes: ExportNote[] = [];
+		const files: ExportFile[] = [];
+		const folders: { id: string; folder: string }[] = [
+			{ id: rootId, folder: '' },
+			...this.notebooks(rootId).map((nb) => ({ id: nb.id, folder: nb.name }))
+		];
+		for (const { id, folder } of folders) {
+			for (const node of this.notesIn(id)) {
+				notes.push({ id: node.id, folder, name: node.name, markdown: await this.readText(node) });
+			}
+			for (const node of this.attachmentsIn(id)) {
+				if (node.currentVersion === null) continue;
+				files.push({ id: node.id, folder, name: node.name, bytes: await this.readBytes(node) });
+			}
+		}
+		return buildExport(notes, files);
 	}
 
 	/** Turns a plain mention of `title` in another note into a link. Whether there was one. */
