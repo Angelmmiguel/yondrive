@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -1031,5 +1032,81 @@ func TestTheMigrationChargesNodesThatAreThere(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	if got := usage(t, st, u.ID).UsedBytes; got != 7+25 {
 		t.Errorf("used %d, want 32", got)
+	}
+}
+
+// A copy of the database must not carry the server secret: it signs link
+// tokens, so a backup that kept it could sign one for any live link, password
+// or not. Neither the snapshot nor a database restored from an older backup
+// that has it may hold its bytes anywhere in the file.
+func TestCopiesForgetTheServerSecret(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.CompleteSetup(ctx, settings(), user("root")); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := st.ServerSecret(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	needle := []byte(hex.EncodeToString(secret))
+	holds := func(path string) bool {
+		t.Helper()
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bytes.Contains(b, needle)
+	}
+
+	live, err := OpenLive(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = live.Close() }()
+	backup := t.TempDir()
+	if err := live.Snapshot(ctx, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := FinishSnapshot(backup); err != nil {
+		t.Fatal(err)
+	}
+	if holds(filepath.Join(backup, dbFile)) {
+		t.Error("the snapshot holds the server secret")
+	}
+	if got, err := st.ServerSecret(ctx); err != nil || !bytes.Equal(got, secret) {
+		t.Errorf("the live secret changed: %v", err)
+	}
+
+	// A backup from before: the file as it was, secret included.
+	old := t.TempDir()
+	if _, err := st.write.ExecContext(ctx, "VACUUM INTO ?", filepath.Join(old, dbFile)); err != nil {
+		t.Fatal(err)
+	}
+	if !holds(filepath.Join(old, dbFile)) {
+		t.Fatal("the plain copy has no secret to forget")
+	}
+	restored := t.TempDir()
+	if err := RestoreDatabase(ctx, old, restored); err != nil {
+		t.Fatal(err)
+	}
+	if holds(filepath.Join(restored, dbFile)) {
+		t.Error("the restored database holds the old server secret")
+	}
+	again, err := Open(restored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = again.Close() }()
+	fresh, err := again.ServerSecret(ctx)
+	if err != nil || len(fresh) != serverSecretLen || bytes.Equal(fresh, secret) {
+		t.Errorf("restored server secret = %x, %v", fresh, err)
+	}
+	if _, err := again.Settings(ctx); err != nil {
+		t.Errorf("restored settings: %v", err)
 	}
 }

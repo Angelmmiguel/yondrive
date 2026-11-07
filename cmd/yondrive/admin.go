@@ -26,11 +26,16 @@ var adminCommands = map[string]func(dataDir, username string, out io.Writer) err
 	"password-reset": operatorPasswordReset,
 }
 
+// serverCommands are operator commands about the server rather than a user.
+var serverCommands = map[string]func(dataDir string, out io.Writer) error{
+	"rotate-secret": rotateSecret,
+}
+
 // admin runs an operator command against the data directory. The directory's
 // lock means the server has to be stopped first, which is the point: these
 // commands bypass what the running server would check.
 func admin(args []string) error {
-	if len(args) == 0 || adminCommands[args[0]] == nil {
+	if len(args) == 0 || adminCommands[args[0]] == nil && serverCommands[args[0]] == nil {
 		usage()
 		return errors.New("admin: unknown command")
 	}
@@ -42,6 +47,13 @@ func admin(args []string) error {
 			return nil
 		}
 		return err
+	}
+	if run := serverCommands[args[0]]; run != nil {
+		if fs.NArg() != 0 {
+			usage()
+			return fmt.Errorf("admin %s: takes no user", args[0])
+		}
+		return run(*dataDir, os.Stdout)
 	}
 	if fs.NArg() != 1 {
 		usage()
@@ -95,6 +107,27 @@ func promote(dataDir, username string, out io.Writer) error {
 		_, err := fmt.Fprintf(out, "%s is an admin\n", user.Username)
 		return err
 	})
+}
+
+// rotateSecret replaces the server secret, for a copy of the database that left
+// the operator's hands: a backup from before backups left the secret out, or the
+// data directory itself. Whoever has the old secret can sign link tokens for any
+// live link until it is replaced.
+func rotateSecret(dataDir string, out io.Writer) error {
+	st, err := store.Open(dataDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+	ctx := context.Background()
+	if err := st.RotateServerSecret(ctx); err != nil {
+		return err
+	}
+	if err := st.AppendAudit(ctx, store.AuditEntry{At: time.Now(), Action: "server_secret_rotated_by_operator"}); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, "server secret replaced; open link sessions and sign-ins in progress have ended")
+	return err
 }
 
 // operatorPasswordReset prints a one-time reset link for a local account, in

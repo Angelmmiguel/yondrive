@@ -215,6 +215,16 @@ thumbnail at or under the link's node, and neither the trash, nor older versions
 above it. `Referrer-Policy: no-referrer` is on every response, so a link's path does not leave
 through a referrer.
 
+**The server secret.** Link tokens are signed with a key derived from a random secret the
+server makes on first start and keeps in its database. The same secret seals sign-ins through a
+provider while they are in progress and derives the fake KDF answers for unknown usernames. It
+decrypts nothing. Whoever holds it can sign a token for any live link without its password, which
+in `none` mode is the content. A backup leaves it out and a restore removes it, so a restored
+server makes a new one. A copy of the data directory itself carries it: after one has left the
+operator's hands, or a backup from before 1.0.0 has, `yondrive admin rotate-secret` replaces it.
+A link's password cannot be changed, so a token is not bound to it: a token stays valid until it
+expires, the link is revoked, or the secret is replaced.
+
 **What a link shows.** No owner, username or quota. A reader sees the Ed25519 public key of a
 version's signer, which it needs to verify the signature, and that key is the same across links.
 It verifies only that the key signed, since a reader with no account has nothing to pin it against:

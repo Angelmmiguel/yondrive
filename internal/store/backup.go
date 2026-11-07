@@ -83,12 +83,34 @@ func (l *Live) Snapshot(ctx context.Context, dir string) error {
 	if _, err := l.db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
 		return fmt.Errorf("store: snapshot database: %w", err)
 	}
+	if err := forgetServerSecret(ctx, tmp); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
 	if err != nil {
 		return fmt.Errorf("store: open snapshot: %w", err)
 	}
 	if err := errors.Join(f.Chmod(0o600), f.Sync(), f.Close()); err != nil {
 		return fmt.Errorf("store: sync snapshot: %w", err)
+	}
+	return nil
+}
+
+// forgetServerSecret deletes the server secret from a copy of the database. The
+// secret signs link tokens and sealed sign-in flows, so a copy that kept it
+// would let whoever holds the copy sign a token for any live link, with a
+// password or not. A server started on the copy makes a new one. The row is
+// overwritten rather than only unlinked, and the edit keeps no journal on disk,
+// so the value is left neither in a free page nor in a journal file.
+func forgetServerSecret(ctx context.Context, path string) error {
+	db, err := sql.Open("sqlite", dsn(path, "mode=rw", "_pragma=journal_mode(MEMORY)", "_pragma=secure_delete(1)"))
+	if err != nil {
+		return fmt.Errorf("store: open copy: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	_, err = db.ExecContext(ctx, "DELETE FROM settings WHERE key = ?", keyServerSecret)
+	if err = errors.Join(err, db.Close()); err != nil {
+		return fmt.Errorf("store: forget the server secret: %w", err)
 	}
 	return nil
 }

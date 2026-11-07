@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -118,5 +119,46 @@ func TestAdminDispatchesEveryCommand(t *testing.T) {
 		if err := admin([]string{cmd, "--data", dir, "nobody"}); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("admin %s: %v", cmd, err)
 		}
+	}
+}
+
+func TestAdminRotateSecret(t *testing.T) {
+	dir, _, _ := configuredStore(t, "none")
+	st := reopen(t, dir)
+	before, err := st.ServerSecret(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The running server holds the lock.
+	if err := admin([]string{"rotate-secret", "--data", dir}); !errors.Is(err, store.ErrLocked) {
+		t.Errorf("beside a server: %v", err)
+	}
+	_ = st.Close()
+	devnull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = devnull.Close() }()
+	stderr := os.Stderr
+	os.Stderr = devnull
+	err = admin([]string{"rotate-secret", "--data", dir, "alice"})
+	os.Stderr = stderr
+	if err == nil {
+		t.Error("took a user")
+	}
+	var out bytes.Buffer
+	if err := rotateSecret(dir, &out); err != nil {
+		t.Fatal(err)
+	}
+	st = reopen(t, dir)
+	after, err := st.ServerSecret(context.Background())
+	if err != nil || len(after) != len(before) || bytes.Equal(after, before) {
+		t.Errorf("secret = %x, was %x, %v", after, before, err)
+	}
+	if a := lastAudit(t, st); a.Action != "server_secret_rotated_by_operator" {
+		t.Errorf("audit = %+v", a)
+	}
+	if !strings.Contains(out.String(), "replaced") {
+		t.Errorf("out = %q", out.String())
 	}
 }

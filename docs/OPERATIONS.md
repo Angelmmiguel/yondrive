@@ -165,6 +165,11 @@ docker exec yondrive /yondrive backup /backups/$(date +%F)
 - In end-to-end mode a backup is ciphertext, and can go anywhere without trusting
   the destination. In mode `none` it holds your files as they are: encrypt it,
   or keep it as safe as the server.
+- A backup leaves out the server secret, which signs public link tokens and
+  sign-ins in progress. A server restored from it makes a new one, so readers
+  of public links open them again. If the data directory itself, or a backup
+  from before 1.0.0, has been copied by someone else, run `admin rotate-secret`
+  (below).
 
 Schedule it with cron or Unraid's User Scripts, keep several, and delete old
 ones as whole directories.
@@ -290,6 +295,7 @@ docker start yondrive
 | `admin reset-totp <user>` | Turns off a user's TOTP and deletes their recovery codes, for someone who lost both. They sign in with their passphrase alone and can enrol again |
 | `admin promote <user>` | Makes a user an enabled admin |
 | `admin password-reset <user>` | Mode `none` only: prints a one-time reset link, valid 24 hours |
+| `admin rotate-secret` | Replaces the server secret. Run it when a copy of the database has left your hands: the data directory itself, or a backup taken before 1.0.0. Readers of public links open them again; sign-ins in progress start over. Accounts, sessions and links are untouched |
 
 Commands that work beside the running server: `backup`, `migrate --check`,
 `version`, `assets` and `assets check`.

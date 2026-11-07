@@ -91,7 +91,9 @@ published, so everything below is new.
   trail.
 - `yondrive backup` takes a consistent snapshot beside the running server;
   `yondrive restore` copies one into a new data directory and never over an
-  existing one. A drill in the test suite backs up a live server in each mode,
+  existing one. Backups leave out the server secret that signs link tokens, and
+  `yondrive admin rotate-secret` replaces it after a copy of the data directory
+  has left your hands. A drill in the test suite backs up a live server in each mode,
   restores it and checks sign-in, files, versions, notes, shares, links, tokens
   and, in the browser, the canary.
 - Schema migrations run on start; `yondrive migrate --check` reports them

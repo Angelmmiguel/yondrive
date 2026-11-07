@@ -86,6 +86,9 @@ usage:
   yondrive admin password-reset [--data dir] <username>
                      print a one-time reset link, in mode none only, with the
                      server stopped
+  yondrive admin rotate-secret [--data dir]
+                     replace the server secret, after a copy of the database
+                     left your hands, with the server stopped
   yondrive version   print the version, the commit and the web app's hash
   yondrive assets    print the SHA-256 of every file of the embedded web app
   yondrive assets check [--manifest file] <url>

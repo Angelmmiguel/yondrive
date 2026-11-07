@@ -360,6 +360,20 @@ func (s *Store) ServerSecret(ctx context.Context) ([]byte, error) {
 	return hex.DecodeString(value)
 }
 
+// RotateServerSecret replaces the server secret with a new one. Every link token
+// and sign-in in flight stops working, and readers of a link open it again.
+func (s *Store) RotateServerSecret(ctx context.Context) error {
+	var b [serverSecretLen]byte
+	_, _ = rand.Read(b[:])
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		return putSetting(ctx, tx, keyServerSecret, hex.EncodeToString(b[:]))
+	})
+	if err != nil {
+		return fmt.Errorf("store: rotate server secret: %w", err)
+	}
+	return nil
+}
+
 func putSetting(ctx context.Context, tx *sql.Tx, key, value string) error {
 	_, err := tx.ExecContext(ctx,
 		"INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",

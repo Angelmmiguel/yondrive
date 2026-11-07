@@ -61,6 +61,10 @@ func RestoreDatabase(ctx context.Context, backupDir, dataDir string) error {
 	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", tmp); err != nil {
 		return fmt.Errorf("store: copy database: %w", err)
 	}
+	// A backup taken before backups left the secret out still has it.
+	if err := forgetServerSecret(ctx, tmp); err != nil {
+		return err
+	}
 	f, err := os.OpenFile(tmp, os.O_RDWR, 0)
 	if err != nil {
 		return fmt.Errorf("store: open restored database: %w", err)
