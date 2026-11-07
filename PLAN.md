@@ -411,6 +411,7 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 | `apapsch/go-jsonmerge` | Linked through `oapi-codegen/runtime` | MIT |
 | Geist, Geist Mono, Source Serif 4 | Fonts | OFL-1.1 |
 | `oapi-codegen`, `openapi-typescript` | Code generation at build time | Apache-2.0, MIT |
+| `@axe-core/playwright`, `axe-core` | Accessibility checks in the browser tests; development only, never shipped | MPL-2.0 |
 
 ## 6. Documents and spreadsheets
 
