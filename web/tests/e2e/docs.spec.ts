@@ -94,15 +94,26 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await reloadHome(page, server);
 			await upload(page, await box.add(`slow-${mode}.docx`, await fixture('docs/sample.docx')));
 			await openDoc(page, `slow-${mode}.docx`);
+			// The first commit is held until the second edit is in, then the save ends well
+			// before that edit's own pause is over.
 			const commit = '**/api/v1/uploads/*/commit';
 			let held = 0;
+			let arrived = () => {};
+			let release = () => {};
+			const arrival = new Promise<void>((r) => (arrived = r));
+			const released = new Promise<void>((r) => (release = r));
 			await page.route(commit, async (route) => {
-				if (held++ === 0) await new Promise((r) => setTimeout(r, 4000));
+				if (held++ === 0) {
+					arrived();
+					await released;
+				}
 				await route.continue();
 			});
 			await typeAfter(page, 'for more.', ' During one.');
-			await expect(saveStatus(page)).toHaveText('Saving…', { timeout: 30_000 });
+			await arrival;
+			await expect(saveStatus(page)).toHaveText('Saving…');
 			await typeAfter(page, 'During one.', ' During two.');
+			release();
 			await expect(saveStatus(page)).toHaveText('Saved', { timeout: 30_000 });
 			await page.unroute(commit);
 			expect(held).toBe(2);
