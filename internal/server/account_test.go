@@ -500,7 +500,7 @@ func TestRegisterWithAnInvite(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			e := configured(t, mode, server.Config{})
 			admin := e.login("root")
-			resp := admin.call(http.MethodPost, invitesPath, obj{"email": "A@b.example", "role": "admin", "quota_bytes": 77, "expires_in_seconds": 3600})
+			resp := admin.call(http.MethodPost, invitesPath, obj{"email": "A@b.example", "role": "admin", "quota_bytes": 77, "expires_in_seconds": 3600, "current_auth_key": b64(key("root"))})
 			resp.wantStatus(t, http.StatusCreated)
 			var inv struct {
 				Token  string `json:"token"`
@@ -663,6 +663,26 @@ func TestInviteAdminRoutes(t *testing.T) {
 	if !e.audited("invite_revoked") {
 		t.Error("no audit row")
 	}
+}
+
+func TestAnAdminInviteNeedsTheAuthKey(t *testing.T) {
+	e := configured(t, "none", server.Config{})
+	root := e.login("root")
+	root.call(http.MethodPost, invitesPath, obj{"role": "admin"}).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	root.call(http.MethodPost, invitesPath, obj{"role": "admin", "current_auth_key": b64(key("wrong"))}).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	if list := root.call(http.MethodGet, invitesPath, nil); string(bytes.TrimSpace(list.body)) != "[]" {
+		t.Errorf("a refused invite was stored: %s", list.body)
+	}
+	root.call(http.MethodPost, invitesPath, obj{"role": "user"}).wantStatus(t, http.StatusCreated)
+	root.call(http.MethodPost, invitesPath, obj{}).wantStatus(t, http.StatusCreated)
+	root.call(http.MethodPost, invitesPath, obj{"role": "admin", "current_auth_key": b64(key("root"))}).wantStatus(t, http.StatusCreated)
+}
+
+func TestAdminInviteGuessesAreRateLimited(t *testing.T) {
+	e := configured(t, "none", server.Config{LoginAttempts: 2})
+	root := e.loginKey("root", key("root"))
+	root.call(http.MethodPost, invitesPath, obj{"role": "admin"}).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	root.call(http.MethodPost, invitesPath, obj{"role": "admin"}).wantError(t, http.StatusTooManyRequests, "rate_limited")
 }
 
 func TestAdminRoutesRefuseOrdinaryUsers(t *testing.T) {

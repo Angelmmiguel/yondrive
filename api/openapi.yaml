@@ -495,6 +495,10 @@ paths:
       operationId: createInvite
       tags: [admin]
       summary: Create a one-time invite
+      description: |
+        An invite with the `admin` role needs the admin's current auth key: a
+        stolen admin session must not be able to mint another admin that
+        outlives it.
       requestBody:
         required: true
         content:
@@ -583,8 +587,16 @@ paths:
       description: |
         `none` mode only, since no key depends on the password. In `e2e` mode it
         answers `wrong_mode`: only the user's recovery key can recover an account.
+        Needs the admin's current auth key: a stolen admin session must not be
+        able to take over an account.
       parameters:
         - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentCredential"
       responses:
         "201":
           description: The link, which replaces any earlier one. Shown only here.
@@ -995,6 +1007,10 @@ components:
     CreateInviteRequest:
       type: object
       properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key. Required when `role` is `admin`.
         email:
           type: string
           description: Becomes the new user's address.

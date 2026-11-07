@@ -21,6 +21,8 @@ const (
 	resetPath    = "/api/v1/auth/password-reset"
 )
 
+func rootKey() obj { return obj{"current_auth_key": b64(key("root"))} }
+
 func TestAdminRoutesNeedAnAdmin(t *testing.T) {
 	e := configured(t, "none", server.Config{})
 	root := e.login("root")
@@ -33,7 +35,7 @@ func TestAdminRoutesNeedAnAdmin(t *testing.T) {
 		{http.MethodGet, usersPath, nil},
 		{http.MethodPatch, usersPath + "/" + id, obj{"disabled": true}},
 		{http.MethodDelete, usersPath + "/" + id, nil},
-		{http.MethodPost, usersPath + "/" + id + "/password-reset", nil},
+		{http.MethodPost, usersPath + "/" + id + "/password-reset", rootKey()},
 		{http.MethodGet, settingsPath, nil},
 		{http.MethodPatch, settingsPath, obj{"name": "x"}},
 	} {
@@ -136,7 +138,7 @@ func TestAnAdminCannotRemoveThemselves(t *testing.T) {
 func TestTwoAdminsCannotDisableEachOther(t *testing.T) {
 	e := configured(t, "none", server.Config{})
 	root := e.login("root")
-	resp := root.call(http.MethodPost, invitesPath, obj{"role": "admin"})
+	resp := root.call(http.MethodPost, invitesPath, obj{"role": "admin", "current_auth_key": b64(key("root"))})
 	var inv struct {
 		Token string `json:"token"`
 	}
@@ -187,8 +189,8 @@ func TestPasswordReset(t *testing.T) {
 	alice := e.login("alice")
 	alice.call(http.MethodPut, sessionKey, obj{"key": b64(fill(1, 32))}).wantStatus(t, http.StatusNoContent)
 
-	root.call(http.MethodPost, usersPath+"/nope/password-reset", nil).wantError(t, http.StatusNotFound, "not_found")
-	resp := root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", nil)
+	root.call(http.MethodPost, usersPath+"/nope/password-reset", rootKey()).wantError(t, http.StatusNotFound, "not_found")
+	resp := root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", rootKey())
 	resp.wantStatus(t, http.StatusCreated)
 	var issued struct {
 		Token     string    `json:"token"`
@@ -228,11 +230,43 @@ func TestPasswordReset(t *testing.T) {
 	e.call(http.MethodPost, resetPath, body(issued.Token, key("again"))).wantError(t, http.StatusForbidden, "reset_invalid")
 }
 
+func TestPasswordResetNeedsTheAdminsAuthKey(t *testing.T) {
+	e := configured(t, "none", server.Config{})
+	root := e.login("root")
+	id := e.register(root, "alice", "none")
+	path := usersPath + "/" + id + "/password-reset"
+
+	resp := root.call(http.MethodPost, path, rootKey())
+	resp.wantStatus(t, http.StatusCreated)
+	var issued struct {
+		Token string `json:"token"`
+	}
+	resp.decode(t, &issued)
+
+	root.call(http.MethodPost, path, nil).wantError(t, http.StatusBadRequest, "bad_request")
+	root.call(http.MethodPost, path, obj{}).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	root.call(http.MethodPost, path, obj{"current_auth_key": b64(key("alice"))}).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	if !e.audited("credential_rejected") {
+		t.Error("no audit row")
+	}
+	// A refused call leaves the earlier link in force.
+	e.call(http.MethodPost, resetPath, obj{"token": issued.Token, "auth_key": b64(key("new")), "kdf": kdf(5)}).wantStatus(t, http.StatusNoContent)
+
+	tokenResp := root.call(http.MethodPost, tokensPath, obj{"name": "phone", "current_auth_key": b64(key("root"))})
+	tokenResp.wantStatus(t, http.StatusCreated)
+	var created struct {
+		Secret string `json:"secret"`
+	}
+	tokenResp.decode(t, &created)
+	e.call(http.MethodPost, path, obj{}, bearer(created.Secret)...).wantError(t, http.StatusUnauthorized, "wrong_credential")
+	e.call(http.MethodPost, path, rootKey(), bearer(created.Secret)...).wantStatus(t, http.StatusCreated)
+}
+
 func TestPasswordResetExpires(t *testing.T) {
 	e := configured(t, "none", server.Config{})
 	root := e.login("root")
 	id := e.register(root, "alice", "none")
-	resp := root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", nil)
+	resp := root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", rootKey())
 	var issued struct {
 		Token string `json:"token"`
 	}
@@ -245,7 +279,7 @@ func TestPasswordResetIsRefusedInE2EMode(t *testing.T) {
 	e := configured(t, "e2e", server.Config{})
 	root := e.login("root")
 	id := e.register(root, "alice", "e2e")
-	root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", nil).wantError(t, http.StatusConflict, "wrong_mode")
+	root.call(http.MethodPost, usersPath+"/"+id+"/password-reset", rootKey()).wantError(t, http.StatusConflict, "wrong_mode")
 	e.call(http.MethodPost, resetPath, obj{"token": "x", "auth_key": b64(key("new")), "kdf": kdf(5)}).wantError(t, http.StatusConflict, "wrong_mode")
 	// Even with a row planted in the table, the route will not use it.
 	if err := e.st.CreatePasswordReset(ctx, auth.HashToken("planted"), id, e.now().Add(time.Hour)); err != nil {

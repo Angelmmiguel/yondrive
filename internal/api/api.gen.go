@@ -137,6 +137,9 @@ type ConfirmTOTPRequest struct {
 
 // CreateInviteRequest defines model for CreateInviteRequest.
 type CreateInviteRequest struct {
+	// CurrentAuthKey Either current auth key. Required when `role` is `admin`.
+	CurrentAuthKey *[]byte `json:"current_auth_key,omitempty"`
+
 	// Email Becomes the new user's address.
 	Email *string `json:"email,omitempty"`
 
@@ -526,6 +529,9 @@ type UpdateSettingsJSONRequestBody = UpdateSettingsRequest
 
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UpdateUserRequest
+
+// CreatePasswordResetJSONRequestBody defines body for CreatePasswordReset for application/json ContentType.
+type CreatePasswordResetJSONRequestBody = CurrentCredential
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
@@ -1691,7 +1697,8 @@ func (response UpdateUserdefaultJSONResponse) VisitUpdateUserResponse(w http.Res
 }
 
 type CreatePasswordResetRequestObject struct {
-	Id ID `json:"id"`
+	Id   ID `json:"id"`
+	Body *CreatePasswordResetJSONRequestBody
 }
 
 type CreatePasswordResetResponseObject interface {
@@ -2901,6 +2908,13 @@ func (sh *strictHandler) CreatePasswordReset(w http.ResponseWriter, r *http.Requ
 	var request CreatePasswordResetRequestObject
 
 	request.Id = id
+
+	var body CreatePasswordResetJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.CreatePasswordReset(ctx, request.(CreatePasswordResetRequestObject))

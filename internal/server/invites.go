@@ -23,7 +23,8 @@ const (
 	maxInviteTTL     = 90 * 24 * time.Hour
 )
 
-// CreateInvite issues a one-time invite. Only the hash of its token is kept.
+// CreateInvite issues a one-time invite. Only the hash of its token is kept. A
+// session alone is not enough to mint another admin, who would outlive it.
 func (s *Server) CreateInvite(ctx context.Context, req oapi.CreateInviteRequestObject) (oapi.CreateInviteResponseObject, error) {
 	ttl := defaultInviteTTL
 	if req.Body.ExpiresInSeconds != nil {
@@ -47,6 +48,17 @@ func (s *Server) CreateInvite(ctx context.Context, req oapi.CreateInviteRequestO
 		email = strings.TrimSpace(*req.Body.Email)
 		if !validEmail(email) {
 			return nil, badRequest(codeInvalidEmail)
+		}
+	}
+	if role == oapi.Admin {
+		s.accountMu.Lock()
+		defer s.accountMu.Unlock()
+		var current []byte
+		if req.Body.CurrentAuthKey != nil {
+			current = *req.Body.CurrentAuthKey
+		}
+		if _, err := s.verifyCurrentKey(ctx, current); err != nil {
+			return nil, err
 		}
 	}
 	settings, err := s.store.Settings(ctx)

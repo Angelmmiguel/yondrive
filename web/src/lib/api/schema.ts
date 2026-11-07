@@ -427,7 +427,12 @@ export interface paths {
         /** List invites */
         get: operations["listInvites"];
         put?: never;
-        /** Create a one-time invite */
+        /**
+         * Create a one-time invite
+         * @description An invite with the `admin` role needs the admin's current auth key: a
+         *     stolen admin session must not be able to mint another admin that
+         *     outlives it.
+         */
         post: operations["createInvite"];
         delete?: never;
         options?: never;
@@ -507,6 +512,8 @@ export interface paths {
          * Issue a one-time password reset link
          * @description `none` mode only, since no key depends on the password. In `e2e` mode it
          *     answers `wrong_mode`: only the user's recovery key can recover an account.
+         *     Needs the admin's current auth key: a stolen admin session must not be
+         *     able to take over an account.
          */
         post: operations["createPasswordReset"];
         delete?: never;
@@ -808,6 +815,11 @@ export interface components {
             used: boolean;
         };
         CreateInviteRequest: {
+            /**
+             * Format: byte
+             * @description Either current auth key. Required when `role` is `admin`.
+             */
+            current_auth_key?: string;
             /** @description Becomes the new user's address. */
             email?: string;
             role?: components["schemas"]["Role"];
@@ -1596,7 +1608,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurrentCredential"];
+            };
+        };
         responses: {
             /** @description The link, which replaces any earlier one. Shown only here. */
             201: {

@@ -125,10 +125,16 @@ func notFound(err error) error {
 }
 
 // CreatePasswordReset issues a reset link. It is refused in end-to-end mode,
-// where a new password would open nothing: the keys depend on the old one.
+// where a new password would open nothing: the keys depend on the old one. A
+// session alone is not enough, since the link takes over the account.
 func (s *Server) CreatePasswordReset(ctx context.Context, req oapi.CreatePasswordResetRequestObject) (oapi.CreatePasswordResetResponseObject, error) {
 	if *s.mode.Load() != oapi.None {
 		return nil, fail(http.StatusConflict, codeWrongMode)
+	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	if _, err := s.verifyCurrentKey(ctx, req.Body.CurrentAuthKey); err != nil {
+		return nil, err
 	}
 	if _, err := s.store.UserByID(ctx, req.Id); err != nil {
 		return nil, notFound(err)

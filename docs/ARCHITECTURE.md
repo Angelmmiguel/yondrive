@@ -82,9 +82,10 @@ GET    /users/{id}/keys                 public keys
 GET    /admin/users
 PATCH  /admin/users/{id}                disable, enable, quota
 DELETE /admin/users/{id}
-POST   /admin/users/{id}/password-reset none mode only
+POST   /admin/users/{id}/password-reset none mode, current auth key
 GET    /admin/invites
-POST   /admin/invites                   -> token and link, once
+POST   /admin/invites                   -> token and link, once; admin role needs
+                                        the current auth key
 DELETE /admin/invites/{id}
 GET    /admin/settings
 PATCH  /admin/settings                  everything but the mode
@@ -104,7 +105,7 @@ header cannot reach the cookie past the check.
 
 **Rate limits**, fixed windows per client address, in memory: 10 a minute by default
 on everything that checks a credential (login, registration, rekey, password reset,
-minting a token, enrolling and disabling TOTP) and six times that on the KDF route.
+minting a token, enrolling and disabling TOTP, an admin invite, issuing a reset) and six times that on the KDF route.
 Wrong setup tokens count, right ones do not. Guesses at a second factor are also
 limited per user, since they come only with the right auth key and no stranger can
 use that to lock anyone out. The address is the connection's peer, or the last
@@ -196,3 +197,7 @@ auth key, so that a stolen session cannot outlive itself.
 
 **Admins.** An admin cannot disable or delete themselves, so a server always has one who
 can sign in. Reading a user's blobs is not among the things an admin can do through the API.
+Two actions need the admin's current auth key as well as a session, because a stolen
+admin session could otherwise keep or widen its reach: an invite with the `admin` role,
+which mints an admin that outlives the session, and a password reset link, which takes
+over an account. Ordinary invites do not.
