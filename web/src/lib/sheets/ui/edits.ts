@@ -45,15 +45,28 @@ export interface Outcome {
 
 const LAYOUT = new Set<Op['t']>(['rows', 'cols', 'merge', 'unmerge', 'width', 'height', 'frozen']);
 
-/** Runs of equal size over a span, from a sheet's column or row sizes. */
-function sizeRuns(
+/**
+ * Runs of equal size over a span of a sheet's rows or columns, as the sheet
+ * sets them. One pass over the sizes, however many rows the file lists.
+ */
+export function sizeRuns(
+	meta: Pick<SheetMeta, 'rowInfo' | 'colInfo'>,
+	axis: 'width' | 'height',
 	from: number,
-	to: number,
-	sizeAt: (i: number) => number | undefined
+	to: number
 ): { from: number; to: number; size: number | undefined }[] {
+	const set = new Map<number, number | undefined>();
+	if (axis === 'height') {
+		for (const [r, i] of meta.rowInfo)
+			if (r >= from && r <= to && !set.has(r)) set.set(r, i.height);
+	} else {
+		for (const c of meta.colInfo)
+			for (let i = Math.max(c.min, from); i <= Math.min(c.max, to); i++)
+				if (!set.has(i)) set.set(i, c.width);
+	}
 	const out: { from: number; to: number; size: number | undefined }[] = [];
 	for (let i = from; i <= to; i++) {
-		const s = sizeAt(i);
+		const s = set.get(i);
 		const last = out[out.length - 1];
 		if (last && last.size === s && last.to === i - 1) last.to = i;
 		else out.push({ from: i, to: i, size: s });
@@ -291,13 +304,7 @@ export class SheetEditor {
 						: m.left >= at && m.right < at + count;
 					if (inside) undo.push({ t: 'merge', sheet, area: m });
 				}
-				const sizes = rows
-					? sizeRuns(at, at + count - 1, (i) => meta.rowInfo.find(([r]) => r === i)?.[1].height)
-					: sizeRuns(
-							at,
-							at + count - 1,
-							(i) => meta.colInfo.find((c) => i >= c.min && i <= c.max)?.width
-						);
+				const sizes = sizeRuns(meta, rows ? 'height' : 'width', at, at + count - 1);
 				for (const s of sizes)
 					if (s.size !== undefined) undo.push({ t: rows ? 'height' : 'width', sheet, ...s });
 				formulas = new Map();
@@ -377,11 +384,7 @@ export class SheetEditor {
 		return this.#step('Resize', sheet, area, [{ t: axis, sheet, from, to, size }], async () => {
 			if (to - from > 10_000) return null;
 			const meta = await this.#meta(sheet);
-			const runs =
-				axis === 'width'
-					? sizeRuns(from, to, (i) => meta.colInfo.find((c) => i >= c.min && i <= c.max)?.width)
-					: sizeRuns(from, to, (i) => meta.rowInfo.find(([r]) => r === i)?.[1].height);
-			return runs.map((r) => ({ t: axis, sheet, ...r }));
+			return sizeRuns(meta, axis, from, to).map((r) => ({ t: axis, sheet, ...r }));
 		});
 	}
 

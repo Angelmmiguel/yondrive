@@ -149,20 +149,26 @@
 	);
 	const colStyles = $derived(meta.colInfo.filter((c) => c.style !== undefined));
 
-	const rowAxis = $derived(
+	// Built from the file's sizes only; a drag lays its one size over them on each move.
+	const baseRowAxis = $derived(
 		new Axis(
 			Math.round(rowPx(meta.defaultRowHeight) * z),
 			shownRows,
-			rowSizes(meta.rowInfo, z, hiddenRows, resizing?.axis === 'height' ? resizing : undefined)
+			rowSizes(meta.rowInfo, z, hiddenRows)
 		)
 	);
-
-	const colAxis = $derived(
+	const baseColAxis = $derived(
 		new Axis(
 			Math.round(colPx(meta.defaultColWidth) * z),
 			shownCols,
-			colSizes(meta.colInfo, z, shownCols, resizing?.axis === 'width' ? resizing : undefined)
+			colSizes(meta.colInfo, z, shownCols)
 		)
+	);
+	const rowAxis = $derived(
+		resizing?.axis === 'height' ? baseRowAxis.withSize(resizing.index, resizing.px) : baseRowAxis
+	);
+	const colAxis = $derived(
+		resizing?.axis === 'width' ? baseColAxis.withSize(resizing.index, resizing.px) : baseColAxis
 	);
 
 	const fr = $derived(Math.min(meta.frozen?.rows ?? 0, shownRows));

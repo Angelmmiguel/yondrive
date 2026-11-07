@@ -18,10 +18,12 @@ export class Axis {
 	readonly size: number;
 	readonly count: number;
 	/** Indices whose size differs, ascending. */
-	readonly #at: number[];
-	readonly #sizes: number[];
+	#at: number[];
+	#sizes: number[];
 	/** Sum of (size - default) for the overrides before each one. */
-	readonly #before: number[];
+	#before: number[];
+	/** One index at another size, laid over the rest, as while it is dragged. */
+	#over: { index: number; size: number; delta: number } | null = null;
 
 	/** `sizes` maps an index to its size where it is not `size`; 0 hides it. */
 	constructor(size: number, count: number, sizes: Map<number, number>) {
@@ -50,15 +52,33 @@ export class Axis {
 		return lo;
 	}
 
-	sizeOf(i: number): number {
+	/**
+	 * This axis with index `i` at `size`: what a drag shows on every move, so it
+	 * shares the sorted sizes rather than sorting them again.
+	 */
+	withSize(i: number, size: number): Axis {
+		const a = new Axis(this.size, this.count, new Map());
+		a.#at = this.#at;
+		a.#sizes = this.#sizes;
+		a.#before = this.#before;
+		a.#over = { index: i, size, delta: size - this.#baseSize(i) };
+		return a;
+	}
+
+	#baseSize(i: number): number {
 		const k = this.#rank(i);
 		return this.#at[k] === i ? this.#sizes[k] : this.size;
+	}
+
+	sizeOf(i: number): number {
+		return this.#over?.index === i ? this.#over.size : this.#baseSize(i);
 	}
 
 	/** Where index `i` starts. */
 	offsetOf(i: number): number {
 		const n = Math.max(0, Math.min(i, this.count));
-		return n * this.size + this.#before[this.#rank(n)];
+		const over = this.#over !== null && n > this.#over.index ? this.#over.delta : 0;
+		return n * this.size + this.#before[this.#rank(n)] + over;
 	}
 
 	get total(): number {
@@ -101,8 +121,7 @@ export class Axis {
 export function rowSizes(
 	info: readonly [number, { height?: number; hidden?: true }][],
 	zoom: number,
-	hidden: Iterable<number>,
-	dragged?: { index: number; px: number }
+	hidden: Iterable<number>
 ): Map<number, number> {
 	const sizes = new Map<number, number>();
 	for (const [r, i] of info) {
@@ -110,15 +129,13 @@ export function rowSizes(
 		else if (i.height !== undefined) sizes.set(r, Math.round(rowPx(i.height) * zoom));
 	}
 	for (const r of hidden) sizes.set(r, 0);
-	if (dragged) sizes.set(dragged.index, dragged.px);
 	return sizes;
 }
 
 export function colSizes(
 	info: readonly { min: number; max: number; width?: number; hidden?: true }[],
 	zoom: number,
-	count: number,
-	dragged?: { index: number; px: number }
+	count: number
 ): Map<number, number> {
 	const sizes = new Map<number, number>();
 	for (const c of info) {
@@ -127,6 +144,5 @@ export function colSizes(
 			else if (c.width !== undefined) sizes.set(i, Math.round(colPx(c.width) * zoom));
 		}
 	}
-	if (dragged) sizes.set(dragged.index, dragged.px);
 	return sizes;
 }

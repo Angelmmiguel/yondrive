@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSheets } from '../client';
-import { SheetEditor } from './edits';
+import { SheetEditor, sizeRuns } from './edits';
 import { fullPatch, restoreOps, textOf } from './history';
 import { DEFAULT_STYLE } from '$lib/formats/workbook';
 import { err } from '$lib/formula/values';
@@ -134,5 +134,26 @@ describe('undo and redo through the worker', () => {
 		const saved = ed.save('csv', sheet);
 		await step;
 		expect(new TextDecoder().decode((await saved).bytes).trim()).toBe('42');
+	});
+});
+
+describe('the sizes a step puts back', () => {
+	it('reads them in one pass, however many rows the file sizes', () => {
+		const rowInfo: [number, { height?: number }][] = [];
+		for (let r = 0; r < 1_000_000; r++) rowInfo.push([r, { height: r < 5 ? 30 : 15 }]);
+		const colInfo = [
+			{ min: 0, max: 1, width: 12 },
+			{ min: 2, max: 16_383 }
+		];
+		const started = performance.now();
+		expect(sizeRuns({ rowInfo, colInfo }, 'height', 0, 9_999)).toEqual([
+			{ from: 0, to: 4, size: 30 },
+			{ from: 5, to: 9_999, size: 15 }
+		]);
+		expect(sizeRuns({ rowInfo, colInfo }, 'width', 1, 10_000)).toEqual([
+			{ from: 1, to: 1, size: 12 },
+			{ from: 2, to: 10_000, size: undefined }
+		]);
+		expect(performance.now() - started).toBeLessThan(2_000);
 	});
 });

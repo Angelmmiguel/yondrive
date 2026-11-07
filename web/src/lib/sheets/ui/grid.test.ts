@@ -42,6 +42,25 @@ describe('geometry', () => {
 		expect(a.nextShown(6, -1)).toBe(4);
 	});
 
+	it('lays a dragged size over the rest without building the axis again', () => {
+		const sizes = new Map<number, number>();
+		for (let i = 0; i < 1_000_000; i += 2) sizes.set(i, 30);
+		const base = new Axis(20, 1_000_000, sizes);
+		const started = performance.now();
+		let dragged = base;
+		for (let px = 0; px < 200; px++) dragged = base.withSize(7, px);
+		expect(performance.now() - started).toBeLessThan(200);
+		const fresh = new Axis(20, 1_000_000, new Map([...sizes, [7, 199]]));
+		for (const i of [0, 7, 8, 500_000, 1_000_000])
+			expect(dragged.offsetOf(i)).toBe(fresh.offsetOf(i));
+		expect(dragged.sizeOf(7)).toBe(199);
+		expect(dragged.indexAt(fresh.offsetOf(8) - 1)).toBe(7);
+		expect(dragged.total).toBe(fresh.total);
+		// Dragged shut, it reads as hidden; the base is untouched.
+		expect(base.withSize(4, 0).hidden(4)).toBe(true);
+		expect(base.sizeOf(7)).toBe(20);
+	});
+
 	it('converts Excel units', () => {
 		expect(colPx(8.43)).toBe(64);
 		expect(pxToChars(64)).toBeCloseTo(8.43, 1);
