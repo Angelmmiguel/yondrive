@@ -161,7 +161,8 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		listUsers: () => json<Profile[]>('GET', '/admin/users'),
 		updateUser: (userId: string, body: UpdateUserRequest) =>
 			json<Profile>('PATCH', `/admin/users/${id(userId)}`, { body }),
-		deleteUser: (userId: string) => empty('DELETE', `/admin/users/${id(userId)}`),
+		deleteUser: (userId: string, body: CurrentCredential) =>
+			empty('DELETE', `/admin/users/${id(userId)}`, { body }),
 		createPasswordReset: (userId: string, body: CurrentCredential) =>
 			json<CreatedPasswordReset>('POST', `/admin/users/${id(userId)}/password-reset`, { body }),
 		getSettings: () => json<ServerSettings>('GET', '/admin/settings'),

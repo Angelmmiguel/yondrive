@@ -336,10 +336,11 @@ auth key, so that a stolen session cannot outlive itself.
 
 **Admins.** An admin cannot disable or delete themselves, so a server always has one who
 can sign in. Reading a user's blobs is not among the things an admin can do through the API.
-Two actions need the admin's current auth key as well as a session, because a stolen
-admin session could otherwise keep or widen its reach: an invite with the `admin` role,
-which mints an admin that outlives the session, and a password reset link, which takes
-over an account. Ordinary invites do not.
+Three actions need the admin's current auth key as well as a session, because a stolen
+admin session could otherwise keep or widen its reach, or destroy what it has no right to: an
+invite with the `admin` role, which mints an admin that outlives the session, a password
+reset link, which takes over an account, and deleting a user, which removes their bytes at
+once, with none of the purge grace. Ordinary invites do not.
 
 ## Web app
 

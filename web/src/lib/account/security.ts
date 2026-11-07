@@ -1,7 +1,7 @@
 /**
  * The actions that a session alone must not be able to take: enrolling in TOTP,
- * turning it off, minting a device token, inviting another admin and issuing a
- * password reset link. Each proves the passphrase first.
+ * turning it off, minting a device token, inviting another admin, deleting a user
+ * and issuing a password reset link. Each proves the passphrase first.
  */
 import type {
 	CreatedInvite,
@@ -94,5 +94,14 @@ export function createPasswordResetLink(
 ): Promise<CreatedPasswordReset> {
 	return withCurrentKey(input.passphrase, deps, (key) =>
 		deps.api.createPasswordReset(input.userId, { current_auth_key: encodeBase64(key) })
+	);
+}
+
+export function deleteUserAccount(
+	input: { userId: string; passphrase: string },
+	deps: Deps = defaultDeps
+): Promise<void> {
+	return withCurrentKey(input.passphrase, deps, (key) =>
+		deps.api.deleteUser(input.userId, { current_auth_key: encodeBase64(key) })
 	);
 }

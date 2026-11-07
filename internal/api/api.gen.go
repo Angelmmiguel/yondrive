@@ -1066,6 +1066,9 @@ type CreateInviteJSONRequestBody = CreateInviteRequest
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = UpdateSettingsRequest
 
+// DeleteUserJSONRequestBody defines body for DeleteUser for application/json ContentType.
+type DeleteUserJSONRequestBody = CurrentCredential
+
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody = UpdateUserRequest
 
@@ -3270,7 +3273,8 @@ func (response ListUsersdefaultJSONResponse) VisitListUsersResponse(w http.Respo
 }
 
 type DeleteUserRequestObject struct {
-	Id ID `json:"id"`
+	Id   ID `json:"id"`
+	Body *DeleteUserJSONRequestBody
 }
 
 type DeleteUserResponseObject interface {
@@ -5731,6 +5735,13 @@ func (sh *strictHandler) DeleteUser(w http.ResponseWriter, r *http.Request, id I
 	var request DeleteUserRequestObject
 
 	request.Id = id
+
+	var body DeleteUserJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.DeleteUser(ctx, request.(DeleteUserRequestObject))

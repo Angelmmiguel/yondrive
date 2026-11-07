@@ -195,6 +195,9 @@ export function fakeServer(mode: Mode) {
 				link: 'http://x/invite#invite-token'
 			};
 		},
+		deleteUser: async (_userId, body) => {
+			checkCurrent(body.current_auth_key);
+		},
 		createPasswordReset: async (_userId, body) => {
 			checkCurrent(body.current_auth_key);
 			return { token: 'reset-token', link: 'http://x/reset#reset-token', expires_at: 'later' };

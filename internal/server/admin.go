@@ -105,9 +105,10 @@ func (s *Server) setDisabled(ctx context.Context, actor, target string, disabled
 	return nil
 }
 
-// DeleteUser removes a user and everything that hangs off the account.
+// DeleteUser removes a user and everything that hangs off the account. The bytes
+// go at once, without the purge grace, so a session alone is not enough.
 func (s *Server) DeleteUser(ctx context.Context, req oapi.DeleteUserRequestObject) (oapi.DeleteUserResponseObject, error) {
-	if err := s.deleteUser(ctx, req.Id); err != nil {
+	if err := s.deleteUser(ctx, req.Id, req.Body.CurrentAuthKey); err != nil {
 		return nil, err
 	}
 	// After accountMu: a large drive takes a while to unlink, and sign-ins go on.
@@ -115,9 +116,12 @@ func (s *Server) DeleteUser(ctx context.Context, req oapi.DeleteUserRequestObjec
 	return oapi.DeleteUser204Response{}, nil
 }
 
-func (s *Server) deleteUser(ctx context.Context, id string) error {
+func (s *Server) deleteUser(ctx context.Context, id string, currentAuthKey []byte) error {
 	s.accountMu.Lock()
 	defer s.accountMu.Unlock()
+	if _, err := s.verifyCurrentKey(ctx, currentAuthKey); err != nil {
+		return err
+	}
 	actor, err := s.checkModifiable(ctx, id)
 	if err != nil {
 		return err

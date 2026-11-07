@@ -35,7 +35,7 @@ func TestAdminRoutesNeedAnAdmin(t *testing.T) {
 	}{
 		{http.MethodGet, usersPath, nil},
 		{http.MethodPatch, usersPath + "/" + id, obj{"disabled": true}},
-		{http.MethodDelete, usersPath + "/" + id, nil},
+		{http.MethodDelete, usersPath + "/" + id, rootKey()},
 		{http.MethodPost, usersPath + "/" + id + "/password-reset", rootKey()},
 		{http.MethodGet, settingsPath, nil},
 		{http.MethodPatch, settingsPath, obj{"name": "x"}},
@@ -132,7 +132,7 @@ func TestAnAdminCannotRemoveThemselves(t *testing.T) {
 	root := e.login("root")
 	u, _ := e.st.UserByUsername(ctx, "root")
 	root.call(http.MethodPatch, usersPath+"/"+u.ID, obj{"disabled": true}).wantError(t, http.StatusConflict, "cannot_modify_self")
-	root.call(http.MethodDelete, usersPath+"/"+u.ID, nil).wantError(t, http.StatusConflict, "cannot_modify_self")
+	root.call(http.MethodDelete, usersPath+"/"+u.ID, rootKey()).wantError(t, http.StatusConflict, "cannot_modify_self")
 	root.call(http.MethodPatch, usersPath+"/"+u.ID, obj{"quota_bytes": 1}).wantStatus(t, http.StatusOK)
 }
 
@@ -167,7 +167,7 @@ func TestDeleteUser(t *testing.T) {
 	id := e.register(root, "alice", "none")
 	alice := e.login("alice")
 	alice.call(http.MethodPut, sessionKey, obj{"key": b64(fill(1, 32))}).wantStatus(t, http.StatusNoContent)
-	root.call(http.MethodDelete, usersPath+"/"+id, nil).wantStatus(t, http.StatusNoContent)
+	root.call(http.MethodDelete, usersPath+"/"+id, rootKey()).wantStatus(t, http.StatusNoContent)
 	alice.call(http.MethodGet, mePath, nil).wantError(t, http.StatusUnauthorized, "unauthorized")
 	if n := e.srv.SessionKeyCount(); n != 0 {
 		t.Errorf("%d keys survive", n)
@@ -175,7 +175,7 @@ func TestDeleteUser(t *testing.T) {
 	if _, err := e.st.UserByID(ctx, id); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("user survives: %v", err)
 	}
-	root.call(http.MethodDelete, usersPath+"/"+id, nil).wantError(t, http.StatusNotFound, "not_found")
+	root.call(http.MethodDelete, usersPath+"/"+id, rootKey()).wantError(t, http.StatusNotFound, "not_found")
 	if !e.audited("user_deleted") {
 		t.Error("no audit row")
 	}

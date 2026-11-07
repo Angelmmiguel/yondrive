@@ -573,9 +573,18 @@ paths:
       operationId: deleteUser
       tags: [admin]
       summary: Delete a user
-      description: Admins cannot delete themselves.
+      description: |
+        Admins cannot delete themselves. Removes the user's bytes at once, with no
+        purge grace, so it needs the admin's current auth key: a stolen admin
+        session must not be able to destroy an account.
       parameters:
         - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrentCredential"
       responses:
         "204":
           description: Deleted.

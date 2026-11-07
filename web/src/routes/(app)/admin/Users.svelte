@@ -1,9 +1,10 @@
 <!--
   Everyone on the server: disable, delete, quota and, where no key depends on the
-  password, a reset link, which asks for the administrator's passphrase.
+  password, a reset link. Deleting and resetting ask for the administrator's
+  passphrase.
 -->
 <script lang="ts">
-	import { createPasswordResetLink } from '$lib/account/security';
+	import { createPasswordResetLink, deleteUserAccount } from '$lib/account/security';
 	import { api } from '$lib/api/client';
 	import type { CreatedPasswordReset, Profile } from '$lib/api/types';
 	import { failure } from '$lib/app/failure';
@@ -89,11 +90,19 @@
 			quotaFor = null;
 		});
 
-	const confirmDelete = () =>
-		act(async () => {
-			if (deleting) await api.deleteUser(deleting.id);
-			deleting = null;
+	function confirmDelete(event: SubmitEvent) {
+		event.preventDefault();
+		void act(async () => {
+			if (deleting) await deleteUserAccount({ userId: deleting.id, passphrase });
+			closeDelete();
 		});
+	}
+
+	function closeDelete() {
+		deleting = null;
+		passphrase = '';
+		dialogError = null;
+	}
 
 	function issueReset(event: SubmitEvent) {
 		event.preventDefault();
@@ -168,13 +177,22 @@
 <Dialog
 	open={deleting !== null}
 	title="Delete {deleting?.username}?"
-	description="Their account goes for good. This cannot be undone."
-	onclose={() => (deleting = null)}
+	description="Their account and files go for good, at once. This cannot be undone."
+	onclose={closeDelete}
 >
 	{#if dialogError}<Banner tone="danger">{dialogError}</Banner>{/if}
+	<form id="delete-form" onsubmit={confirmDelete}>
+		<Field label="Your passphrase" hint="Confirms it is you deleting this account." required>
+			{#snippet children(field)}
+				<PasswordField {...field} bind:value={passphrase} autocomplete="current-password" />
+			{/snippet}
+		</Field>
+	</form>
 	{#snippet footer()}
-		<Button onclick={() => (deleting = null)}>Cancel</Button>
-		<Button variant="primary" {busy} onclick={confirmDelete}>Delete</Button>
+		<Button onclick={closeDelete}>Cancel</Button>
+		<Button type="submit" form="delete-form" variant="primary" {busy} disabled={passphrase === ''}>
+			{busy ? 'Checking…' : 'Delete'}
+		</Button>
 	{/snippet}
 </Dialog>
 

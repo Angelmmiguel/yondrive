@@ -17,6 +17,7 @@ import {
 	createDeviceToken,
 	createInvite,
 	createPasswordResetLink,
+	deleteUserAccount,
 	disableTotp,
 	enrolTotp
 } from './security';
@@ -139,5 +140,17 @@ describe('after a rekey whose response was lost', () => {
 		await confirmTotp(TOTP_CODE, deps);
 		await disableTotp({ passphrase: OTHER_PASSPHRASE, factor: { code: TOTP_CODE } }, deps);
 		expect(deps.session.account?.user.totp_enabled).toBe(false);
+	});
+});
+
+describe('deleting an account', () => {
+	it('needs the passphrase of the admin asking', async () => {
+		const { server, deps } = await setUp();
+		await expect(
+			deleteUserAccount({ userId: 'id-2', passphrase: 'not the passphrase' }, deps)
+		).rejects.toBeInstanceOf(WrongPassphraseError);
+
+		await deleteUserAccount({ userId: 'id-2', passphrase: PASSPHRASE }, deps);
+		expect(server.calls).toContain('deleteUser');
 	});
 });

@@ -49,7 +49,7 @@ const routes: [string, string, (api: Api) => Promise<unknown>, boolean][] = [
 	['DELETE', '/admin/invites/i1', (a) => a.deleteInvite('i1'), false],
 	['GET', '/admin/users', (a) => a.listUsers(), true],
 	['PATCH', '/admin/users/u1', (a) => a.updateUser('u1', body), true],
-	['DELETE', '/admin/users/u1', (a) => a.deleteUser('u1'), false],
+	['DELETE', '/admin/users/u1', (a) => a.deleteUser('u1', body), false],
 	['POST', '/admin/users/u1/password-reset', (a) => a.createPasswordReset('u1', body), true],
 	['GET', '/admin/settings', (a) => a.getSettings(), true],
 	['PATCH', '/admin/settings', (a) => a.updateSettings(body), true],

@@ -1525,7 +1525,7 @@ func TestDeletingAUserRemovesTheirFiles(t *testing.T) {
 	frames := alice.frames(10, 1)
 	v := alice.upload(file.ID, frames)
 	open := alice.startUpload(file.ID, frames)
-	admin.call(http.MethodDelete, api+"/admin/users/"+alice.id, nil).wantStatus(t, http.StatusNoContent)
+	admin.call(http.MethodDelete, api+"/admin/users/"+alice.id, rootKey()).wantStatus(t, http.StatusNoContent)
 	if exists(e.blobFile(v.BlobID)) || exists(e.uploadFile(open.ID)) {
 		t.Error("files outlived their owner")
 	}

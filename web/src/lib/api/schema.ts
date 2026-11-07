@@ -486,7 +486,9 @@ export interface paths {
         post?: never;
         /**
          * Delete a user
-         * @description Admins cannot delete themselves.
+         * @description Admins cannot delete themselves. Removes the user's bytes at once, with no
+         *     purge grace, so it needs the admin's current auth key: a stolen admin
+         *     session must not be able to destroy an account.
          */
         delete: operations["deleteUser"];
         options?: never;
@@ -2450,7 +2452,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CurrentCredential"];
+            };
+        };
         responses: {
             /** @description Deleted. */
             204: {
