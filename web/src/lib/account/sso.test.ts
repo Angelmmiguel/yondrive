@@ -24,7 +24,7 @@ import {
 	deleteUserAccount,
 	unlinkUserIdentity
 } from './security';
-import { lock, signIn, unlock } from './session';
+import { lock, resume, signIn, unlock } from './session';
 import {
 	continueWithInvite,
 	continueWithProvider,
@@ -33,7 +33,12 @@ import {
 	ssoErrorMessage,
 	takeReturn
 } from './sso';
-import { WrongCredentialsError, WrongPassphraseError, WrongRecoveryKeyError } from './errors';
+import {
+	LockedError,
+	WrongCredentialsError,
+	WrongPassphraseError,
+	WrongRecoveryKeyError
+} from './errors';
 
 const e2e = sealerFor(SUITE_E2E);
 
@@ -111,6 +116,24 @@ describe('a first sign-in with keys', () => {
 		expect(deps.session.status).toBe('locked');
 		await unlock(PASSPHRASE, deps);
 		expect(deps.session.status).toBe('unlocked');
+	});
+});
+
+describe('enrolment_required on an account that has keys', () => {
+	it('is a lock, and enrol refuses to replace the keys', async () => {
+		const { server, deps } = await enrolled();
+		const before = JSON.stringify(server.users.get('alice')?.keys);
+		const account = await server.api.getMe();
+		const flagged = testDeps(server, { session: new Session(), pin: memoryPin() });
+		await resume({ ...account, enrolment_required: true }, flagged);
+		expect(flagged.session.status).toBe('locked');
+		flagged.session.enrolling(flagged.session.sealer!, { ...account, enrolment_required: true });
+		server.calls.length = 0;
+		await expect(
+			enrol({ passphrase: OTHER_PASSPHRASE, recoveryKey: e2e.newRecoveryKey() }, flagged)
+		).rejects.toThrow(LockedError);
+		expect(server.calls).toEqual([]);
+		expect(JSON.stringify(server.users.get('alice')?.keys)).toBe(before);
 	});
 });
 

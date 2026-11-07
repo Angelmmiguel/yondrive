@@ -8,6 +8,7 @@ import { isApiError } from '$lib/api/types';
 import { encodeBase64 } from '$lib/crypto/encoding';
 import { normalizePassphrase } from '$lib/crypto/kdf';
 import { zeroIdentity } from '$lib/crypto/keys';
+import { accountHasWrappedKeys } from '$lib/crypto/sealer';
 import { zero } from '$lib/crypto/random';
 import { deriveKeys } from './credentials';
 import { defaultDeps, type Deps } from './deps';
@@ -99,6 +100,8 @@ export async function enrol(
 ): Promise<void> {
 	const { sealer, account } = deps.session;
 	if (sealer === null || account === null) throw new LockedError();
+	// Enrolling over keys that exist would replace them for good.
+	if (accountHasWrappedKeys(recordOf(account))) throw new LockedError();
 	normalizePassphrase(input.passphrase);
 	const kdf = deps.newKdfParams();
 	const { kek, authKey } = await deriveKeys(input.passphrase, kdf, deps);

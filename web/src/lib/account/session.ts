@@ -8,7 +8,7 @@ import type { Bytes } from '$lib/crypto/encoding';
 import { parseKdfParams } from '$lib/crypto/kdf';
 import { zero } from '$lib/crypto/random';
 import { SealError } from '$lib/crypto/aead';
-import type { Sealer, UserKeys } from '$lib/crypto/sealer';
+import { accountHasWrappedKeys, type Sealer, type UserKeys } from '$lib/crypto/sealer';
 import { deriveKeys } from './credentials';
 import { defaultDeps, type Deps } from './deps';
 import { WrongCredentialsError, WrongPassphraseError } from './errors';
@@ -119,7 +119,9 @@ export async function unlock(passphrase: string, deps: Deps = defaultDeps): Prom
 export async function resume(account: Account, deps: Deps = defaultDeps): Promise<void> {
 	const sealer = acceptMode(account.mode, recordOf(account), deps);
 	if (account.enrolment_required === true) {
-		deps.session.enrolling(sealer, account);
+		// Keys already made are never replaced: they are unlocked, not enrolled.
+		if (accountHasWrappedKeys(recordOf(account))) deps.session.locked(sealer, account);
+		else deps.session.enrolling(sealer, account);
 		return;
 	}
 	const master = await sealer.resumeSession(sessionKeyApi(deps));
