@@ -40,6 +40,22 @@
 			making = false;
 		}
 	}
+
+	/** A new, empty spreadsheet in My files, opened in the editor. */
+	async function newSheet() {
+		const core = drive.core;
+		if (core === null || root === null || making) return;
+		making = true;
+		try {
+			const { createSpreadsheet } = await import('$lib/sheets/ui/create');
+			const made = await drive.run(() =>
+				createSpreadsheet({ tree: core.tree, engine: core.engine }, root)
+			);
+			if (made) await goto(resolve(`/sheet/${made.id}`));
+		} finally {
+			making = false;
+		}
+	}
 </script>
 
 <svelte:head><title>Home · YonDrive</title></svelte:head>
@@ -51,6 +67,7 @@
 		onnewfolder={() => shell.newFolder()}
 		onupload={() => shell.uploadFiles()}
 		onnewdoc={newDoc}
+		onnewsheet={newSheet}
 	/>
 
 	{#if drive.status === 'failed'}

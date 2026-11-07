@@ -6,7 +6,7 @@
 import { LockedError } from '$lib/account/errors';
 import { registerDocumentText } from '$lib/docs/search-text';
 import { registerSheetText } from '$lib/sheets/search-text';
-import { formatOf } from '$lib/formats/document';
+import { editorFor, editorPath } from '$lib/drive/editors';
 import { viewerFor } from '$lib/drive/viewers/kinds';
 import { api } from '$lib/api/client';
 import { isApiError, type Storage } from '$lib/api/types';
@@ -454,19 +454,21 @@ export class DriveState {
 	}
 
 	/**
-	 * Shows a file: in the viewer if there is one for it, otherwise a document in
-	 * the editor. Plain text and Markdown have both, and `edit` takes them there.
+	 * Shows a file: in the viewer if there is one for it, otherwise in its editor.
+	 * Plain text, Markdown, CSV and TSV have both, and `edit` takes them there.
 	 */
 	open(node: DriveNode): void {
-		if (viewerFor(node) === null && formatOf(node.name) !== null) this.edit(node);
+		if (viewerFor(node) === null && editorFor(node.name) !== null) this.edit(node);
 		else this.viewing = node;
 	}
 
 	edit(node: DriveNode): void {
+		const kind = editorFor(node.name);
+		if (kind === null) return;
 		this.viewing = null;
 		// Loaded when needed, so that this module stays free of the router.
 		void Promise.all([import('$app/navigation'), import('$app/paths')]).then(([nav, paths]) =>
-			nav.goto(paths.resolve(`/doc/${node.id}`))
+			nav.goto(paths.resolve(editorPath(kind, node.id)))
 		);
 	}
 

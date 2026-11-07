@@ -5,7 +5,7 @@
 	import { drive } from '$lib/state/drive.svelte';
 	import { fileKindOf } from '../kinds';
 	import type { DriveNode } from '../tree';
-	import { formatOf } from '$lib/formats/document';
+	import { editorFor } from '../editors';
 	import { viewerFor } from '../viewers/kinds';
 
 	interface Props {
@@ -28,7 +28,7 @@
 	});
 
 	function open(node: DriveNode) {
-		if (viewerFor(node) !== null || formatOf(node.name) !== null) drive.open(node);
+		if (viewerFor(node) !== null || editorFor(node.name) !== null) drive.open(node);
 		else void drive.download(node);
 	}
 </script>

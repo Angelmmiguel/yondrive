@@ -1,4 +1,4 @@
-<!-- The row of things to make on Home. New sheet joins it with its editor. -->
+<!-- The row of things to make on Home. -->
 <script lang="ts">
 	import { Icon, type IconName } from '$lib/components';
 
@@ -6,16 +6,17 @@
 		onnewfolder: () => void;
 		onupload: () => void;
 		onnewdoc?: () => void;
+		onnewsheet?: () => void;
 	}
 
-	let { onnewfolder, onupload, onnewdoc }: Props = $props();
+	let { onnewfolder, onupload, onnewdoc, onnewsheet }: Props = $props();
 
 	const creators: {
 		label: string;
 		hint: string;
 		icon: IconName;
 		run: () => void;
-		doc?: boolean;
+		app?: 'doc' | 'sheet';
 	}[] = $derived([
 		...(onnewdoc
 			? [
@@ -24,7 +25,18 @@
 						hint: 'Write and format',
 						icon: 'doc' as const,
 						run: onnewdoc,
-						doc: true
+						app: 'doc' as const
+					}
+				]
+			: []),
+		...(onnewsheet
+			? [
+					{
+						label: 'New sheet',
+						hint: 'Numbers and formulas',
+						icon: 'sheet' as const,
+						run: onnewsheet,
+						app: 'sheet' as const
 					}
 				]
 			: []),
@@ -36,7 +48,9 @@
 <section class="row" aria-label="Create">
 	{#each creators as creator (creator.label)}
 		<button type="button" class="tile" onclick={creator.run}>
-			<span class="badge" class:doc={creator.doc}><Icon name={creator.icon} size={20} /></span>
+			<span class="badge" class:doc={creator.app === 'doc'} class:sheet={creator.app === 'sheet'}
+				><Icon name={creator.icon} size={20} /></span
+			>
 			<span class="text">
 				<span class="label">{creator.label}</span>
 				<span class="hint">{creator.hint}</span>
@@ -50,7 +64,7 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 		gap: 12px;
-		max-width: 640px;
+		max-width: 860px;
 	}
 
 	.tile {
@@ -91,6 +105,11 @@
 	.badge.doc {
 		background: var(--drive-soft);
 		color: var(--drive);
+	}
+
+	.badge.sheet {
+		background: var(--sheets-soft);
+		color: var(--sheets);
 	}
 
 	.text {

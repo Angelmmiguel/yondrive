@@ -26,11 +26,11 @@
 	import { fileKindOf } from '../kinds';
 	import type { KindFilter, SortKey } from '../sort';
 	import type { DriveNode } from '../tree';
-	import { formatOf } from '$lib/formats/document';
+	import { editorFor } from '../editors';
 	import { viewerFor } from '../viewers/kinds';
 
 	/** Whether a file opens in the app: in a viewer, or in the editor. */
-	const opensHere = (node: DriveNode) => viewerFor(node) !== null || formatOf(node.name) !== null;
+	const opensHere = (node: DriveNode) => viewerFor(node) !== null || editorFor(node.name) !== null;
 
 	interface Props {
 		nodes: readonly DriveNode[];
@@ -159,7 +159,7 @@
 		return [
 			...(file && opensHere(node) ? [{ id: 'open', label: 'Open', icon: 'eye' as const }] : []),
 			// Text that opens in the viewer can also be edited as a document.
-			...(file && canWrite(node) && viewerFor(node) !== null && formatOf(node.name) !== null
+			...(file && canWrite(node) && viewerFor(node) !== null && editorFor(node.name) !== null
 				? [{ id: 'edit', label: 'Edit', icon: 'pencil' as const }]
 				: []),
 			...(file ? [{ id: 'download', label: 'Download', icon: 'download' as const }] : []),

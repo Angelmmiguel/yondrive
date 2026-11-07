@@ -4,7 +4,7 @@
 	import { drive } from '$lib/state/drive.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { describeDriveError } from '../errors';
-	import { formatOf } from '$lib/formats/document';
+	import { editorFor } from '../editors';
 	import { canWrite } from '$lib/sharing/roles';
 	import { inferType } from '../kinds';
 	import { viewerFor } from '../viewers/kinds';
@@ -56,7 +56,7 @@
 		<ViewerStage file={node} {kind} {source} {describe} />
 		{#snippet footer()}
 			<span class="type">{inferType(node.name, node.type)}</span>
-			{#if formatOf(node.name) !== null && canWrite(node)}
+			{#if editorFor(node.name) !== null && canWrite(node)}
 				<Button icon="pencil" onclick={() => node && drive.edit(node)}>Edit</Button>
 			{/if}
 			<Button icon="download" onclick={() => node && drive.download(node)}>Download</Button>
