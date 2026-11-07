@@ -23,6 +23,7 @@
 	import RotationBar from '$lib/sharing/ui/RotationBar.svelte';
 	import SharingDialogs from '$lib/sharing/ui/SharingDialogs.svelte';
 	import DriveSidebar from '$lib/drive/ui/DriveSidebar.svelte';
+	import NotesSidebar from '$lib/notes/ui/NotesSidebar.svelte';
 	import StorageCard from '$lib/drive/ui/StorageCard.svelte';
 	import { uploadPanel } from '$lib/state/uploadPanel.svelte';
 	import UploadPanel from '$lib/drive/ui/UploadPanel.svelte';
@@ -38,7 +39,10 @@
 	let { children } = $props();
 
 	const path = $derived(page.url.pathname);
-	const fullScreen = $derived(path.startsWith('/doc/') || path.startsWith('/sheet/'));
+	const fullScreen = $derived(
+		path.startsWith('/doc/') || path.startsWith('/sheet/') || path.startsWith('/notes/')
+	);
+	const inNotes = $derived(path === '/notes');
 	const encrypted = $derived(session.sealer?.encrypted ?? true);
 	const username = $derived(session.account?.user.username ?? '');
 	const isAdmin = $derived(session.account?.user.role === 'admin');
@@ -113,7 +117,7 @@
 	const hasFiles = (event: DragEvent) => event.dataTransfer?.types.includes('Files') ?? false;
 
 	function dragover(event: DragEvent) {
-		if (!hasFiles(event) || fullScreen) return;
+		if (!hasFiles(event) || fullScreen || inNotes) return;
 		event.preventDefault();
 		dragging = true;
 	}
@@ -144,42 +148,50 @@
 			/>
 		{/snippet}
 		{#snippet sidebar()}
-			<Sidebar title="Drive" label="Drive">
-				<DriveSidebar
-					onnewfolder={() => actions.newFolder()}
-					onuploadfiles={actions.uploadFiles}
-					onuploadfolder={actions.uploadFolder}
-				/>
-				{#snippet footer()}
-					<StorageCard />
-					<div class="foot">
-						<NavItem
-							label="Settings"
-							icon="filter"
-							href={resolve('/settings')}
-							current={path === '/settings'}
-						/>
-						{#if isAdmin}
+			{#if inNotes}
+				<Sidebar title="Notes" label="Notes">
+					<NotesSidebar />
+				</Sidebar>
+			{:else}
+				<Sidebar title="Drive" label="Drive">
+					<DriveSidebar
+						onnewfolder={() => actions.newFolder()}
+						onuploadfiles={actions.uploadFiles}
+						onuploadfolder={actions.uploadFolder}
+					/>
+					{#snippet footer()}
+						<StorageCard />
+						<div class="foot">
 							<NavItem
-								label="Administration"
-								icon="shield"
-								href={resolve('/admin')}
-								current={path === '/admin'}
+								label="Settings"
+								icon="filter"
+								href={resolve('/settings')}
+								current={path === '/settings'}
 							/>
-						{/if}
-					</div>
-				{/snippet}
-			</Sidebar>
+							{#if isAdmin}
+								<NavItem
+									label="Administration"
+									icon="shield"
+									href={resolve('/admin')}
+									current={path === '/admin'}
+								/>
+							{/if}
+						</div>
+					{/snippet}
+				</Sidebar>
+			{/if}
 		{/snippet}
 		{#snippet top()}
 			<TopBar>
 				{#snippet leading()}
-					<SearchField
-						label="Search files, tags and contents"
-						placeholder="Search files, tags and contents…"
-						{shortcut}
-						onopen={(typed) => search.show(typed)}
-					/>
+					{#if !inNotes}
+						<SearchField
+							label="Search files, tags and contents"
+							placeholder="Search files, tags and contents…"
+							{shortcut}
+							onopen={(typed) => search.show(typed)}
+						/>
+					{/if}
 				{/snippet}
 				{#if !encrypted}
 					<span
@@ -190,7 +202,7 @@
 						<Icon name="lock-open" size={15} /> Not encrypted
 					</span>
 				{/if}
-				{#if drive.canAddHere}
+				{#if drive.canAddHere && !inNotes}
 					<Menu
 						label="Upload"
 						triggerLabel="Upload"

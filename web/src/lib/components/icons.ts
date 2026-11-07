@@ -94,7 +94,25 @@ export const ICONS = {
 	wrap: 'M4 6h16M4 12h13a3 3 0 0 1 0 6h-4M15 16l-2 2 2 2M4 18h6',
 	'sort-lines': 'M7 4v16M4 17l3 3 3-3M14 6h7M14 12h5M14 18h3',
 	funnel: 'M4 5h16l-6 8v6l-4-2v-4z',
-	function: 'M18 5H6l6 7-6 7h12'
+	function: 'M18 5H6l6 7-6 7h12',
+	// The Notes boards.
+	calendar: 'M5 6h14v14H5zM5 10h14M9 4v4M15 4v4',
+	pin: 'M9 4h6l-1 6 3 3H7l3-3zM12 13v7',
+	archive: 'M4 5h16v4H4zM5 9v10h14V9M10 13h4',
+	notebook:
+		'M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3',
+	alarm: 'M12 21a8 8 0 1 0 0-16a8 8 0 1 0 0 16M12 9v4l2 2M5 3L2 6M19 3l3 3',
+	attach:
+		'M20 11.5l-8 8a5 5 0 0 1-7-7l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.4-7.3',
+	focus: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+	template: 'M5 5h14v14H5zM5 9h14M9 5v4',
+	callout:
+		'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z',
+	heading: 'M6 4v16M18 4v16M6 12h12',
+	text: 'M5 6h14M12 6v13',
+	cards: 'M4 4h7v9H4zM13 4h7v5h-7zM4 15h7v5H4zM13 11h7v9h-7z',
+	split: 'M4 5h16v14H4zM9 5v14',
+	quote: 'M7 7h4v4H8v3M14 7h4v4h-3v3'
 } as const;
 
 export type IconName = keyof typeof ICONS;

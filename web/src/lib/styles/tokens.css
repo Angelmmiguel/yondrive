@@ -126,6 +126,12 @@
 	--primary-sub-d: #2a3570;
 	--primary-line-d: #6f84e6;
 	--gold-300: #f5b83d;
+	--notes-soft-2-l: #fdebb8;
+	--notes-soft-2-d: #45361a;
+	--notes-callout-l: #fff8e6;
+	--notes-callout-d: #241e11;
+	--notes-card-amber-l: #fffbef;
+	--notes-card-amber-d: #211c12;
 	--gold-700: #c98a12;
 
 	/* Semantic: surfaces. */
@@ -217,6 +223,20 @@
 	--sheets-soft: light-dark(var(--green-50), var(--green-900));
 	--notes: light-dark(var(--amber-600), var(--amber-300));
 	--notes-soft: light-dark(var(--amber-50), var(--amber-900));
+	--notes-soft-2: light-dark(var(--notes-soft-2-l), var(--notes-soft-2-d));
+	--notes-ink: light-dark(var(--amber-700), var(--amber-300));
+	--notes-line: light-dark(var(--amber-200), var(--amber-800));
+	--notes-pin: var(--amber-300);
+	--notes-callout: light-dark(var(--notes-callout-l), var(--notes-callout-d));
+	--notes-card-amber: light-dark(var(--notes-card-amber-l), var(--notes-card-amber-d));
+
+	/* Semantic: notebooks, each a colour of its own. */
+	--notebook-blue: light-dark(var(--blue-500), var(--blue-300));
+	--notebook-orange: var(--orange-500);
+	--notebook-green: var(--green-500);
+	--notebook-violet: light-dark(var(--violet-600), var(--violet-300));
+	--notebook-amber: light-dark(var(--amber-600), var(--amber-300));
+	--notebook-rose: var(--rose-500);
 
 	/* Semantic: kinds of file. */
 	--file-image: light-dark(var(--pink-600), var(--pink-300));
