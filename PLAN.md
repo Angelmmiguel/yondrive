@@ -1,6 +1,6 @@
 # YonDrive plan
 
-Status: **phases 0 to 7 are implemented; phase 8 (hardening and 1.0) is next.**
+Status: **1.0 is released (phases 0 to 8); phase 9 (file requests) is next, then phase 10 (comments).**
 
 This document covers what we build, the decisions that shape it, and the order
 of work. The [README](README.md) is the product description.
@@ -35,6 +35,7 @@ All made in review. No questions remain open.
 | D14 | Third-party code | Our own code for ZIP, XML, office formats and formulas. Small exceptions: **ProseMirror**, **pdf.js** and the crypto libraries. Their licences are checked in [section 5.10](#510-third-party-licences). |
 | D15 | Formats left out of v1 | **`.pages` and `.numbers`.** They can be stored, shared and downloaded like any file, but not opened in the editors. |
 | D16 | License | AGPL-3.0. |
+| D17 | After 1.0 | **File requests** (phase 9), then **comments** (phase 10). Emergency access is a later feature. |
 
 Smaller assumptions, which I will follow unless you object:
 
@@ -113,6 +114,8 @@ encryption modes, multi-user, TOTP, OIDC, admin, OpenAPI, container and Unraid t
 - Desktop sync client (the change journal is ready for it)
 - Passkey unlock through PRF (shown as an option in the design)
 
+**After 1.0:** file requests (phase 9) and comments on documents, sheets and notes (phase 10).
+
 **Not planned:**
 
 - Real-time co-editing
@@ -125,7 +128,16 @@ encryption modes, multi-user, TOTP, OIDC, admin, OpenAPI, container and Unraid t
 
 **Later:** presentations, `.pages` and `.numbers` import, moving a server between encryption modes through
 export and import, the Media app (timeline, albums, HEIC, places), extra note lock, voice notes, post-quantum
-hybrid key exchange (the format has a version field for this).
+hybrid key exchange (the format has a version field for this), and **emergency access**.
+
+**Emergency access** answers the case where a user of end-to-end mode loses both their passphrase and their
+recovery key. They name a trusted user on the same server and a waiting period. Their master key, or a key that
+opens their root, is sealed to the contact's X25519 key in advance, as grants are. The contact can ask for access.
+If the owner does not refuse within the waiting period, the server releases the sealed key: either read access to
+everything or the right to set a new passphrase, as the owner chose. The server enforces only the timing and
+cannot open anything itself. It is as strong as the server is honest about the waiting period and about notifying
+the owner, which must be said in the product. Open questions: whether a contact must be pinned before naming them,
+what changes on key rotation, and how the owner is told about a request while no tab is open.
 
 ## 5. Architecture
 
@@ -300,6 +312,9 @@ interface, which is the only place the modes differ.
   the wrapped key only to the right password.
 - **Expiry, download limits and revocation** are enforced by the server, and are therefore as strong as the server
   is honest.
+- **File request (phase 9).** An upload-only link to a folder. Anonymous uploaders encrypt to a key that only the
+  owner can open, and cannot list or read anything, including what they uploaded.
+- **Commenter role (phase 10).** Between viewer and editor: can read and comment, not edit.
 
 ### 5.5 Client-side features
 
@@ -661,6 +676,82 @@ a real 4 GB video, and throughput and memory on a phone, which need real devices
 
 **Exit: Release 1.0.**
 
+### Phase 9: File requests (M)
+
+An owner shares a link that lets anyone drop files into one of their folders without seeing what is there: an
+accountant sending documents, a client delivering assets, family sending photos.
+
+**Keys.** The uploader cannot wrap a node key under the folder's key, since that would let them read the folder.
+Instead:
+
+- Creating a request makes a fresh X25519 key pair for it. The public key goes in the URL fragment:
+  `https://host/r/<id>#<public key>`. The private key is sealed under the owner's master key and stored with the link.
+  The link itself vouches for the key, so a server that swaps keys is caught, as with any link.
+- For each file, the uploader's browser makes a node key, seals content and metadata under it as usual, and seals the
+  node key to the request's public key. Nothing the uploader holds can open anything else.
+- Uploads wait outside the tree as **incoming items** until the owner's client adopts them. Adopting one opens its
+  node key with the request's private key, wraps it under the folder, computes the name HMAC, and signs the manifest
+  as the owner. Content frames are not re-encrypted. Adoption runs when the owner opens the app, and shows a count.
+- Uploaded files are untrusted, as anything from another user is. Metadata records that the file arrived through a
+  request.
+- In no-encryption mode the same flow runs without keys: uploads still wait until they are adopted, so both modes keep
+  one shape.
+
+**Server.**
+
+- `links` gains a kind, `view` or `request`, with the request's limits: expiry, password, maximum file size, file
+  count and total bytes. The link's own limits are enforced on top of the owner's quota, which the uploads count
+  against.
+- Anonymous upload routes under the link token reuse resumable uploads and their checks, with stricter rate limits
+  per address. They return no listing and no existing ids.
+- The owner lists, adopts or deletes incoming items. Items not adopted within the link's lifetime plus the grace
+  period are purged.
+- The server sees the number of items, their sizes and times, and the uploader's address, as with any upload. An
+  optional uploader name and message are sealed with the file.
+
+**Client.** "Request files" in the share dialog of a folder the user owns, with the limits above. A public upload
+page with a drop zone, progress, resume, and a plain confirmation that keeps nothing visible afterwards. A
+notification and an incoming list for the owner, with adopt and delete.
+
+**Exit:** an anonymous visitor uploads to a password-protected request, the owner adopts the files, and the canary
+test confirms that names and contents never reach the server. A tamper test confirms that a swapped request key is
+refused. Uploads stop at each limit with a stable error code. **Release 1.1.**
+
+### Phase 10: Comments (L)
+
+Co-editing is out (D4), so comments are how people collaborate on a shared file. Threads are anchored to a range of
+text in a document or note, or to a cell in a sheet, and can be resolved.
+
+**Records.**
+
+- A comment is a record beside the file, never inside it, so `.docx`, `.xlsx` and other files keep their exact bytes.
+  Comments already in a file stay where they are, kept as today.
+- The body is sealed under a key derived from the node key (`yondrive/comment/v1`) and records the key generation,
+  as versions do, so rotation on revoke covers comments. It is signed by its author, and clients verify the author
+  against someone who holds at least commenter rights.
+- The anchor is a separate sealed field. For text it holds the quoted text, some text around it and its block; on
+  load the client finds the best match and shows unmatched comments as "text no longer found". For sheets it holds
+  the sheet and cell, which editors update when rows or columns move, signing the anchor themselves.
+- In no-encryption mode the same records hold readable JSON.
+
+**Server.**
+
+- A `comments` table: node, thread, author, times, a resolved flag, sealed body and anchor, signatures. Limits on
+  body size and on comments per file.
+- A new **commenter** role. Viewers read comments; commenters and editors write them. The author edits or deletes
+  their own; the file's owner deletes any; editors resolve.
+- Notifications per file for users with access, with ids only. Mentions are left for later, since a list of
+  mentioned users would be readable by the server.
+- The server learns who commented on which file, when, and how much: the same kind of metadata as versions.
+
+**Client.** A comments panel in the document, sheet and note editors and in the viewers, with threads, replies,
+resolve and reopen. Highlights in text and a corner mark on cells. Comments in search on the device. Public links
+and file requests do not show comments.
+
+**Exit:** two users comment on a shared document, sheet and note in both modes; an anchor survives edits to the text
+around it and rows inserted above a cell; a comment with a forged author is refused; the canary test covers comment
+bodies; saving a commented `.docx` or `.xlsx` leaves its bytes unchanged. **Release 1.2.**
+
 ## 9. Testing
 
 - **Go:** `go test -race` on every route and store operation; hardening tests for limits, ids and headers.
@@ -691,4 +782,5 @@ a real 4 GB video, and throughput and memory on a phone, which need real devices
 
 ## 11. What happens next
 
-Phase 0 starts with the flake and scaffolding, then the three spikes. Their findings are reviewed before Phase 1.
+1.0 is out. Phase 9 starts with the spec changes for request links and incoming items in `api/openapi.yaml` and the
+key flow in `docs/CRYPTO.md`, reviewed before any code. Phase 10 follows the same way.
