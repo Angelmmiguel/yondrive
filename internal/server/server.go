@@ -131,6 +131,8 @@ type Server struct {
 	linkPasswordLimiter *auth.RateLimiter
 	linkLimiter         *auth.RateLimiter
 	linkOpenLimiter     *auth.RateLimiter
+	// requestUploadLimiter counts the uploads an address starts through requests.
+	requestUploadLimiter *auth.RateLimiter
 	// linkTokenKey signs link tokens.
 	linkTokenKey []byte
 	keys         *auth.SessionKeys
@@ -207,24 +209,25 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		cfg:                 cfg,
-		log:                 cfg.Logger,
-		store:               st,
-		files:               files,
-		frames:              newFrameLocks(),
-		limiter:             auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		kdfLimiter:          auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		usernameLimiter:     auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		totpLimiter:         auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
-		lookupLimiter:       auth.NewRateLimiter(lookupAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		linkPasswordLimiter: auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		linkLimiter:         auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		linkOpenLimiter:     auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
-		linkTokenKey:        deriveLinkTokenKey(secret),
-		keys:                auth.NewSessionKeys(),
-		secret:              secret,
-		oidcHTTP:            oidc.NewHTTPClient(cfg.OIDCRoots),
-		oidcFlowKey:         deriveOIDCFlowKey(secret),
+		cfg:                  cfg,
+		log:                  cfg.Logger,
+		store:                st,
+		files:                files,
+		frames:               newFrameLocks(),
+		limiter:              auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		kdfLimiter:           auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		usernameLimiter:      auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		totpLimiter:          auth.NewRateLimiter(totpAttemptsPerWindow, cfg.LoginWindow, cfg.Now),
+		lookupLimiter:        auth.NewRateLimiter(lookupAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkPasswordLimiter:  auth.NewRateLimiter(cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkLimiter:          auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkOpenLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		requestUploadLimiter: auth.NewRateLimiter(requestUploadAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		linkTokenKey:         deriveLinkTokenKey(secret),
+		keys:                 auth.NewSessionKeys(),
+		secret:               secret,
+		oidcHTTP:             oidc.NewHTTPClient(cfg.OIDCRoots),
+		oidcFlowKey:          deriveOIDCFlowKey(secret),
 	}
 	settings, err := st.Settings(context.Background())
 	switch {

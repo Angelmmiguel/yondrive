@@ -120,15 +120,33 @@ func (e KDFName) Valid() bool {
 	}
 }
 
+// Defines values for LinkKind.
+const (
+	LinkKindRequest LinkKind = "request"
+	LinkKindView    LinkKind = "view"
+)
+
+// Valid indicates whether the value is a known member of the LinkKind enum.
+func (e LinkKind) Valid() bool {
+	switch e {
+	case LinkKindRequest:
+		return true
+	case LinkKindView:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LinkRole.
 const (
-	View LinkRole = "view"
+	LinkRoleView LinkRole = "view"
 )
 
 // Valid indicates whether the value is a known member of the LinkRole enum.
 func (e LinkRole) Valid() bool {
 	switch e {
-	case View:
+	case LinkRoleView:
 		return true
 	default:
 		return false
@@ -254,16 +272,34 @@ func (e ProfileSignInMethod) Valid() bool {
 
 // Defines values for PublicLinkState.
 const (
-	Open             PublicLinkState = "open"
-	PasswordRequired PublicLinkState = "password_required"
+	PublicLinkStateOpen             PublicLinkState = "open"
+	PublicLinkStatePasswordRequired PublicLinkState = "password_required"
 )
 
 // Valid indicates whether the value is a known member of the PublicLinkState enum.
 func (e PublicLinkState) Valid() bool {
 	switch e {
-	case Open:
+	case PublicLinkStateOpen:
 		return true
-	case PasswordRequired:
+	case PublicLinkStatePasswordRequired:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PublicRequestState.
+const (
+	PublicRequestStateOpen             PublicRequestState = "open"
+	PublicRequestStatePasswordRequired PublicRequestState = "password_required"
+)
+
+// Valid indicates whether the value is a known member of the PublicRequestState enum.
+func (e PublicRequestState) Valid() bool {
+	switch e {
+	case PublicRequestStateOpen:
+		return true
+	case PublicRequestStatePasswordRequired:
 		return true
 	default:
 		return false
@@ -405,6 +441,27 @@ type AdminHealth struct {
 	WebBundle *WebBundle `json:"web_bundle,omitempty"`
 }
 
+// AdoptIncomingRequest defines model for AdoptIncomingRequest.
+type AdoptIncomingRequest struct {
+	// Manifest 1 byte to 4 KiB, opaque, kept as sent.
+	Manifest []byte `json:"manifest"`
+
+	// NameTag 32 bytes, under the folder's key.
+	NameTag []byte `json:"name_tag"`
+
+	// ParentKeyGeneration The folder's current generation, which `wrapped_key` is made under.
+	ParentKeyGeneration int64 `json:"parent_key_generation"`
+
+	// SealedMetadata The metadata as the owner keeps it, sealed again.
+	SealedMetadata []byte `json:"sealed_metadata"`
+
+	// Signature The owner's signature over the manifest, 64 bytes in `e2e` mode, empty in `none`.
+	Signature []byte `json:"signature"`
+
+	// WrappedKey The item's node key wrapped under the folder's, as for any child. Empty in `none` mode.
+	WrappedKey []byte `json:"wrapped_key"`
+}
+
 // AuditEntry defines model for AuditEntry.
 type AuditEntry struct {
 	// Action A stable name for the event, such as `login_failed`.
@@ -472,6 +529,16 @@ type ChangePage struct {
 	NextCursor string `json:"next_cursor"`
 }
 
+// CommitRequestUploadRequest defines model for CommitRequestUploadRequest.
+type CommitRequestUploadRequest struct {
+	// SealedKey The file's node key sealed to the request's public key, 105 bytes. Empty in `none` mode.
+	SealedKey []byte `json:"sealed_key"`
+
+	// SealedMetadata The file's metadata sealed under its node key, at most 8 KiB, with the sender's
+	// name and message if they gave them.
+	SealedMetadata []byte `json:"sealed_metadata"`
+}
+
 // CommitUploadRequest defines model for CommitUploadRequest.
 type CommitUploadRequest struct {
 	// ExpectedVersion The version this save started from. An empty string means the file must
@@ -532,27 +599,47 @@ type CreateInviteRequest struct {
 	Role             *Role  `json:"role,omitempty"`
 }
 
-// CreateLinkRequest defines model for CreateLinkRequest.
+// CreateLinkRequest `kind` left out is `view`. A view link needs `role`. A request has none, an empty
+// `sealed_key` and no `download_limit`; it needs `public_key`, and may have
+// `max_file_size`, `file_limit` and `bytes_limit`, which a view link may not.
 type CreateLinkRequest struct {
-	// DownloadLimit How many files may be fetched in all. See `getPublicBlob` for what counts.
+	// BytesLimit How many plaintext bytes a request takes in all.
+	BytesLimit *int64 `json:"bytes_limit,omitempty"`
+
+	// DownloadLimit How many files may be fetched in all, on a view link. See `getPublicBlob` for what counts.
 	DownloadLimit *int64     `json:"download_limit,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+
+	// FileLimit How many files a request takes in all.
+	FileLimit *int64 `json:"file_limit,omitempty"`
 
 	// Id Chosen by the client, since it enters the AAD. It is what the URL carries.
 	Id string `json:"id"`
 
 	// KeyGeneration The node's current generation, of the key being sealed.
-	KeyGeneration int64  `json:"key_generation"`
-	NodeId        string `json:"node_id"`
+	KeyGeneration int64 `json:"key_generation"`
 
-	// OwnerSealedKey The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+	// Kind `view` shows a node and what is under it. `request` takes files into a folder
+	// from anyone who has it, and shows nothing.
+	Kind *LinkKind `json:"kind,omitempty"`
+
+	// MaxFileSize The largest file a request takes, in plaintext bytes.
+	MaxFileSize *int64 `json:"max_file_size,omitempty"`
+	NodeId      string `json:"node_id"`
+
+	// OwnerSealedKey 73 bytes, empty in `none` mode. On a view link, the link key sealed for its owner,
+	// so a rotation can reach it. On a request, its X25519 private key sealed under the
+	// owner's master key (CRYPTO.md, section 20).
 	OwnerSealedKey []byte        `json:"owner_sealed_key"`
 	Password       *LinkPassword `json:"password,omitempty"`
 
-	// Role Links only ever give read access.
-	Role LinkRole `json:"role"`
+	// PublicKey A request's X25519 public key, 32 bytes. Empty in `none` mode, and absent on a view link.
+	PublicKey *[]byte `json:"public_key,omitempty"`
 
-	// SealedKey The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+	// Role What a view link gives, which is only ever read access. A request has none.
+	Role *LinkRole `json:"role,omitempty"`
+
+	// SealedKey The node key sealed under the link key, 73 bytes. Empty in `none` mode, and on a request.
 	SealedKey []byte `json:"sealed_key"`
 }
 
@@ -579,6 +666,18 @@ type CreateNodeRequest struct {
 
 	// WrappedKey Required in `e2e` mode, empty in `none`.
 	WrappedKey []byte `json:"wrapped_key"`
+}
+
+// CreateRequestUploadRequest The sizes of a file, before anything of it is sealed. The server chooses the ids the
+// file's node and version will have, so a sender cannot ask whether an id is in use.
+type CreateRequestUploadRequest struct {
+	FrameCount int64 `json:"frame_count"`
+	FrameSize  int64 `json:"frame_size"`
+	StoredSize int64 `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite Suite `json:"suite"`
 }
 
 // CreateRootRequest defines model for CreateRootRequest.
@@ -799,6 +898,9 @@ type Error struct {
 	// - `link_limit_reached`: the link has given all its downloads (410)
 	// - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
 	// - `link_password_invalid`: wrong password (401)
+	// - `request_file_too_large`: the file is larger than the request takes (413)
+	// - `request_files_reached`: the request has taken all the files it takes (409)
+	// - `request_bytes_reached`: the file does not fit in what the request has left (413)
 	//
 	//
 	// Examples: not_found
@@ -879,6 +981,51 @@ type Health struct {
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
 
+// IncomingItem A file that arrived through a request and waits to be adopted. `id` is the id its
+// node will have, and `version_id` its first version's. Untrusted, as anything from
+// someone else is.
+type IncomingItem struct {
+	BlobId    string    `json:"blob_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// FolderId The request's folder, which adopting puts it in.
+	FolderId   string `json:"folder_id"`
+	FrameCount int64  `json:"frame_count"`
+
+	// FrameHashes The SHA-256 of each stored frame, in order, as on a `Version`.
+	FrameHashes []byte `json:"frame_hashes"`
+	FrameSize   int64  `json:"frame_size"`
+	Id          string `json:"id"`
+	LinkId      string `json:"link_id"`
+
+	// PublicKey The request's public key, as `Link.public_key`.
+	PublicKey []byte `json:"public_key"`
+
+	// SealedKey Its node key, sealed to the request's public key. Empty in `none` mode.
+	SealedKey      []byte `json:"sealed_key"`
+	SealedMetadata []byte `json:"sealed_metadata"`
+
+	// SealedPrivateKey The request's private key under the owner's master key, as `Link.owner_sealed_key`.
+	SealedPrivateKey []byte `json:"sealed_private_key"`
+
+	// Size Plaintext bytes.
+	Size       int64 `json:"size"`
+	StoredSize int64 `json:"stored_size"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite     Suite  `json:"suite"`
+	VersionId string `json:"version_id"`
+}
+
+// IncomingPage defines model for IncomingPage.
+type IncomingPage struct {
+	Items []IncomingItem `json:"items"`
+
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
 // Invite defines model for Invite.
 type Invite struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -925,23 +1072,47 @@ type KeyLink struct {
 	SealedKey []byte `json:"sealed_key"`
 }
 
-// Link defines model for Link.
+// Link A view link carries `role`, and its download limit. A request carries `public_key`, its
+// limits and what it has received.
 type Link struct {
-	CreatedAt      time.Time  `json:"created_at"`
-	DownloadCount  int64      `json:"download_count"`
-	DownloadLimit  *int64     `json:"download_limit,omitempty"`
-	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
-	HasPassword    bool       `json:"has_password"`
-	Id             string     `json:"id"`
-	KeyGeneration  int64      `json:"key_generation"`
-	NodeId         string     `json:"node_id"`
-	OwnerSealedKey []byte     `json:"owner_sealed_key"`
-	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
+	BytesLimit *int64 `json:"bytes_limit,omitempty"`
 
-	// Role Links only ever give read access.
-	Role      LinkRole `json:"role"`
-	SealedKey []byte   `json:"sealed_key"`
+	// BytesReceived On a request, their plaintext bytes.
+	BytesReceived *int64     `json:"bytes_received,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	DownloadCount int64      `json:"download_count"`
+	DownloadLimit *int64     `json:"download_limit,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	FileLimit     *int64     `json:"file_limit,omitempty"`
+
+	// FilesReceived On a request, the files that have arrived or are on their way.
+	FilesReceived *int64 `json:"files_received,omitempty"`
+	HasPassword   bool   `json:"has_password"`
+	Id            string `json:"id"`
+	KeyGeneration int64  `json:"key_generation"`
+
+	// Kind `view` shows a node and what is under it. `request` takes files into a folder
+	// from anyone who has it, and shows nothing.
+	Kind           LinkKind `json:"kind"`
+	MaxFileSize    *int64   `json:"max_file_size,omitempty"`
+	NodeId         string   `json:"node_id"`
+	OwnerSealedKey []byte   `json:"owner_sealed_key"`
+
+	// PublicKey Present on a request.
+	PublicKey *[]byte    `json:"public_key,omitempty"`
+	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+
+	// Role What a view link gives, which is only ever read access. A request has none.
+	Role      *LinkRole `json:"role,omitempty"`
+	SealedKey []byte    `json:"sealed_key"`
+
+	// UploadsInProgress On a request, the files on their way now, at most 20. One that receives nothing for an hour is dropped.
+	UploadsInProgress *int64 `json:"uploads_in_progress,omitempty"`
 }
+
+// LinkKind `view` shows a node and what is under it. `request` takes files into a folder
+// from anyone who has it, and shows nothing.
+type LinkKind string
 
 // LinkPage defines model for LinkPage.
 type LinkPage struct {
@@ -960,15 +1131,18 @@ type LinkPassword struct {
 	// Kdf Argon2id parameters, which the client runs.
 	Kdf KDF `json:"kdf"`
 
-	// WrappedKey The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+	// WrappedKey The link key wrapped under the password, 73 bytes. Required on a view link in
+	// `e2e` mode, and absent in `none` and on a request, whose URL keeps its key.
 	WrappedKey *[]byte `json:"wrapped_key,omitempty"`
 }
 
-// LinkRole Links only ever give read access.
+// LinkRole What a view link gives, which is only ever read access. A request has none.
 type LinkRole string
 
 // LinkedNode defines model for LinkedNode.
 type LinkedNode struct {
+	// Link A view link carries `role`, and its download limit. A request carries `public_key`, its
+	// limits and what it has received.
 	Link Link `json:"link"`
 
 	// Node A file or folder. The server cannot read the sealed fields. On the node of
@@ -1349,6 +1523,42 @@ type PublicNodePage struct {
 	Nodes      []PublicNode `json:"nodes"`
 }
 
+// PublicRequest A file request as a sender sees it. `password_required` carries `kdf` and nothing
+// else that belongs to the request. `open` carries `token`, `token_expires_at`,
+// `suite` and the room the request has left, and `public_key`, which a sender MUST
+// compare with the key in its URL and refuse if they differ (CRYPTO.md, section 20).
+// Nothing names the folder, its owner or what is in it.
+type PublicRequest struct {
+	// BytesRemaining How many more plaintext bytes it takes. Absent if there is no limit.
+	BytesRemaining *int64     `json:"bytes_remaining,omitempty"`
+	ExpiresAt      *time.Time `json:"expires_at,omitempty"`
+
+	// FilesRemaining How many more files it takes. Absent if there is no limit.
+	FilesRemaining *int64 `json:"files_remaining,omitempty"`
+	Id             string `json:"id"`
+
+	// Kdf Argon2id parameters, which the client runs.
+	Kdf *KDF `json:"kdf,omitempty"`
+
+	// MaxFileSize The largest file it takes, in plaintext bytes. Absent if there is no limit.
+	MaxFileSize *int64 `json:"max_file_size,omitempty"`
+
+	// PublicKey The request's X25519 public key, 32 bytes. Empty in `none` mode.
+	PublicKey *[]byte            `json:"public_key,omitempty"`
+	State     PublicRequestState `json:"state"`
+
+	// Suite How an item is protected. It is recorded on every item, and must be the
+	// one that belongs to the server's mode, or the answer is `suite_mismatch`.
+	Suite *Suite `json:"suite,omitempty"`
+
+	// Token Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicRequest` before it ends.
+	Token          *string    `json:"token,omitempty"`
+	TokenExpiresAt *time.Time `json:"token_expires_at,omitempty"`
+}
+
+// PublicRequestState defines model for PublicRequest.State.
+type PublicRequestState string
+
 // PublicVersion What a reader needs to read a node's current version, and no more. The signer
 // is named by their key alone. `author_public_key` is absent in `none` mode and if
 // the account has gone.
@@ -1401,6 +1611,24 @@ type RekeyRequest struct {
 	RecoveryAuthKey          *[]byte `json:"recovery_auth_key,omitempty"`
 	WrappedMasterKey         *[]byte `json:"wrapped_master_key,omitempty"`
 	WrappedMasterKeyRecovery *[]byte `json:"wrapped_master_key_recovery,omitempty"`
+}
+
+// RequestUpload defines model for RequestUpload.
+type RequestUpload struct {
+	CreatedAt  time.Time `json:"created_at"`
+	FrameCount int64     `json:"frame_count"`
+	FrameSize  int64     `json:"frame_size"`
+
+	// Frames The indexes of the frames that have arrived, in order.
+	Frames []int64 `json:"frames"`
+	Id     string  `json:"id"`
+
+	// NodeId The id the file's node will have, chosen by the server. It enters the AAD.
+	NodeId     string `json:"node_id"`
+	StoredSize int64  `json:"stored_size"`
+
+	// VersionId The id its version will have, chosen by the server.
+	VersionId string `json:"version_id"`
 }
 
 // RestoreVersionRequest defines model for RestoreVersionRequest.
@@ -1903,6 +2131,9 @@ type LinkNodeID = string
 // LinkToken defines model for LinkToken.
 type LinkToken = string
 
+// RequestUploadID defines model for RequestUploadID.
+type RequestUploadID = string
+
 // VersionID defines model for VersionID.
 type VersionID = string
 
@@ -1957,6 +2188,15 @@ type ListChangesParams struct {
 
 // ListGrantsMadeParams defines parameters for ListGrantsMade.
 type ListGrantsMadeParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListIncomingParams defines parameters for ListIncoming.
+type ListIncomingParams struct {
 	// Cursor The `next_cursor` of the previous page.
 	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 
@@ -2046,6 +2286,57 @@ type GetPublicVersionParams struct {
 	// Anything missing answers `link_token_required`, anything else wrong
 	// `link_token_invalid`.
 	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// GetPublicRequestParams defines parameters for GetPublicRequest.
+type GetPublicRequestParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// CreateRequestUploadParams defines parameters for CreateRequestUpload.
+type CreateRequestUploadParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// AbortRequestUploadParams defines parameters for AbortRequestUpload.
+type AbortRequestUploadParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// GetRequestUploadParams defines parameters for GetRequestUpload.
+type GetRequestUploadParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// CommitRequestUploadParams defines parameters for CommitRequestUpload.
+type CommitRequestUploadParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+}
+
+// PutRequestFrameParams defines parameters for PutRequestFrame.
+type PutRequestFrameParams struct {
+	// XLinkToken The token of an open link. Bound to one link and its node, and good for 15 minutes.
+	// Anything missing answers `link_token_required`, anything else wrong
+	// `link_token_invalid`.
+	XLinkToken *LinkToken `json:"X-Link-Token,omitempty"`
+
+	// XContentSHA256 The SHA-256 of the body, in padded standard base64.
+	XContentSHA256 ContentSHA256 `json:"X-Content-SHA256"`
 }
 
 // ListSharedWithMeParams defines parameters for ListSharedWithMe.
@@ -2144,6 +2435,9 @@ type CreateGrantJSONRequestBody = CreateGrantRequest
 // UpdateGrantJSONRequestBody defines body for UpdateGrant for application/json ContentType.
 type UpdateGrantJSONRequestBody = UpdateGrantRequest
 
+// AdoptIncomingJSONRequestBody defines body for AdoptIncoming for application/json ContentType.
+type AdoptIncomingJSONRequestBody = AdoptIncomingRequest
+
 // CreateLinkJSONRequestBody defines body for CreateLink for application/json ContentType.
 type CreateLinkJSONRequestBody = CreateLinkRequest
 
@@ -2176,6 +2470,15 @@ type TestOIDCJSONRequestBody = OIDCTestRequest
 
 // UnlockPublicLinkJSONRequestBody defines body for UnlockPublicLink for application/json ContentType.
 type UnlockPublicLinkJSONRequestBody = UnlockLinkRequest
+
+// UnlockPublicRequestJSONRequestBody defines body for UnlockPublicRequest for application/json ContentType.
+type UnlockPublicRequestJSONRequestBody = UnlockLinkRequest
+
+// CreateRequestUploadJSONRequestBody defines body for CreateRequestUpload for application/json ContentType.
+type CreateRequestUploadJSONRequestBody = CreateRequestUploadRequest
+
+// CommitRequestUploadJSONRequestBody defines body for CommitRequestUpload for application/json ContentType.
+type CommitRequestUploadJSONRequestBody = CommitRequestUploadRequest
 
 // PutSessionKeyJSONRequestBody defines body for PutSessionKey for application/json ContentType.
 type PutSessionKeyJSONRequestBody = SessionKey
@@ -2299,10 +2602,19 @@ type ServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListIncoming List what has arrived through the signed-in user's requests
+	// (GET /api/v1/incoming)
+	ListIncoming(w http.ResponseWriter, r *http.Request, params ListIncomingParams)
+	// DeleteIncoming Throw away an item that arrived through a request
+	// (DELETE /api/v1/incoming/{id})
+	DeleteIncoming(w http.ResponseWriter, r *http.Request, id ID)
+	// AdoptIncoming Put an item that arrived through a request into its folder
+	// (POST /api/v1/incoming/{id}/adopt)
+	AdoptIncoming(w http.ResponseWriter, r *http.Request, id ID)
 	// ListLinks List the signed-in user's links
 	// (GET /api/v1/links)
 	ListLinks(w http.ResponseWriter, r *http.Request, params ListLinksParams)
-	// CreateLink Make a public link to a node
+	// CreateLink Make a public link to a node, or a file request into a folder
 	// (POST /api/v1/links)
 	CreateLink(w http.ResponseWriter, r *http.Request)
 	// DeleteLink Forget a link
@@ -2410,6 +2722,27 @@ type ServerInterface interface {
 	// UnlockPublicLink Show the password of a link
 	// (POST /api/v1/public/links/{id}/unlock)
 	UnlockPublicLink(w http.ResponseWriter, r *http.Request, id ID)
+	// GetPublicRequest Open a file request
+	// (GET /api/v1/public/requests/{id})
+	GetPublicRequest(w http.ResponseWriter, r *http.Request, id ID, params GetPublicRequestParams)
+	// UnlockPublicRequest Show the password of a file request
+	// (POST /api/v1/public/requests/{id}/unlock)
+	UnlockPublicRequest(w http.ResponseWriter, r *http.Request, id ID)
+	// CreateRequestUpload Start sending a file through a request
+	// (POST /api/v1/public/requests/{id}/uploads)
+	CreateRequestUpload(w http.ResponseWriter, r *http.Request, id ID, params CreateRequestUploadParams)
+	// AbortRequestUpload Abandon an upload through a request
+	// (DELETE /api/v1/public/requests/{id}/uploads/{upload_id})
+	AbortRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params AbortRequestUploadParams)
+	// GetRequestUpload Report which frames of an upload through a request have arrived
+	// (GET /api/v1/public/requests/{id}/uploads/{upload_id})
+	GetRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params GetRequestUploadParams)
+	// CommitRequestUpload Hand a complete upload over to the request's owner
+	// (POST /api/v1/public/requests/{id}/uploads/{upload_id}/commit)
+	CommitRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params CommitRequestUploadParams)
+	// PutRequestFrame Send one stored frame of an upload through a request
+	// (PUT /api/v1/public/requests/{id}/uploads/{upload_id}/frames/{n})
+	PutRequestFrame(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, n int64, params PutRequestFrameParams)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(w http.ResponseWriter, r *http.Request)
@@ -3320,6 +3653,104 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIncoming operation middleware
+func (siw *ServerInterfaceWrapper) ListIncoming(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListIncomingParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIncoming(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIncoming operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIncoming(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteIncoming(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdoptIncoming operation middleware
+func (siw *ServerInterfaceWrapper) AdoptIncoming(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdoptIncoming(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4504,6 +4935,400 @@ func (siw *ServerInterfaceWrapper) UnlockPublicLink(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetPublicRequest operation middleware
+func (siw *ServerInterfaceWrapper) GetPublicRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPublicRequestParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPublicRequest(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnlockPublicRequest operation middleware
+func (siw *ServerInterfaceWrapper) UnlockPublicRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnlockPublicRequest(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateRequestUpload operation middleware
+func (siw *ServerInterfaceWrapper) CreateRequestUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateRequestUploadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateRequestUpload(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AbortRequestUpload operation middleware
+func (siw *ServerInterfaceWrapper) AbortRequestUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "upload_id" -------------
+	var uploadId RequestUploadID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upload_id", r.PathValue("upload_id"), &uploadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "upload_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AbortRequestUploadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AbortRequestUpload(w, r, id, uploadId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRequestUpload operation middleware
+func (siw *ServerInterfaceWrapper) GetRequestUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "upload_id" -------------
+	var uploadId RequestUploadID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upload_id", r.PathValue("upload_id"), &uploadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "upload_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetRequestUploadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRequestUpload(w, r, id, uploadId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CommitRequestUpload operation middleware
+func (siw *ServerInterfaceWrapper) CommitRequestUpload(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "upload_id" -------------
+	var uploadId RequestUploadID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upload_id", r.PathValue("upload_id"), &uploadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "upload_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CommitRequestUploadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CommitRequestUpload(w, r, id, uploadId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRequestFrame operation middleware
+func (siw *ServerInterfaceWrapper) PutRequestFrame(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "upload_id" -------------
+	var uploadId RequestUploadID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "upload_id", r.PathValue("upload_id"), &uploadId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "upload_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PutRequestFrameParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "X-Link-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Link-Token")]; found {
+		var XLinkToken LinkToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Link-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Link-Token", valueList[0], &XLinkToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Link-Token", Err: err})
+			return
+		}
+
+		params.XLinkToken = &XLinkToken
+
+	}
+
+	// ------------- Required header parameter "X-Content-SHA256" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Content-SHA256")]; found {
+		var XContentSHA256 ContentSHA256
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Content-SHA256", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Content-SHA256", valueList[0], &XContentSHA256, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Content-SHA256", Err: err})
+			return
+		}
+
+		params.XContentSHA256 = XContentSHA256
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Content-SHA256 is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Content-SHA256", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRequestFrame(w, r, id, uploadId, n, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeleteSessionKey operation middleware
 func (siw *ServerInterfaceWrapper) DeleteSessionKey(w http.ResponseWriter, r *http.Request) {
 
@@ -5223,6 +6048,16 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/nodes/{node_id}/children", wrapper.ListPublicChildren)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/nodes/{node_id}/version", wrapper.GetPublicVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/links/{id}/blobs/{blob_id}", wrapper.GetPublicBlob)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/requests/{id}", wrapper.GetPublicRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/public/requests/{id}/unlock", wrapper.UnlockPublicRequest)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/public/requests/{id}/uploads", wrapper.CreateRequestUpload)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/public/requests/{id}/uploads/{upload_id}", wrapper.AbortRequestUpload)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/public/requests/{id}/uploads/{upload_id}", wrapper.GetRequestUpload)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/public/requests/{id}/uploads/{upload_id}/frames/{n}", wrapper.PutRequestFrame)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/public/requests/{id}/uploads/{upload_id}/commit", wrapper.CommitRequestUpload)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/incoming", wrapper.ListIncoming)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/incoming/{id}", wrapper.DeleteIncoming)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/incoming/{id}/adopt", wrapper.AdoptIncoming)
 
 	return m
 }
@@ -6634,6 +7469,118 @@ type GetHealthdefaultJSONResponse struct {
 }
 
 func (response GetHealthdefaultJSONResponse) VisitGetHealthResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIncomingRequestObject struct {
+	Params ListIncomingParams
+}
+
+type ListIncomingResponseObject interface {
+	VisitListIncomingResponse(w http.ResponseWriter) error
+}
+
+type ListIncoming200JSONResponse IncomingPage
+
+func (response ListIncoming200JSONResponse) VisitListIncomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIncomingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListIncomingdefaultJSONResponse) VisitListIncomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIncomingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type DeleteIncomingResponseObject interface {
+	VisitDeleteIncomingResponse(w http.ResponseWriter) error
+}
+
+type DeleteIncoming204Response struct {
+}
+
+func (response DeleteIncoming204Response) VisitDeleteIncomingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteIncomingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteIncomingdefaultJSONResponse) VisitDeleteIncomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptIncomingRequestObject struct {
+	Id   ID `json:"id"`
+	Body *AdoptIncomingJSONRequestBody
+}
+
+type AdoptIncomingResponseObject interface {
+	VisitAdoptIncomingResponse(w http.ResponseWriter) error
+}
+
+type AdoptIncoming201JSONResponse Node
+
+func (response AdoptIncoming201JSONResponse) VisitAdoptIncomingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AdoptIncomingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AdoptIncomingdefaultJSONResponse) VisitAdoptIncomingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -8165,6 +9112,276 @@ func (response UnlockPublicLinkdefaultJSONResponse) VisitUnlockPublicLinkRespons
 	return err
 }
 
+type GetPublicRequestRequestObject struct {
+	Id     ID `json:"id"`
+	Params GetPublicRequestParams
+}
+
+type GetPublicRequestResponseObject interface {
+	VisitGetPublicRequestResponse(w http.ResponseWriter) error
+}
+
+type GetPublicRequest200JSONResponse PublicRequest
+
+func (response GetPublicRequest200JSONResponse) VisitGetPublicRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPublicRequestdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPublicRequestdefaultJSONResponse) VisitGetPublicRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnlockPublicRequestRequestObject struct {
+	Id   ID `json:"id"`
+	Body *UnlockPublicRequestJSONRequestBody
+}
+
+type UnlockPublicRequestResponseObject interface {
+	VisitUnlockPublicRequestResponse(w http.ResponseWriter) error
+}
+
+type UnlockPublicRequest200JSONResponse PublicRequest
+
+func (response UnlockPublicRequest200JSONResponse) VisitUnlockPublicRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnlockPublicRequestdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UnlockPublicRequestdefaultJSONResponse) VisitUnlockPublicRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRequestUploadRequestObject struct {
+	Id     ID `json:"id"`
+	Params CreateRequestUploadParams
+	Body   *CreateRequestUploadJSONRequestBody
+}
+
+type CreateRequestUploadResponseObject interface {
+	VisitCreateRequestUploadResponse(w http.ResponseWriter) error
+}
+
+type CreateRequestUpload201JSONResponse RequestUpload
+
+func (response CreateRequestUpload201JSONResponse) VisitCreateRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateRequestUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateRequestUploaddefaultJSONResponse) VisitCreateRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AbortRequestUploadRequestObject struct {
+	Id       ID              `json:"id"`
+	UploadId RequestUploadID `json:"upload_id"`
+	Params   AbortRequestUploadParams
+}
+
+type AbortRequestUploadResponseObject interface {
+	VisitAbortRequestUploadResponse(w http.ResponseWriter) error
+}
+
+type AbortRequestUpload204Response struct {
+}
+
+func (response AbortRequestUpload204Response) VisitAbortRequestUploadResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AbortRequestUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AbortRequestUploaddefaultJSONResponse) VisitAbortRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRequestUploadRequestObject struct {
+	Id       ID              `json:"id"`
+	UploadId RequestUploadID `json:"upload_id"`
+	Params   GetRequestUploadParams
+}
+
+type GetRequestUploadResponseObject interface {
+	VisitGetRequestUploadResponse(w http.ResponseWriter) error
+}
+
+type GetRequestUpload200JSONResponse RequestUpload
+
+func (response GetRequestUpload200JSONResponse) VisitGetRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRequestUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRequestUploaddefaultJSONResponse) VisitGetRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CommitRequestUploadRequestObject struct {
+	Id       ID              `json:"id"`
+	UploadId RequestUploadID `json:"upload_id"`
+	Params   CommitRequestUploadParams
+	Body     *CommitRequestUploadJSONRequestBody
+}
+
+type CommitRequestUploadResponseObject interface {
+	VisitCommitRequestUploadResponse(w http.ResponseWriter) error
+}
+
+type CommitRequestUpload204Response struct {
+}
+
+func (response CommitRequestUpload204Response) VisitCommitRequestUploadResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CommitRequestUploaddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CommitRequestUploaddefaultJSONResponse) VisitCommitRequestUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRequestFrameRequestObject struct {
+	Id       ID              `json:"id"`
+	UploadId RequestUploadID `json:"upload_id"`
+	N        int64           `json:"n"`
+	Params   PutRequestFrameParams
+	Body     io.Reader
+}
+
+type PutRequestFrameResponseObject interface {
+	VisitPutRequestFrameResponse(w http.ResponseWriter) error
+}
+
+type PutRequestFrame204Response struct {
+}
+
+func (response PutRequestFrame204Response) VisitPutRequestFrameResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type PutRequestFramedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutRequestFramedefaultJSONResponse) VisitPutRequestFrameResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeleteSessionKeyRequestObject struct {
 }
 
@@ -8954,10 +10171,19 @@ type StrictServerInterface interface {
 	// GetHealth Report that the server is up
 	// (GET /api/v1/health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListIncoming List what has arrived through the signed-in user's requests
+	// (GET /api/v1/incoming)
+	ListIncoming(ctx context.Context, request ListIncomingRequestObject) (ListIncomingResponseObject, error)
+	// DeleteIncoming Throw away an item that arrived through a request
+	// (DELETE /api/v1/incoming/{id})
+	DeleteIncoming(ctx context.Context, request DeleteIncomingRequestObject) (DeleteIncomingResponseObject, error)
+	// AdoptIncoming Put an item that arrived through a request into its folder
+	// (POST /api/v1/incoming/{id}/adopt)
+	AdoptIncoming(ctx context.Context, request AdoptIncomingRequestObject) (AdoptIncomingResponseObject, error)
 	// ListLinks List the signed-in user's links
 	// (GET /api/v1/links)
 	ListLinks(ctx context.Context, request ListLinksRequestObject) (ListLinksResponseObject, error)
-	// CreateLink Make a public link to a node
+	// CreateLink Make a public link to a node, or a file request into a folder
 	// (POST /api/v1/links)
 	CreateLink(ctx context.Context, request CreateLinkRequestObject) (CreateLinkResponseObject, error)
 	// DeleteLink Forget a link
@@ -9065,6 +10291,27 @@ type StrictServerInterface interface {
 	// UnlockPublicLink Show the password of a link
 	// (POST /api/v1/public/links/{id}/unlock)
 	UnlockPublicLink(ctx context.Context, request UnlockPublicLinkRequestObject) (UnlockPublicLinkResponseObject, error)
+	// GetPublicRequest Open a file request
+	// (GET /api/v1/public/requests/{id})
+	GetPublicRequest(ctx context.Context, request GetPublicRequestRequestObject) (GetPublicRequestResponseObject, error)
+	// UnlockPublicRequest Show the password of a file request
+	// (POST /api/v1/public/requests/{id}/unlock)
+	UnlockPublicRequest(ctx context.Context, request UnlockPublicRequestRequestObject) (UnlockPublicRequestResponseObject, error)
+	// CreateRequestUpload Start sending a file through a request
+	// (POST /api/v1/public/requests/{id}/uploads)
+	CreateRequestUpload(ctx context.Context, request CreateRequestUploadRequestObject) (CreateRequestUploadResponseObject, error)
+	// AbortRequestUpload Abandon an upload through a request
+	// (DELETE /api/v1/public/requests/{id}/uploads/{upload_id})
+	AbortRequestUpload(ctx context.Context, request AbortRequestUploadRequestObject) (AbortRequestUploadResponseObject, error)
+	// GetRequestUpload Report which frames of an upload through a request have arrived
+	// (GET /api/v1/public/requests/{id}/uploads/{upload_id})
+	GetRequestUpload(ctx context.Context, request GetRequestUploadRequestObject) (GetRequestUploadResponseObject, error)
+	// CommitRequestUpload Hand a complete upload over to the request's owner
+	// (POST /api/v1/public/requests/{id}/uploads/{upload_id}/commit)
+	CommitRequestUpload(ctx context.Context, request CommitRequestUploadRequestObject) (CommitRequestUploadResponseObject, error)
+	// PutRequestFrame Send one stored frame of an upload through a request
+	// (PUT /api/v1/public/requests/{id}/uploads/{upload_id}/frames/{n})
+	PutRequestFrame(ctx context.Context, request PutRequestFrameRequestObject) (PutRequestFrameResponseObject, error)
 	// DeleteSessionKey Forget the server half of the session key
 	// (DELETE /api/v1/session/key)
 	DeleteSessionKey(ctx context.Context, request DeleteSessionKeyRequestObject) (DeleteSessionKeyResponseObject, error)
@@ -10153,6 +11400,91 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListIncoming operation middleware
+func (sh *strictHandler) ListIncoming(w http.ResponseWriter, r *http.Request, params ListIncomingParams) {
+	var request ListIncomingRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIncoming(ctx, request.(ListIncomingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIncoming")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIncomingResponseObject); ok {
+		if err := validResponse.VisitListIncomingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteIncoming operation middleware
+func (sh *strictHandler) DeleteIncoming(w http.ResponseWriter, r *http.Request, id ID) {
+	var request DeleteIncomingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteIncoming(ctx, request.(DeleteIncomingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteIncoming")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteIncomingResponseObject); ok {
+		if err := validResponse.VisitDeleteIncomingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AdoptIncoming operation middleware
+func (sh *strictHandler) AdoptIncoming(w http.ResponseWriter, r *http.Request, id ID) {
+	var request AdoptIncomingRequestObject
+
+	request.Id = id
+
+	var body AdoptIncomingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AdoptIncoming(ctx, request.(AdoptIncomingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AdoptIncoming")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AdoptIncomingResponseObject); ok {
+		if err := validResponse.VisitAdoptIncomingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListLinks operation middleware
 func (sh *strictHandler) ListLinks(w http.ResponseWriter, r *http.Request, params ListLinksParams) {
 	var request ListLinksRequestObject
@@ -11177,6 +12509,222 @@ func (sh *strictHandler) UnlockPublicLink(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UnlockPublicLinkResponseObject); ok {
 		if err := validResponse.VisitUnlockPublicLinkResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPublicRequest operation middleware
+func (sh *strictHandler) GetPublicRequest(w http.ResponseWriter, r *http.Request, id ID, params GetPublicRequestParams) {
+	var request GetPublicRequestRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPublicRequest(ctx, request.(GetPublicRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPublicRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPublicRequestResponseObject); ok {
+		if err := validResponse.VisitGetPublicRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnlockPublicRequest operation middleware
+func (sh *strictHandler) UnlockPublicRequest(w http.ResponseWriter, r *http.Request, id ID) {
+	var request UnlockPublicRequestRequestObject
+
+	request.Id = id
+
+	var body UnlockPublicRequestJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnlockPublicRequest(ctx, request.(UnlockPublicRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnlockPublicRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnlockPublicRequestResponseObject); ok {
+		if err := validResponse.VisitUnlockPublicRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateRequestUpload operation middleware
+func (sh *strictHandler) CreateRequestUpload(w http.ResponseWriter, r *http.Request, id ID, params CreateRequestUploadParams) {
+	var request CreateRequestUploadRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	var body CreateRequestUploadJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateRequestUpload(ctx, request.(CreateRequestUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateRequestUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateRequestUploadResponseObject); ok {
+		if err := validResponse.VisitCreateRequestUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AbortRequestUpload operation middleware
+func (sh *strictHandler) AbortRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params AbortRequestUploadParams) {
+	var request AbortRequestUploadRequestObject
+
+	request.Id = id
+	request.UploadId = uploadId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AbortRequestUpload(ctx, request.(AbortRequestUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AbortRequestUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AbortRequestUploadResponseObject); ok {
+		if err := validResponse.VisitAbortRequestUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRequestUpload operation middleware
+func (sh *strictHandler) GetRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params GetRequestUploadParams) {
+	var request GetRequestUploadRequestObject
+
+	request.Id = id
+	request.UploadId = uploadId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRequestUpload(ctx, request.(GetRequestUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRequestUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRequestUploadResponseObject); ok {
+		if err := validResponse.VisitGetRequestUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CommitRequestUpload operation middleware
+func (sh *strictHandler) CommitRequestUpload(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, params CommitRequestUploadParams) {
+	var request CommitRequestUploadRequestObject
+
+	request.Id = id
+	request.UploadId = uploadId
+	request.Params = params
+
+	var body CommitRequestUploadJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CommitRequestUpload(ctx, request.(CommitRequestUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CommitRequestUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CommitRequestUploadResponseObject); ok {
+		if err := validResponse.VisitCommitRequestUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRequestFrame operation middleware
+func (sh *strictHandler) PutRequestFrame(w http.ResponseWriter, r *http.Request, id ID, uploadId RequestUploadID, n int64, params PutRequestFrameParams) {
+	var request PutRequestFrameRequestObject
+
+	request.Id = id
+	request.UploadId = uploadId
+	request.N = n
+	request.Params = params
+
+	request.Body = r.Body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRequestFrame(ctx, request.(PutRequestFrameRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRequestFrame")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRequestFrameResponseObject); ok {
+		if err := validResponse.VisitPutRequestFrameResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

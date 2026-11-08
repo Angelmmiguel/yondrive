@@ -271,6 +271,7 @@ async function liveLinks(id: string, reads: Reads, deps: RotationDeps): Promise<
 	const now = deps.now?.() ?? Date.now();
 	return reads.links.filter(
 		(link) =>
+			link.kind === 'view' &&
 			link.node_id === id &&
 			link.revoked_at === undefined &&
 			(link.expires_at === undefined || Date.parse(link.expires_at) > now)

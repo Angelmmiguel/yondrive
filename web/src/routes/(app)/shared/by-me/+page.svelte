@@ -1,22 +1,25 @@
 <!-- All that this user has shared, in one place, with one click to end any of it. -->
 <script lang="ts">
-	import { formatDate } from '$lib/app/format';
+	import { formatBytes, formatDate } from '$lib/app/format';
 	import { Avatar, Button, CodeBlock, EmptyState, Tag } from '$lib/components';
 	import { isApiError, type Grant, type Link } from '$lib/api/types';
 	import { describeDriveError } from '$lib/drive/errors';
 	import { linkStatus } from '$lib/sharing/links';
 	import { drive } from '$lib/state/drive.svelte';
+	import { incoming } from '$lib/state/incoming.svelte';
 	import { session } from '$lib/state/session.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { untrack } from 'svelte';
 
 	const grants = $derived(sharing.made);
-	const links = $derived(sharing.links);
+	const links = $derived(sharing.links.filter(({ link }) => link.kind === 'view'));
+	const requests = $derived(sharing.links.filter(({ link }) => link.kind === 'request'));
+	const waiting = $derived(incoming.waiting);
 	const rotating = $derived(sharing.rotation !== null);
 
 	$effect(() => {
-		const nodes = [...grants.map((g) => g.node.id), ...links.map((l) => l.node.id)];
+		const nodes = [...grants, ...links, ...requests].map((one) => one.node.id);
 		const ready = drive.status === 'ready';
 		untrack(() => {
 			if (!ready) return;
@@ -58,6 +61,34 @@
 	}
 
 	const urlOf = (link: Link) => sharing.core?.urlOf(link) ?? '';
+
+	$effect(() => {
+		incoming.seen();
+	});
+
+	async function retry(id: string) {
+		try {
+			if (await incoming.retry(id)) toasts.push('ok', 'The file is in its folder now.');
+			else toasts.push('danger', 'That file still could not be added.');
+		} catch (e) {
+			toasts.push('danger', explain(e));
+		}
+	}
+
+	async function throwAway(id: string) {
+		try {
+			await incoming.remove(id);
+		} catch (e) {
+			toasts.push('danger', explain(e));
+		}
+	}
+
+	function received(link: Link): string {
+		const count = link.files_received ?? 0;
+		return link.file_limit === undefined
+			? `${count} received`
+			: `${count} of ${link.file_limit} received`;
+	}
 </script>
 
 <svelte:head><title>Shared by me · YonDrive</title></svelte:head>
@@ -141,6 +172,84 @@
 		</ul>
 	{/if}
 </section>
+
+<section aria-label="File requests" id="requests">
+	<h2>File requests</h2>
+	{#if requests.length === 0}
+		<EmptyState title="You have not asked anyone for files" icon="upload">
+			Ask for files into a folder from its Share menu.
+		</EmptyState>
+	{:else}
+		<ul class="list">
+			{#each requests as { link } (link.id)}
+				{@const status = linkStatus(link, Date.now())}
+				<li data-testid="by-me-request" data-status={status}>
+					<span class="main">
+						<span class="title">{nameOf(link.node_id)}</span>
+						<span class="sub">
+							{#if status === 'live'}<Tag tone="ok">Live</Tag>{:else if status === 'revoked'}<Tag
+									tone="danger">Revoked</Tag
+								>{:else if status === 'expired'}<Tag tone="grey">Expired</Tag>{:else}<Tag
+									tone="grey">All files received</Tag
+								>{/if}
+							{#if link.has_password}<Tag tone="grey">Password</Tag>{/if}
+							{received(link)}
+							{#if link.expires_at}· ends {formatDate(link.expires_at)}{/if}
+						</span>
+						{#if status === 'live'}<CodeBlock code={urlOf(link)} label="the request link" />{/if}
+					</span>
+					{#if status === 'live'}
+						<Button
+							size="sm"
+							onclick={() => endLink(link)}
+							label="Revoke the request into {nameOf(link.node_id)}"
+						>
+							Revoke
+						</Button>
+					{/if}
+				</li>
+			{/each}
+		</ul>
+		<p class="note">
+			What arrives is added to its folder each time you open YonDrive. Files sent to a request you
+			revoke, or that has ended, can still be added until the purge period is over.
+		</p>
+	{/if}
+</section>
+
+{#if waiting.length > 0}
+	<section aria-label="Files that could not be added" id="incoming">
+		<h2>Files that could not be added</h2>
+		<ul class="list">
+			{#each waiting as { item, why } (item.id)}
+				<li data-testid="incoming-item" data-why={why}>
+					<span class="main">
+						<span class="title">
+							A file of {formatBytes(item.size)} for {nameOf(item.folder_id)}
+						</span>
+						<span class="sub">
+							Received {formatDate(item.created_at)} ·
+							{why === 'unreadable'
+								? 'It does not open with the key of its request. It may be damaged, or not have been sent through your link.'
+								: 'It could not be added this time.'}
+						</span>
+					</span>
+					{#if why === 'failed'}
+						<Button size="sm" onclick={() => retry(item.id)}>Try again</Button>
+					{/if}
+					<Button
+						size="sm"
+						variant="ghost"
+						onclick={() => throwAway(item.id)}
+						label="Delete the file of {formatBytes(item.size)}"
+					>
+						Delete
+					</Button>
+				</li>
+			{/each}
+		</ul>
+	</section>
+{/if}
 
 <style>
 	h1 {

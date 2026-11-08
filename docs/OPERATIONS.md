@@ -153,7 +153,7 @@ and flags.
 ## Data directory
 
 ```
-yondrive.db, -wal, -shm   SQLite in WAL mode: accounts, settings, the tree, versions, grants, links, journal, audit
+yondrive.db, -wal, -shm   SQLite in WAL mode: accounts, settings, the tree, versions, grants, links, file requests, journal, audit
 blobs/ab/<id>             one stored file per version, thumbnail or index segment; never changed once written
 uploads/<id>              versions being uploaded; forgotten on restart
 uploads/tmp-*             small files on their way in; removed on start
@@ -351,7 +351,7 @@ Commands that work beside the running server: `backup`, `migrate --check`,
 | Uploads fail with 413, or stall on large files | The proxy's body size or timeouts ([PROXY.md](PROXY.md)) |
 | Sign-in through the provider fails with a code | The code's meaning and the usual fixes are in [OIDC.md](OIDC.md#when-it-fails); the details are in the log |
 | Video does not stream, or a warning about plain HTTP | Serve it over HTTPS; browsers keep service workers from plain HTTP |
-| The disk is full | Empty the trash and look at quotas. Purged files are unlinked after the grace period set in the admin area, by the hourly sweep |
+| The disk is full | Empty the trash and look at quotas. Purged files are unlinked after the grace period set in the admin area, by the hourly sweep. Files sent through a file request count against its owner's quota as soon as they arrive, and what an ended request never saw adopted goes after the same grace period. A request with no total and an owner with no quota have no bound: give file requests a total, or users a quota. An upload through a request that receives nothing for an hour is dropped by the sweep |
 | `--ca-file` or `--secure` stops the server | The file cannot be read as PEM, or the value is not `auto`, `true` or `false` |
 
 ## Resetting a second factor

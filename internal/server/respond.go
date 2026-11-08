@@ -118,6 +118,9 @@ const (
 	codeLinkTokenRequired     = "link_token_required"   //nolint:gosec // an error code, not a secret
 	codeLinkTokenInvalid      = "link_token_invalid"    //nolint:gosec // an error code, not a secret
 	codeLinkPasswordInvalid   = "link_password_invalid" //nolint:gosec // an error code, not a secret
+	codeRequestFileTooLarge   = "request_file_too_large"
+	codeRequestFilesReached   = "request_files_reached"
+	codeRequestBytesReached   = "request_bytes_reached"
 )
 
 type errorBody struct {

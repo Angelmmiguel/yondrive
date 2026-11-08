@@ -11,9 +11,9 @@ export type Destination = '/' | '/setup' | '/signin' | '/unlock' | '/settings' |
 /** Open to anyone in any state: a link is for whoever holds it. */
 const OPEN = ['/invite', '/reset', '/styleguide'];
 
-/** A public link's page: it has no session and asks for none. */
+/** A public link's or a file request's page: it has no session and asks for none. */
 export function isLinkPath(path: string): boolean {
-	return path.startsWith('/s/');
+	return path.startsWith('/s/') || path.startsWith('/r/');
 }
 
 export function destinationFor(input: {

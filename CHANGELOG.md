@@ -5,6 +5,43 @@ workflow publishes the section of a version as its release notes, and refuses a
 tag whose section is missing or still marked unreleased
 ([docs/RELEASE.md](docs/RELEASE.md)).
 
+## [Unreleased]
+
+### Sharing
+
+- File requests: "Request files" in the share dialog of a folder you own makes a
+  link that lets anyone, with no account, send files into the folder without
+  seeing what is in it, what they sent included. It can have a password, an
+  expiry, a largest file, a number of files and a total size, each stopping an
+  upload with its own error code, and the files count against your quota. A new
+  request suggests a total of 1 GB; with no total and no quota there is no bound.
+  An upload that receives nothing for an hour is dropped, so nobody holds a
+  request's places for long. A folder with a live request says "Requesting
+  files".
+- In end-to-end mode each file is encrypted in the sender's browser under a key
+  of its own, sealed to the request's public key, which the link carries after
+  the `#`. A server that names another key is refused, and so is one that claims
+  not to encrypt for an address that carries a key. The request's private key is
+  bound to its folder, so what arrives cannot be moved into another. The format
+  is section 20 of [docs/CRYPTO.md](docs/CRYPTO.md), with test vectors.
+- What arrives waits outside your files until the app adopts it into the folder,
+  each time it opens, with a notification and a count. A clash takes the next
+  free name. What could not be added is listed under "Shared by me", to try
+  again or delete, and what an ended request never saw adopted is purged after
+  the grace period.
+- The sender may add a name and a message, sealed with each file. The page
+  clears its list once everything is sent, and keeps nothing on the device.
+
+### Server
+
+- Schema version 8: `links` gains a kind and a request's limits, and a new
+  `incoming` table holds what waits to be adopted. Upgrading migrates in place.
+- New routes under `/api/v1/public/requests/{id}` and `/api/v1/incoming`, and
+  the codes `request_file_too_large`, `request_files_reached` and
+  `request_bytes_reached`. The server chooses the ids of what is sent. On
+  `Link`, `kind` and `uploads_in_progress` are new and `role` is absent on a
+  request.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: a private drive with documents, spreadsheets, notes and

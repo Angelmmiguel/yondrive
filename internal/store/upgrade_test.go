@@ -38,6 +38,9 @@ var (
 	upLink     = strings.Repeat("0b", 16)
 	upToken    = strings.Repeat("0c", 16)
 	upInvite   = strings.Repeat("0d", 16)
+	upRequest  = strings.Repeat("0e", 16)
+	upArrived  = strings.Repeat("0f", 16)
+	upOnItsWay = strings.Repeat("10", 16)
 )
 
 const (
@@ -132,6 +135,24 @@ var seeds = []func(t *testing.T, db *sql.DB){
 	// 7: someone has the file open in an editor.
 	func(t *testing.T, db *sql.DB) {
 		exec(t, db, `INSERT INTO edit_status (node_id, user_id, started_at, expires_at) VALUES (?, ?, ?, ?)`, upFile, upBob, upAt, upFar)
+	},
+	// 8: a file request into the folder, with one file that has arrived and one on its way.
+	func(t *testing.T, db *sql.DB) {
+		exec(t, db, `INSERT INTO links (id, node_id, owner_id, kind, key_generation, sealed_key, owner_sealed_key, public_key,
+			file_limit, files_received, bytes_received, created_at) VALUES (?, ?, ?, 'request', 1, ?, ?, ?, 5, 2, 300, ?)`,
+			upRequest, upFolder, upRoot, []byte{}, blob(4, 73), blob(6, 32), upAt)
+		exec(t, db, `INSERT INTO blobs (id, owner_id, node_id, kind, suite, size, ref_count, created_at)
+			VALUES (?, ?, NULL, 'content', 'xchacha20poly1305-v1', 241, 0, ?)`, upArrived, upRoot, upAt)
+		incoming := `INSERT INTO incoming (id, link_id, owner_id, blob_id, version_id, suite, sealed_key, sealed_metadata,
+			size, stored_size, frame_count, frame_size, frame_hashes, created_at, completed_at)
+			VALUES (?, ?, ?, ?, ?, 'xchacha20poly1305-v1', ?, ?, ?, ?, 1, 4096, ?, ?, ?)`
+		exec(t, db, incoming, strings.Repeat("1a", 16), upRequest, upRoot, upArrived, strings.Repeat("1b", 16),
+			blob(5, 105), blob(6, 40), 200, 241, hash("frame"), upAt, upAt)
+		exec(t, db, `INSERT INTO uploads (id, user_id, owner_id, node_id, version_id, suite, frame_count, frame_size,
+			stored_size, link_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'xchacha20poly1305-v1', 1, 4096, 141, ?, ?, ?)`,
+			upOnItsWay, upRoot, upRoot, upFolder, strings.Repeat("1d", 16), upRequest, upAt, upAt)
+		exec(t, db, incoming, strings.Repeat("1c", 16), upRequest, upRoot, upOnItsWay, strings.Repeat("1d", 16),
+			blob(5, 105), blob(6, 40), 100, 141, nil, upAt, nil)
 	},
 }
 
@@ -307,7 +328,7 @@ func checkUpgradedData(t *testing.T, st *Store, k int) {
 	if err != nil || len(grants) != 1 || grants[0].NodeID != upFolder {
 		t.Errorf("bob's grants = %+v, %v", grants, err)
 	}
-	if link, err := st.LinkByID(ctx, upLink); err != nil || link.DownloadCount != 1 || link.DownloadLimit != 10 {
+	if link, err := st.LinkByID(ctx, upLink); err != nil || link.DownloadCount != 1 || link.DownloadLimit != 10 || link.Kind != LinkKindView || link.Role != LinkRoleView {
 		t.Errorf("link = %+v, %v", link, err)
 	}
 	if bobChanges, err := st.ListChanges(ctx, upBob, 0, 100); err != nil || len(bobChanges) != 1 {
@@ -341,6 +362,19 @@ func checkUpgradedData(t *testing.T, st *Store, k int) {
 	if editors, err := st.Editors(ctx, upFile, t0); err != nil || len(editors) != 1 || editors[0].UserID != upBob {
 		t.Errorf("editors = %+v, %v", editors, err)
 	}
+	if k < 8 {
+		return
+	}
+
+	if l, err := st.LinkByID(ctx, upRequest); err != nil || l.Kind != LinkKindRequest || l.Role != "" || l.FileLimit != 5 || l.FilesReceived != 2 {
+		t.Errorf("request = %+v, %v", l, err)
+	}
+	if items, err := st.ListIncoming(ctx, upRoot, "", 10); err != nil || len(items) != 1 || items[0].BlobID != upArrived {
+		t.Errorf("incoming = %+v, %v", items, err)
+	}
+	if up, err := st.UploadByID(ctx, upOnItsWay); err != nil || up.LinkID != upRequest {
+		t.Errorf("upload through the request = %+v, %v", up, err)
+	}
 }
 
 // checkWritable writes through the store what the latest release writes, on top
@@ -359,6 +393,27 @@ func checkWritable(t *testing.T, st *Store, k int) {
 	gen := int64(1)
 	if _, err := st.CreateNode(ctx, n, &gen); err != nil {
 		t.Errorf("a new node after the upgrade: %v", err)
+	}
+	// A request into the folder, a file through it, and the owner adopting it.
+	req, err := st.CreateLink(ctx, Link{ID: NewID(), NodeID: upFolder, OwnerID: upRoot, Kind: LinkKindRequest,
+		KeyGeneration: 1, OwnerSealedKey: blob(4, 73), PublicKey: blob(6, 32), FileLimit: 3, CreatedAt: t0})
+	if err != nil {
+		t.Fatalf("a request after the upgrade: %v", err)
+	}
+	item := Incoming{ID: NewID(), BlobID: NewID(), VersionID: NewID(), Suite: "xchacha20poly1305-v1",
+		SealedKey: blob(5, 105), SealedMetadata: blob(6, 40), Size: 100, StoredSize: 141, FrameCount: 1, FrameSize: 4096, CreatedAt: t0}
+	if _, err := st.CreateRequestUpload(ctx, req.ID, item); err != nil {
+		t.Fatalf("an upload through a request after the upgrade: %v", err)
+	}
+	if err := st.RecordFrame(ctx, item.BlobID, 0, hash("f"), t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CommitRequestUpload(ctx, item.BlobID, blob(5, 105), blob(6, 40), t0, func(Upload) error { return nil }); err != nil {
+		t.Fatalf("commit through a request after the upgrade: %v", err)
+	}
+	if _, _, err := st.AdoptIncoming(ctx, item.ID, Adoption{ParentGeneration: &gen, WrappedKey: blob(7, 73), NameTag: hash("adopted"),
+		SealedMetadata: blob(6, 40), Signature: blob(9, 64), Manifest: []byte("m")}, t0); err != nil {
+		t.Errorf("adopt after the upgrade: %v", err)
 	}
 	if _, err := st.TrashNode(ctx, upFile, t0); err != nil {
 		t.Errorf("trash after the upgrade: %v", err)

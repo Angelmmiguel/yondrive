@@ -96,7 +96,7 @@
 		padding-bottom: 46px;
 	}
 
-	.wrap .copy {
+	.block.wrap .copy {
 		top: auto;
 		bottom: 8px;
 	}

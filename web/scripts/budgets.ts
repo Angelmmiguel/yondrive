@@ -30,6 +30,7 @@ export const BUDGETS = {
 		'/notes': 9 * KIB,
 		'/notes/[id]': 136 * KIB,
 		'/recent': 5 * KIB,
+		'/r/[id]': 10 * KIB,
 		'/recover': 4 * KIB,
 		'/reset': 2 * KIB,
 		'/s/[id]': 7 * KIB,

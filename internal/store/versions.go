@@ -141,11 +141,13 @@ func checkExpected(n Node, expected *string) error {
 	return nil
 }
 
-// checkVersionIDFree refuses a version id that a version or an upload holds.
+// checkVersionIDFree refuses a version id that a version, an upload or an
+// incoming item holds.
 func checkVersionIDFree(ctx context.Context, q querier, id string) error {
 	var exists int
 	err := q.QueryRowContext(ctx, `SELECT 1 FROM versions WHERE id = ?
-		UNION ALL SELECT 1 FROM uploads WHERE version_id = ?`, id, id).Scan(&exists)
+		UNION ALL SELECT 1 FROM uploads WHERE version_id = ?
+		UNION ALL SELECT 1 FROM incoming WHERE version_id = ?`, id, id, id).Scan(&exists)
 	if err == nil {
 		return ErrIDTaken
 	}

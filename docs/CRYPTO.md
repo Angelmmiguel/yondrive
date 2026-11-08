@@ -385,7 +385,7 @@ The same operations with no keys:
 
 | Operation | Result |
 | --- | --- |
-| Master key, node key, link key, identity keys, wraps, grants, signatures, previous keys, sealed link keys, fingerprints | empty byte strings |
+| Master key, node key, link key, request key pair, identity keys, wraps, grants, signatures, previous keys, sealed link keys, sealed request keys, fingerprints | empty byte strings |
 | Pins | none: there is nothing to pin |
 | Link password | section 19 |
 | Metadata | `utf8(json)` |
@@ -456,8 +456,10 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/link-auth/v1` | HKDF info, plain |
 | `yondrive/link-owner/v1` | HKDF info, plain |
 | `yondrive/pins/v1` | HKDF info, plain |
+| `yondrive/request-owner/v1` | HKDF info, plain |
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
+| `yondrive/request/key/v1` | HKDF info, fields |
 | `yondrive/master/passphrase/v1` | AAD |
 | `yondrive/master/recovery/v1` | AAD |
 | `yondrive/master/session/v1` | AAD |
@@ -470,6 +472,8 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/link/key/v1` | AAD |
 | `yondrive/link/password/v1` | AAD |
 | `yondrive/link/owner/v1` | AAD |
+| `yondrive/request/owner/v1` | AAD |
+| `yondrive/request/node/v1` | AAD |
 | `yondrive/pins/seal/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
@@ -560,3 +564,79 @@ about it.
 the same auth key, sent to the same route.
 
 An opened link key or node key MUST be 32 bytes and not all zeros.
+
+## 20. File requests
+
+A file request is a link of kind `request` to a folder. Anyone who has it can send files into
+the folder, and nothing they hold opens anything there, what they sent included. Its id is
+chosen as a link's (section 19). It has an X25519 key pair of its own, `r` and `R`, drawn when it
+is made. `R` travels in the URL and the server keeps a copy; `r` is kept for the owner alone:
+
+```
+owner copy = Seal(HKDF(master key, "yondrive/request-owner/v1"), r,
+                  fields("yondrive/request/owner/v1", utf8(link id), R, utf8(folder id)))
+```
+
+The owner copy is 73 bytes. Binding `R` and the folder means that it opens only beside the public
+key and the folder it was made with. The owner's client MUST open it with the folder the server
+names for the request, or for an item sent to it, and MUST check that `X25519(r)` is `R`, before it
+shows the URL again or opens anything sent to the request. It MUST also adopt only into a folder
+its tree says the user owns.
+
+**The URL** is `https://host/r/<id>#<R>`, `R` in unpadded base64url, with a password too: the
+fragment is what vouches for the key. A password works as a link's (section 19): the reader
+derives the auth key and sends it to `POST /public/requests/{id}/unlock`, and the server answers
+with a token. There is no link KEK and nothing wrapped under it, since the URL keeps its key.
+
+**Sending a file.** The sender's client takes `R` from the fragment and from nowhere else. The
+server's copy comes with the request's state, and the client MUST compare it with the fragment,
+in constant time, and refuse to send anything if they differ or if the fragment has no key. An
+address with a key in it was made for encrypted files: if the server then claims mode `none`, the
+client MUST refuse before it asks the server anything else about the request, as a sender has no
+pin of its own (section 14) and would otherwise send the files as they are. For each file, the
+server chooses the node id and the version id when the upload starts, so that a sender cannot ask
+whether an id exists. The client draws a node key, seals the metadata (section 9) and the frames
+(section 11) under it with those ids, exactly as for any upload, and seals the node key to the
+request; the sealed key and metadata go with the commit:
+
+```
+e, E       = fresh ephemeral X25519 keypair
+shared     = X25519(e, R)               refuse if all zeros (low-order R)
+wrap key   = HKDF(shared, fields("yondrive/request/key/v1", E, R))
+aad        = fields("yondrive/request/node/v1", E, R, utf8(link id), utf8(node id))
+sealed key = E || Seal(wrap key, node key, aad)
+```
+
+The sealed key is 105 bytes. To open, split off `E`, compute `shared = X25519(r, E)`, refuse all
+zeros, derive the same wrap key and AAD with `R`, and open. The opened value MUST be 32 bytes and
+not all zeros. `e` MUST be zeroed. The sender does not sign anything, and has no key to sign with.
+
+The metadata may carry what the sender says about themselves, as text, under `request`:
+`{"from": …, "message": …}`, at most 100 and 1000 characters. The server bounds the sealed
+metadata of a sent file to 8 KiB.
+
+**Adopting.** A sent file waits on the server as an incoming item, with its sealed key, its sealed
+metadata and its frames. The owner's client opens `r` (checking it as above), opens the node key,
+opens the metadata and adopts the item with `POST /incoming/{id}/adopt`:
+
+| Field | Value |
+| --- | --- |
+| `wrapped_key` | the node key wrapped under the folder's, as in section 7 |
+| `name_tag` | the name's tag under the folder's key (section 10); on `name_conflict` the next of `name (2).ext`, `name (3).ext` and so on |
+| `sealed_metadata` | the metadata the owner keeps, sealed again under the node key: the name, cleaned, and `request` with the request's id, when it arrived, and the sender's words, cut to size |
+| `manifest`, `signature` | the manifest of section 12 over the item's ids, its size, framing and the content hash of the frame digests the server lists, signed by the owner |
+
+The frames are not sealed again: they stay under the node key, which only moves. The owner's
+signature says that the owner adopted the file, not who wrote it. A client MUST refuse an item
+whose frame count disagrees with its size and frame size, and treat what arrives as untrusted,
+as anything from someone else is.
+
+A server can send files of its own through a request, as anyone with the URL can. It cannot read
+what others send. It cannot make a sender seal to a key it chose, as the URL carries `R`; nor have
+the sender send in the clear, as the URL's key refutes a claim of mode `none`; nor make the owner's
+client wrap a file's key under another folder, such as one it shares with someone else, as the
+owner copy binds the folder and opens for no other. It can withhold or delete what arrives.
+
+**Suite `none`.** There is no key pair: `R`, `r`, the owner copy and the sealed key are empty, the
+URL has no fragment, and a sender compares an empty key with an empty one. Files still wait as
+incoming items until the owner's client adopts them, so both modes keep one shape.

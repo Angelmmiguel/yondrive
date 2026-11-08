@@ -1,18 +1,24 @@
 <!--
-  What has been shared with this user and not looked at, and the reminders of
-  Notes that came due while the app was open, at the top of the app.
+  What has been shared with this user and not looked at, what arrived through their
+  file requests, and the reminders of Notes that came due while the app was open, at
+  the top of the app.
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { Icon, Menu, type MenuItem } from '$lib/components';
 	import { drive } from '$lib/state/drive.svelte';
+	import { incoming } from '$lib/state/incoming.svelte';
 	import { notes } from '$lib/state/notes.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 
 	const unread = $derived(sharing.unread);
 	const alerts = $derived(notes.alerts);
-	const count = $derived(unread.length + alerts.length);
+	const arrived = $derived(incoming.adopted);
+	const stuck = $derived(incoming.waiting.length);
+	const count = $derived(
+		unread.length + alerts.length + (arrived > 0 ? 1 : 0) + (stuck > 0 ? 1 : 0)
+	);
 
 	function labelOf(nodeId: string, granterId: string): string {
 		const entry = sharing.entryOf(nodeId);
@@ -26,6 +32,30 @@
 	}
 
 	const items = $derived<MenuItem[]>([
+		...(arrived > 0
+			? [
+					{
+						id: 'incoming',
+						label:
+							arrived === 1
+								? 'A file arrived through a file request'
+								: `${arrived} files arrived through your file requests`,
+						icon: 'upload' as const
+					}
+				]
+			: []),
+		...(stuck > 0
+			? [
+					{
+						id: 'incoming-stuck',
+						label:
+							stuck === 1
+								? 'A received file could not be added'
+								: `${stuck} received files could not be added`,
+						icon: 'upload' as const
+					}
+				]
+			: []),
 		...alerts.map((a) => ({
 			id: `reminder:${a.id}`,
 			label: `Reminder: ${a.title}`,
@@ -41,6 +71,11 @@
 	]);
 
 	function choose(id: string) {
+		if (id.startsWith('incoming')) {
+			incoming.seen();
+			void goto(resolve('/shared/by-me'));
+			return;
+		}
 		if (id.startsWith('reminder:')) {
 			const note = id.slice('reminder:'.length);
 			notes.dismissAlert(note);

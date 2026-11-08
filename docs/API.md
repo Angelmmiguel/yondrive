@@ -29,7 +29,7 @@ its CDN.
   stored files, which are `application/octet-stream`.
 - **Binary fields** (keys, hashes, sealed blobs) are padded standard base64.
   **Times** are RFC 3339 in UTC. **Ids** are 32 lowercase hex characters; for
-  nodes, versions and links the client chooses them.
+  nodes, versions, links and the files sent through a request the client chooses them.
 - **Lists** take `limit` (default 200, at most 1000) and return `next_cursor`
   while there may be more; pass it back as `cursor`.
 - **The server never reads content.** In end-to-end mode, names, metadata, file
@@ -49,8 +49,9 @@ There are three kinds of credential, and each route lists which it accepts.
 | Bearer token | Native clients and scripts | `Authorization: Bearer <secret>` |
 | Setup token | The first-run wizard only | `X-Setup-Token`, from the link in the server's log |
 
-Public links are separate: the routes under `/api/v1/public/links/{id}` look at
-no cookie and no token, only at `X-Link-Token`, which unlocking a link returns.
+Public links and file requests are separate: the routes under
+`/api/v1/public/links/{id}` and `/api/v1/public/requests/{id}` look at no cookie
+and no token, only at `X-Link-Token`, which opening or unlocking one returns.
 
 ### Getting a bearer token
 
@@ -154,3 +155,8 @@ not from YonDrive.
   older than the journal's retention answers `410 cursor_expired`: read the tree
   again and start over without a cursor.
 - Never log a token, a key, an auth key or a sealed blob.
+- Send files through a file request with the public key from its URL alone, and
+  stop if the one the server answers with differs
+  ([CRYPTO.md section 20](CRYPTO.md#20-file-requests)). Adopt what arrives for
+  your requests with `GET /api/v1/incoming` and `POST /api/v1/incoming/{id}/adopt`,
+  and treat it as untrusted.

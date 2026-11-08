@@ -28,6 +28,7 @@ import { localRotationJobs } from '$lib/sharing/rotation';
 import { formatBytes } from '$lib/app/format';
 import { notesSubtree } from '$lib/notes/items';
 import { isNotesRoot, marksNote } from '$lib/notes/model';
+import { incoming } from './incoming.svelte';
 import { notes } from './notes.svelte';
 import { search } from './search.svelte';
 import { session } from './session.svelte';
@@ -121,13 +122,14 @@ export class DriveState {
 		this.viewMode = view.mode;
 		this.sort = view.sort;
 		const opener = createNodeOpener(sealer);
+		const keys = () => {
+			if (session.keys === null) throw new LockedError();
+			return session.keys;
+		};
 		const core = new Drive({
 			api,
 			sealer,
-			keys: () => {
-				if (session.keys === null) throw new LockedError();
-				return session.keys;
-			},
+			keys,
 			userId: () => account.user.id,
 			open: opener.open,
 			pool: createFramePool(sealer),
@@ -150,6 +152,7 @@ export class DriveState {
 		});
 		this.core = core;
 		sharing.attach(core.sharing);
+		incoming.attach({ api, sealer, keys, tree: core.tree });
 		if (session.keys !== null) {
 			search.attach(core, sealer, session.keys.masterKey, account.user.id);
 			notes.attach(core, sealer, session.keys.masterKey, account.user.id);
@@ -178,6 +181,7 @@ export class DriveState {
 				search.start();
 				notes.start();
 				void sharing.sync();
+				void this.adoptIncoming();
 				void this.refreshStorage();
 				void this.loadTrash().catch(() => {});
 				void this.refreshStrays();
@@ -203,6 +207,7 @@ export class DriveState {
 		for (const stop of this.#stops) stop();
 		this.#stops = [];
 		sharing.detach();
+		incoming.detach();
 		const forget = search.detach();
 		const forgetNotes = notes.detach();
 		// This runs as an effect's teardown, which reads the state from before: a moment
@@ -420,6 +425,29 @@ export class DriveState {
 		this.trashLoaded = true;
 	}
 
+	/** Puts what arrived through file requests into its folders, and says how many. */
+	async adoptIncoming(): Promise<void> {
+		let count: number;
+		try {
+			count = await incoming.run();
+		} catch (e) {
+			if (isApiError(e, 'unauthorized')) session.signedOut();
+			return;
+		}
+		if (count === 0) return;
+		const tree = this.core?.tree;
+		for (const id of incoming.folders) {
+			if (tree?.isLoaded(id)) await tree.loadFolder(id, true).catch(() => {});
+		}
+		toasts.push(
+			'ok',
+			count === 1
+				? 'A file arrived through one of your file requests.'
+				: `${count} files arrived through your file requests.`
+		);
+		await this.refreshStorage();
+	}
+
 	/** Reads the journal, on focus and once a minute. Only one at a time. */
 	async poll(): Promise<void> {
 		const core = this.core;
@@ -432,6 +460,7 @@ export class DriveState {
 				await this.refreshStorage();
 				await this.loadTrash();
 			}
+			await this.adoptIncoming();
 		} catch (e) {
 			if (isApiError(e, 'unauthorized')) session.signedOut();
 			// Anything else: the next poll will catch up, as the cursor did not move.

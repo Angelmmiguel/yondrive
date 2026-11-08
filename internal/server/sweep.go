@@ -15,9 +15,9 @@ const (
 )
 
 // Sweep does what is due: it purges what the trash has held long enough, removes
-// what has waited out its grace period, drops abandoned uploads, and unlinks the
-// files of everything that has gone. Each step is its own short transaction, so
-// that requests go on in between.
+// what has waited out its grace period, drops abandoned uploads and what ended
+// requests never saw adopted, and unlinks the files of everything that has gone.
+// Each step is its own short transaction, so that requests go on in between.
 func (s *Server) Sweep(ctx context.Context) error {
 	s.sweepMu.Lock()
 	defer s.sweepMu.Unlock()
@@ -55,6 +55,24 @@ func (s *Server) Sweep(ctx context.Context) error {
 	}
 	for {
 		n, err := s.store.RemoveStaleUploads(ctx, now.Add(-s.cfg.UploadTTL), sweepBatch)
+		if err != nil {
+			return err
+		}
+		if n < sweepBatch {
+			break
+		}
+	}
+	for {
+		n, err := s.store.RemoveIdleRequestUploads(ctx, now.Add(-requestUploadIdle), sweepBatch)
+		if err != nil {
+			return err
+		}
+		if n < sweepBatch {
+			break
+		}
+	}
+	for {
+		n, err := s.store.RemoveEndedIncoming(ctx, now.Add(-days(settings.PurgeGraceDays)), sweepBatch)
 		if err != nil {
 			return err
 		}

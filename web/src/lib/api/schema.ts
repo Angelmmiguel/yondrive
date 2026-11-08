@@ -1518,10 +1518,12 @@ export interface paths {
         get: operations["listLinks"];
         put?: never;
         /**
-         * Make a public link to a node
-         * @description Owner only, and it covers the subtree. Answers `id_taken`, `invalid_link`,
-         *     `invalid_kdf`, `root_immutable`, `node_trashed` or `key_generation_conflict`.
-         *     CRYPTO.md, section 19, says how the keys are made.
+         * Make a public link to a node, or a file request into a folder
+         * @description Owner only. A view link covers the subtree. A request takes files into a
+         *     folder (`not_a_folder` otherwise) from anyone who has it, who can read
+         *     nothing there. Answers `id_taken`, `invalid_link`, `invalid_kdf`,
+         *     `root_immutable`, `node_trashed` or `key_generation_conflict`.
+         *     CRYPTO.md, sections 19 and 20, says how the keys are made.
          */
         post: operations["createLink"];
         delete?: never;
@@ -1545,7 +1547,8 @@ export interface paths {
         post?: never;
         /**
          * Forget a link
-         * @description After this its id answers `not_found`.
+         * @description After this its id answers `not_found`. A request's items that wait to be adopted go
+         *     with it, as only its private key opens them.
          */
         delete: operations["deleteLink"];
         options?: never;
@@ -1568,6 +1571,8 @@ export interface paths {
         /**
          * End a link, keeping its row
          * @description After this its id answers `link_revoked`, and tokens already given stop working.
+         *     What a request has received and not been adopted waits for the purge grace
+         *     period, and then goes.
          */
         post: operations["revokeLink"];
         delete?: never;
@@ -1592,9 +1597,9 @@ export interface paths {
          *     parameters: derive, then call `unlockPublicLink`. A valid `X-Link-Token` for this
          *     link goes straight to `open` and renews the token within its session, which lasts
          *     at most a day. Limited per address, and on a password per link as well
-         *     (`rate_limited`). Answers `not_found` for what does not exist, or whose node is in
-         *     the trash, `link_expired`, `link_revoked`, or `link_limit_reached` to someone
-         *     new once the limit has been reached.
+         *     (`rate_limited`). Answers `not_found` for what does not exist or is a request, or
+         *     whose node is in the trash, `link_expired`, `link_revoked`, or `link_limit_reached`
+         *     to someone new once the limit has been reached.
          */
         get: operations["getPublicLink"];
         put?: never;
@@ -1728,6 +1733,255 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Open a file request
+         * @description With no password, a token and the room the request has left. With a password,
+         *     its KDF parameters: derive, then call `unlockPublicRequest`. A valid
+         *     `X-Link-Token` for this request renews it, as with a public link. Nothing here
+         *     names the folder, its owner or anything in it. Limited per address, and on a
+         *     password per request as well (`rate_limited`). Answers `not_found` for what does
+         *     not exist or is not a request, or whose folder is in the trash, `link_expired`
+         *     or `link_revoked`.
+         */
+        get: operations["getPublicRequest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/requests/{id}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Show the password of a file request
+         * @description As `unlockPublicLink`: the hash is compared in constant time, a wrong password
+         *     answers `link_password_invalid`, and every attempt counts against the address and
+         *     the request (`rate_limited`).
+         */
+        post: operations["unlockPublicRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/requests/{id}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start sending a file through a request
+         * @description As `createUpload`, for a file that is not in any tree yet: it reserves room in the
+         *     owner's quota (`quota_exceeded`), and its frames then arrive the same way. The
+         *     server chooses the ids the file's node and version will have, and the sender seals
+         *     the frames under a node key of its own with them. The node key, sealed to the
+         *     request's public key, and the metadata, sealed under it, come with the commit
+         *     (CRYPTO.md, section 20).
+         *
+         *     On top of the owner's quota, the request's own limits apply, counted in plaintext
+         *     bytes: `request_file_too_large` (413), `request_files_reached` (409) and
+         *     `request_bytes_reached` (413). A request has at most 20 uploads in progress
+         *     (`too_many_uploads`), and one that receives no frame for an hour is dropped, which
+         *     gives its place back. Also `invalid_framing`, `suite_mismatch`, and the endings of
+         *     `getPublicRequest`. Limited per address (`rate_limited`), more tightly than a
+         *     signed-in upload.
+         */
+        post: operations["createRequestUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/requests/{id}/uploads/{upload_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Report which frames of an upload through a request have arrived
+         * @description What a sender resumes from. Answers `not_found` once the upload has completed.
+         */
+        get: operations["getRequestUpload"];
+        put?: never;
+        post?: never;
+        /**
+         * Abandon an upload through a request
+         * @description Releases its reservation, and what it took of the request's limits.
+         */
+        delete: operations["abortRequestUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/requests/{id}/uploads/{upload_id}/frames/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+                /** @description The frame's index, from 0. */
+                n: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Send one stored frame of an upload through a request
+         * @description As `putFrame`.
+         */
+        put: operations["putRequestFrame"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/requests/{id}/uploads/{upload_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hand a complete upload over to the request's owner
+         * @description The file becomes an incoming item, which waits outside the tree until its owner's
+         *     client adopts it. The sender gets nothing back: not the item, nor anything else in
+         *     the folder. Answers `upload_incomplete` if a frame is missing, and `invalid_node`
+         *     if a sealed field is the wrong size. A commit of an upload that has already been
+         *     handed over answers 204 again, so a lost answer can be retried; `not_found` means
+         *     the upload is gone and nothing arrived.
+         */
+        post: operations["commitRequestUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incoming": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List what has arrived through the signed-in user's requests
+         * @description Complete items only, each with what its owner's client needs to adopt it: the
+         *     sealed node key and metadata, the request's keys, and the frame digests that its
+         *     manifest signs. Items still on their way are not listed.
+         */
+        get: operations["listIncoming"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incoming/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Throw away an item that arrived through a request
+         * @description Its bytes go, and stop counting against the quota. It still counts against the request's limits.
+         */
+        delete: operations["deleteIncoming"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/incoming/{id}/adopt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put an item that arrived through a request into its folder
+         * @description The item becomes a file with its own id in the request's folder, whose first
+         *     version holds the frames as they arrived, signed now by the owner (CRYPTO.md,
+         *     section 20). It works while the request is revoked or expired, until the purge.
+         *     Answers `name_conflict` (choose another name and seal again), `parent_trashed`,
+         *     `key_generation_conflict`, `invalid_node`, `invalid_commit` or `quota_exceeded`
+         *     for the metadata.
+         */
+        post: operations["adoptIncoming"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1833,6 +2087,9 @@ export interface components {
              *     - `link_limit_reached`: the link has given all its downloads (410)
              *     - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
              *     - `link_password_invalid`: wrong password (401)
+             *     - `request_file_too_large`: the file is larger than the request takes (413)
+             *     - `request_files_reached`: the request has taken all the files it takes (409)
+             *     - `request_bytes_reached`: the file does not fit in what the request has left (413)
              * @example not_found
              */
             code: string;
@@ -2952,7 +3209,13 @@ export interface components {
             drop_links?: string[];
         };
         /**
-         * @description Links only ever give read access.
+         * @description `view` shows a node and what is under it. `request` takes files into a folder
+         *     from anyone who has it, and shows nothing.
+         * @enum {string}
+         */
+        LinkKind: "view" | "request";
+        /**
+         * @description What a view link gives, which is only ever read access. A request has none.
          * @enum {string}
          */
         LinkRole: "view";
@@ -2966,15 +3229,22 @@ export interface components {
             auth_key: string;
             /**
              * Format: byte
-             * @description The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+             * @description The link key wrapped under the password, 73 bytes. Required on a view link in
+             *     `e2e` mode, and absent in `none` and on a request, whose URL keeps its key.
              */
             wrapped_key?: string;
         };
+        /**
+         * @description `kind` left out is `view`. A view link needs `role`. A request has none, an empty
+         *     `sealed_key` and no `download_limit`; it needs `public_key`, and may have
+         *     `max_file_size`, `file_limit` and `bytes_limit`, which a view link may not.
+         */
         CreateLinkRequest: {
             /** @description Chosen by the client, since it enters the AAD. It is what the URL carries. */
             id: string;
             node_id: string;
-            role: components["schemas"]["LinkRole"];
+            kind?: components["schemas"]["LinkKind"];
+            role?: components["schemas"]["LinkRole"];
             /**
              * Format: int64
              * @description The node's current generation, of the key being sealed.
@@ -2982,33 +3252,65 @@ export interface components {
             key_generation: number;
             /**
              * Format: byte
-             * @description The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+             * @description The node key sealed under the link key, 73 bytes. Empty in `none` mode, and on a request.
              */
             sealed_key: string;
             /**
              * Format: byte
-             * @description The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+             * @description 73 bytes, empty in `none` mode. On a view link, the link key sealed for its owner,
+             *     so a rotation can reach it. On a request, its X25519 private key sealed under the
+             *     owner's master key (CRYPTO.md, section 20).
              */
             owner_sealed_key: string;
+            /**
+             * Format: byte
+             * @description A request's X25519 public key, 32 bytes. Empty in `none` mode, and absent on a view link.
+             */
+            public_key?: string;
             /** Format: date-time */
             expires_at?: string;
             /**
              * Format: int64
-             * @description How many files may be fetched in all. See `getPublicBlob` for what counts.
+             * @description How many files may be fetched in all, on a view link. See `getPublicBlob` for what counts.
              */
             download_limit?: number;
+            /**
+             * Format: int64
+             * @description The largest file a request takes, in plaintext bytes.
+             */
+            max_file_size?: number;
+            /**
+             * Format: int64
+             * @description How many files a request takes in all.
+             */
+            file_limit?: number;
+            /**
+             * Format: int64
+             * @description How many plaintext bytes a request takes in all.
+             */
+            bytes_limit?: number;
             password?: components["schemas"]["LinkPassword"];
         };
+        /**
+         * @description A view link carries `role`, and its download limit. A request carries `public_key`, its
+         *     limits and what it has received.
+         */
         Link: {
             id: string;
             node_id: string;
-            role: components["schemas"]["LinkRole"];
+            kind: components["schemas"]["LinkKind"];
+            role?: components["schemas"]["LinkRole"];
             /** Format: int64 */
             key_generation: number;
             /** Format: byte */
             sealed_key: string;
             /** Format: byte */
             owner_sealed_key: string;
+            /**
+             * Format: byte
+             * @description Present on a request.
+             */
+            public_key?: string;
             has_password: boolean;
             /** Format: date-time */
             expires_at?: string;
@@ -3016,6 +3318,27 @@ export interface components {
             download_limit?: number;
             /** Format: int64 */
             download_count: number;
+            /** Format: int64 */
+            max_file_size?: number;
+            /** Format: int64 */
+            file_limit?: number;
+            /** Format: int64 */
+            bytes_limit?: number;
+            /**
+             * Format: int64
+             * @description On a request, the files that have arrived or are on their way.
+             */
+            files_received?: number;
+            /**
+             * Format: int64
+             * @description On a request, their plaintext bytes.
+             */
+            bytes_received?: number;
+            /**
+             * Format: int64
+             * @description On a request, the files on their way now, at most 20. One that receives nothing for an hour is dropped.
+             */
+            uploads_in_progress?: number;
             /** Format: date-time */
             revoked_at?: string;
             /** Format: date-time */
@@ -3102,6 +3425,175 @@ export interface components {
              * @description 32 bytes. See `LinkPassword`.
              */
             auth_key: string;
+        };
+        /**
+         * @description A file request as a sender sees it. `password_required` carries `kdf` and nothing
+         *     else that belongs to the request. `open` carries `token`, `token_expires_at`,
+         *     `suite` and the room the request has left, and `public_key`, which a sender MUST
+         *     compare with the key in its URL and refuse if they differ (CRYPTO.md, section 20).
+         *     Nothing names the folder, its owner or what is in it.
+         */
+        PublicRequest: {
+            id: string;
+            /** @enum {string} */
+            state: "open" | "password_required";
+            kdf?: components["schemas"]["KDF"];
+            suite?: components["schemas"]["Suite"];
+            /**
+             * Format: byte
+             * @description The request's X25519 public key, 32 bytes. Empty in `none` mode.
+             */
+            public_key?: string;
+            /** @description Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicRequest` before it ends. */
+            token?: string;
+            /** Format: date-time */
+            token_expires_at?: string;
+            /** Format: date-time */
+            expires_at?: string;
+            /**
+             * Format: int64
+             * @description The largest file it takes, in plaintext bytes. Absent if there is no limit.
+             */
+            max_file_size?: number;
+            /**
+             * Format: int64
+             * @description How many more files it takes. Absent if there is no limit.
+             */
+            files_remaining?: number;
+            /**
+             * Format: int64
+             * @description How many more plaintext bytes it takes. Absent if there is no limit.
+             */
+            bytes_remaining?: number;
+        };
+        /**
+         * @description The sizes of a file, before anything of it is sealed. The server chooses the ids the
+         *     file's node and version will have, so a sender cannot ask whether an id is in use.
+         */
+        CreateRequestUploadRequest: {
+            suite: components["schemas"]["Suite"];
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /** Format: int64 */
+            stored_size: number;
+        };
+        CommitRequestUploadRequest: {
+            /**
+             * Format: byte
+             * @description The file's node key sealed to the request's public key, 105 bytes. Empty in `none` mode.
+             */
+            sealed_key: string;
+            /**
+             * Format: byte
+             * @description The file's metadata sealed under its node key, at most 8 KiB, with the sender's
+             *     name and message if they gave them.
+             */
+            sealed_metadata: string;
+        };
+        RequestUpload: {
+            id: string;
+            /** @description The id the file's node will have, chosen by the server. It enters the AAD. */
+            node_id: string;
+            /** @description The id its version will have, chosen by the server. */
+            version_id: string;
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /** Format: int64 */
+            stored_size: number;
+            /** @description The indexes of the frames that have arrived, in order. */
+            frames: number[];
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @description A file that arrived through a request and waits to be adopted. `id` is the id its
+         *     node will have, and `version_id` its first version's. Untrusted, as anything from
+         *     someone else is.
+         */
+        IncomingItem: {
+            id: string;
+            link_id: string;
+            /** @description The request's folder, which adopting puts it in. */
+            folder_id: string;
+            suite: components["schemas"]["Suite"];
+            /**
+             * Format: byte
+             * @description Its node key, sealed to the request's public key. Empty in `none` mode.
+             */
+            sealed_key: string;
+            /** Format: byte */
+            sealed_metadata: string;
+            /**
+             * Format: byte
+             * @description The request's public key, as `Link.public_key`.
+             */
+            public_key: string;
+            /**
+             * Format: byte
+             * @description The request's private key under the owner's master key, as `Link.owner_sealed_key`.
+             */
+            sealed_private_key: string;
+            version_id: string;
+            blob_id: string;
+            /**
+             * Format: int64
+             * @description Plaintext bytes.
+             */
+            size: number;
+            /** Format: int64 */
+            stored_size: number;
+            /** Format: int64 */
+            frame_count: number;
+            /** Format: int64 */
+            frame_size: number;
+            /**
+             * Format: byte
+             * @description The SHA-256 of each stored frame, in order, as on a `Version`.
+             */
+            frame_hashes: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        IncomingPage: {
+            items: components["schemas"]["IncomingItem"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        AdoptIncomingRequest: {
+            /**
+             * Format: int64
+             * @description The folder's current generation, which `wrapped_key` is made under.
+             */
+            parent_key_generation: number;
+            /**
+             * Format: byte
+             * @description The item's node key wrapped under the folder's, as for any child. Empty in `none` mode.
+             */
+            wrapped_key: string;
+            /**
+             * Format: byte
+             * @description 32 bytes, under the folder's key.
+             */
+            name_tag: string;
+            /**
+             * Format: byte
+             * @description The metadata as the owner keeps it, sealed again.
+             */
+            sealed_metadata: string;
+            /**
+             * Format: byte
+             * @description The owner's signature over the manifest, 64 bytes in `e2e` mode, empty in `none`.
+             */
+            signature: string;
+            /**
+             * Format: byte
+             * @description 1 byte to 4 KiB, opaque, kept as sent.
+             */
+            manifest: string;
         };
         /**
          * @description What a reader needs to read a node's current version, and no more. The signer
@@ -3227,6 +3719,8 @@ export interface components {
          *     `link_token_invalid`.
          */
         LinkToken: string;
+        /** @description An upload this request has given out. Anything else answers `not_found`. */
+        RequestUploadID: string;
         /** @description A node at or under the link's. Anything else answers `not_found`. */
         LinkNodeID: string;
         /** @description The SHA-256 of the body, in padded standard base64. */
@@ -5543,6 +6037,314 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPublicRequest: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state of the request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicRequest"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    unlockPublicRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The request, open. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicRequest"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createRequestUpload: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRequestUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The upload, with no frames yet. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestUpload"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getRequestUpload: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The upload. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RequestUpload"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    abortRequestUpload: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    putRequestFrame: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+                /** @description The SHA-256 of the body, in padded standard base64. */
+                "X-Content-SHA256": components["parameters"]["ContentSHA256"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+                /** @description The frame's index, from 0. */
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description The frame is on disk. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    commitRequestUpload: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description The token of an open link. Bound to one link and its node, and good for 15 minutes.
+                 *     Anything missing answers `link_token_required`, anything else wrong
+                 *     `link_token_invalid`.
+                 */
+                "X-Link-Token"?: components["parameters"]["LinkToken"];
+            };
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description An upload this request has given out. Anything else answers `not_found`. */
+                upload_id: components["parameters"]["RequestUploadID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommitRequestUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Handed over. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listIncoming: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["IDCursor"];
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page, in id order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncomingPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteIncoming: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    adoptIncoming: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdoptIncomingRequest"];
+            };
+        };
+        responses: {
+            /** @description The new node. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Node"];
                 };
             };
             default: components["responses"]["Error"];

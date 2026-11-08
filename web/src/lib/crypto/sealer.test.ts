@@ -337,6 +337,15 @@ describe('what sharing asks of a sealer', () => {
 		expect(none.fingerprint({ x25519: empty, ed25519: empty })).toHaveLength(0);
 		expect(none.safetyNumber(empty, empty)).toBe('');
 		expect(none.parseLinkFragment('anything')).toHaveLength(0);
+		const request = none.newRequestKeys();
+		expect(request.privateKey).toHaveLength(0);
+		expect(request.publicKey).toHaveLength(0);
+		expect(none.sealRequestPrivateKey(request, empty, 'l', 'f')).toHaveLength(0);
+		expect(none.openRequestPrivateKey(empty, empty, 'l', empty, 'f')).toHaveLength(0);
+		expect(none.sealNodeKeyToRequest(empty, empty, 'l', 'n')).toHaveLength(0);
+		expect(none.openNodeKeyFromRequest(empty, request, 'l', 'n')).toHaveLength(0);
+		expect(none.requestFragment(empty)).toBe('');
+		expect(none.parseRequestFragment('anything')).toHaveLength(0);
 	});
 
 	it('signs a grant that only its signer verifies', () => {

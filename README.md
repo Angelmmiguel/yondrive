@@ -145,6 +145,10 @@ the ZIP export turns into relative paths.
 
 - Share files and folders with other users as viewer or editor
 - Public links with optional password, expiry and revocation
+- File requests: a link that lets anyone drop files into one of your folders,
+  with a password, an expiry and limits on size and count, without seeing what
+  is there. In end-to-end mode what they send is encrypted to a key only you
+  hold, and it lands in the folder the next time you open the app
 - In end-to-end mode, the decryption key sits in the part of the link after `#`,
   which browsers never send to the server, and user keys can be verified, so a
   compromised server cannot silently stand in for the person you share with

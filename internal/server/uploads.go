@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,6 +52,10 @@ func largeBodyRoute(r *http.Request) bool {
 	if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/uploads/"); ok {
 		_, n, found := strings.Cut(rest, "/frames/")
 		return found && !strings.Contains(n, "/")
+	}
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/api/v1/public/requests/"); ok {
+		parts := strings.Split(rest, "/")
+		return len(parts) == 5 && parts[1] == "uploads" && parts[3] == "frames"
 	}
 	return false
 }
@@ -137,7 +142,8 @@ func (s *Server) authorizeUpload(ctx context.Context, id string) (store.Upload, 
 	if err != nil {
 		return store.Upload{}, driveError(err)
 	}
-	if u.UserID != principalFrom(ctx).user.ID {
+	// An upload through a request is the request's business, whoever is charged for it.
+	if u.UserID != principalFrom(ctx).user.ID || u.LinkID != "" {
 		return store.Upload{}, fail(http.StatusNotFound, codeNotFound)
 	}
 	if _, err := s.authorizeNode(ctx, u.NodeID, permWrite); err != nil {
@@ -270,7 +276,7 @@ func (s *Server) AbortUpload(ctx context.Context, req oapi.AbortUploadRequestObj
 	if err != nil {
 		return nil, driveError(err)
 	}
-	if u.UserID != principalFrom(ctx).user.ID {
+	if u.UserID != principalFrom(ctx).user.ID || u.LinkID != "" {
 		return nil, fail(http.StatusNotFound, codeNotFound)
 	}
 	if err := s.store.DeleteUpload(ctx, u.ID); err != nil {
@@ -285,70 +291,78 @@ func decodeSHA256(v string) ([]byte, bool) {
 	return sum, err == nil && len(sum) == 32
 }
 
-// PutFrame stores one frame of an upload. It is on disk before it is recorded, so
-// what status reports as present is there after a crash.
-//
-// A frame already recorded is never written again. That is what makes a commit
-// safe against a late retry: no writer can be touching a file with every frame
-// recorded.
+// PutFrame stores one frame of an upload.
 func (s *Server) PutFrame(ctx context.Context, req oapi.PutFrameRequestObject) (oapi.PutFrameResponseObject, error) {
 	u, err := s.authorizeUpload(ctx, req.Id)
 	if err != nil {
 		return nil, err
 	}
-	want, ok := decodeSHA256(req.Params.XContentSHA256)
-	if !ok {
-		return nil, badRequest(codeFrameHash)
+	if err := s.writeFrame(ctx, u, req.N, req.Params.XContentSHA256, req.Body); err != nil {
+		return nil, err
 	}
-	if req.N < 0 || req.N >= u.FrameCount {
-		return nil, badRequest(codeInvalidFrame)
+	return oapi.PutFrame204Response{}, nil
+}
+
+// writeFrame stores one frame of an upload. It is on disk before it is recorded,
+// so what status reports as present is there after a crash.
+//
+// A frame already recorded is never written again. That is what makes a commit
+// safe against a late retry: no writer can be touching a file with every frame
+// recorded.
+func (s *Server) writeFrame(ctx context.Context, u store.Upload, n int64, digest string, body io.Reader) error {
+	want, ok := decodeSHA256(digest)
+	if !ok {
+		return badRequest(codeFrameHash)
+	}
+	if n < 0 || n >= u.FrameCount {
+		return badRequest(codeInvalidFrame)
 	}
 	f, ok := framingOf(u.FrameCount, u.FrameSize, u.StoredSize, s.overhead())
 	if !ok {
-		return nil, badRequest(codeInvalidFraming)
+		return badRequest(codeInvalidFraming)
 	}
-	length := f.length(req.N)
+	length := f.length(n)
 	if r := requestFrom(ctx); r != nil && r.ContentLength >= 0 && r.ContentLength != length {
-		return nil, badRequest(codeFrameLength)
+		return badRequest(codeFrameLength)
 	}
 
-	release, err := s.frames.acquire(ctx, u.ID+"/"+strconv.FormatInt(req.N, 10))
+	release, err := s.frames.acquire(ctx, u.ID+"/"+strconv.FormatInt(n, 10))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer release()
 
-	existing, err := s.store.FrameHash(ctx, u.ID, req.N)
+	existing, err := s.store.FrameHash(ctx, u.ID, n)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if existing != nil {
 		if !bytes.Equal(existing, want) {
-			return nil, fail(http.StatusConflict, codeFrameConflict)
+			return fail(http.StatusConflict, codeFrameConflict)
 		}
-		return oapi.PutFrame204Response{}, nil
+		return nil
 	}
-	sum, err := s.files.WriteFrame(u.ID, f.offset(req.N), length, req.Body)
+	sum, err := s.files.WriteFrame(u.ID, f.offset(n), length, body)
 	switch {
 	case errors.Is(err, blobs.ErrLength):
-		return nil, badRequest(codeFrameLength)
+		return badRequest(codeFrameLength)
 	case errors.Is(err, blobs.ErrBody):
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			return nil, err
+			return err
 		}
-		return nil, badRequest(codeFrameLength)
+		return badRequest(codeFrameLength)
 	case err != nil:
-		return nil, driveError(err)
+		return driveError(err)
 	}
 	if !bytes.Equal(sum, want) {
-		return nil, badRequest(codeFrameHash)
+		return badRequest(codeFrameHash)
 	}
 	// The client may hang up now that it has sent everything; the frame is good.
-	if err := s.store.RecordFrame(context.WithoutCancel(ctx), u.ID, req.N, sum, s.cfg.Now()); err != nil {
-		return nil, driveError(err)
+	if err := s.store.RecordFrame(context.WithoutCancel(ctx), u.ID, n, sum, s.cfg.Now()); err != nil {
+		return driveError(err)
 	}
-	return oapi.PutFrame204Response{}, nil
+	return nil
 }
 
 // CommitUpload turns a complete upload into the file's current version. It goes

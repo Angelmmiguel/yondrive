@@ -39,11 +39,16 @@ tags:
   - name: sharing
     description: Grants to other users, key rotation, and the notifications they make.
   - name: links
-    description: Public links, as their owner sees them.
+    description: Public links and file requests, as their owner sees them.
+  - name: requests
+    description: |
+      What has arrived through the signed-in user's file requests, waiting to be
+      adopted into their tree.
   - name: public
     description: |
-      What anyone with a public link may read. Nothing here looks at a cookie or a
-      bearer token: a link token in `X-Link-Token` is the only authority.
+      What anyone with a public link may read, and what anyone with a file request
+      may send. Nothing here looks at a cookie or a bearer token: a link token in
+      `X-Link-Token` is the only authority.
   - name: admin
     description: Server administration. Admins only.
 paths:
@@ -1831,11 +1836,13 @@ paths:
     post:
       operationId: createLink
       tags: [links]
-      summary: Make a public link to a node
+      summary: Make a public link to a node, or a file request into a folder
       description: |
-        Owner only, and it covers the subtree. Answers `id_taken`, `invalid_link`,
-        `invalid_kdf`, `root_immutable`, `node_trashed` or `key_generation_conflict`.
-        CRYPTO.md, section 19, says how the keys are made.
+        Owner only. A view link covers the subtree. A request takes files into a
+        folder (`not_a_folder` otherwise) from anyone who has it, who can read
+        nothing there. Answers `id_taken`, `invalid_link`, `invalid_kdf`,
+        `root_immutable`, `node_trashed` or `key_generation_conflict`.
+        CRYPTO.md, sections 19 and 20, says how the keys are made.
       requestBody:
         required: true
         content:
@@ -1858,7 +1865,9 @@ paths:
       operationId: deleteLink
       tags: [links]
       summary: Forget a link
-      description: After this its id answers `not_found`.
+      description: |
+        After this its id answers `not_found`. A request's items that wait to be adopted go
+        with it, as only its private key opens them.
       responses:
         "204":
           description: Gone.
@@ -1871,7 +1880,10 @@ paths:
       operationId: revokeLink
       tags: [links]
       summary: End a link, keeping its row
-      description: After this its id answers `link_revoked`, and tokens already given stop working.
+      description: |
+        After this its id answers `link_revoked`, and tokens already given stop working.
+        What a request has received and not been adopted waits for the purge grace
+        period, and then goes.
       responses:
         "200":
           description: The link.
@@ -1893,9 +1905,9 @@ paths:
         parameters: derive, then call `unlockPublicLink`. A valid `X-Link-Token` for this
         link goes straight to `open` and renews the token within its session, which lasts
         at most a day. Limited per address, and on a password per link as well
-        (`rate_limited`). Answers `not_found` for what does not exist, or whose node is in
-        the trash, `link_expired`, `link_revoked`, or `link_limit_reached` to someone
-        new once the limit has been reached.
+        (`rate_limited`). Answers `not_found` for what does not exist or is a request, or
+        whose node is in the trash, `link_expired`, `link_revoked`, or `link_limit_reached`
+        to someone new once the limit has been reached.
       security: []
       parameters:
         - $ref: "#/components/parameters/LinkToken"
@@ -2067,6 +2079,259 @@ paths:
                 type: string
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: getPublicRequest
+      tags: [public]
+      summary: Open a file request
+      description: |
+        With no password, a token and the room the request has left. With a password,
+        its KDF parameters: derive, then call `unlockPublicRequest`. A valid
+        `X-Link-Token` for this request renews it, as with a public link. Nothing here
+        names the folder, its owner or anything in it. Limited per address, and on a
+        password per request as well (`rate_limited`). Answers `not_found` for what does
+        not exist or is not a request, or whose folder is in the trash, `link_expired`
+        or `link_revoked`.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "200":
+          description: The state of the request.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicRequest"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}/unlock:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: unlockPublicRequest
+      tags: [public]
+      summary: Show the password of a file request
+      description: |
+        As `unlockPublicLink`: the hash is compared in constant time, a wrong password
+        answers `link_password_invalid`, and every attempt counts against the address and
+        the request (`rate_limited`).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UnlockLinkRequest"
+      responses:
+        "200":
+          description: The request, open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicRequest"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}/uploads:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: createRequestUpload
+      tags: [public]
+      summary: Start sending a file through a request
+      description: |
+        As `createUpload`, for a file that is not in any tree yet: it reserves room in the
+        owner's quota (`quota_exceeded`), and its frames then arrive the same way. The
+        server chooses the ids the file's node and version will have, and the sender seals
+        the frames under a node key of its own with them. The node key, sealed to the
+        request's public key, and the metadata, sealed under it, come with the commit
+        (CRYPTO.md, section 20).
+
+        On top of the owner's quota, the request's own limits apply, counted in plaintext
+        bytes: `request_file_too_large` (413), `request_files_reached` (409) and
+        `request_bytes_reached` (413). A request has at most 20 uploads in progress
+        (`too_many_uploads`), and one that receives no frame for an hour is dropped, which
+        gives its place back. Also `invalid_framing`, `suite_mismatch`, and the endings of
+        `getPublicRequest`. Limited per address (`rate_limited`), more tightly than a
+        signed-in upload.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequestUploadRequest"
+      responses:
+        "201":
+          description: The upload, with no frames yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestUpload"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}/uploads/{upload_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/RequestUploadID"
+    get:
+      operationId: getRequestUpload
+      tags: [public]
+      summary: Report which frames of an upload through a request have arrived
+      description: What a sender resumes from. Answers `not_found` once the upload has completed.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "200":
+          description: The upload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestUpload"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: abortRequestUpload
+      tags: [public]
+      summary: Abandon an upload through a request
+      description: Releases its reservation, and what it took of the request's limits.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}/uploads/{upload_id}/frames/{n}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/RequestUploadID"
+      - name: n
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+        description: The frame's index, from 0.
+    put:
+      operationId: putRequestFrame
+      tags: [public]
+      summary: Send one stored frame of an upload through a request
+      description: As `putFrame`.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+        - $ref: "#/components/parameters/ContentSHA256"
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "204":
+          description: The frame is on disk.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/public/requests/{id}/uploads/{upload_id}/commit:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/RequestUploadID"
+    post:
+      operationId: commitRequestUpload
+      tags: [public]
+      summary: Hand a complete upload over to the request's owner
+      description: |
+        The file becomes an incoming item, which waits outside the tree until its owner's
+        client adopts it. The sender gets nothing back: not the item, nor anything else in
+        the folder. Answers `upload_incomplete` if a frame is missing, and `invalid_node`
+        if a sealed field is the wrong size. A commit of an upload that has already been
+        handed over answers 204 again, so a lost answer can be retried; `not_found` means
+        the upload is gone and nothing arrived.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkToken"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommitRequestUploadRequest"
+      responses:
+        "204":
+          description: Handed over.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/incoming:
+    get:
+      operationId: listIncoming
+      tags: [requests]
+      summary: List what has arrived through the signed-in user's requests
+      description: |
+        Complete items only, each with what its owner's client needs to adopt it: the
+        sealed node key and metadata, the request's keys, and the frame digests that its
+        manifest signs. Items still on their way are not listed.
+      parameters:
+        - $ref: "#/components/parameters/IDCursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page, in id order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPage"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/incoming/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    delete:
+      operationId: deleteIncoming
+      tags: [requests]
+      summary: Throw away an item that arrived through a request
+      description: Its bytes go, and stop counting against the quota. It still counts against the request's limits.
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/incoming/{id}/adopt:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    post:
+      operationId: adoptIncoming
+      tags: [requests]
+      summary: Put an item that arrived through a request into its folder
+      description: |
+        The item becomes a file with its own id in the request's folder, whose first
+        version holds the frames as they arrived, signed now by the owner (CRYPTO.md,
+        section 20). It works while the request is revoked or expired, until the purge.
+        Answers `name_conflict` (choose another name and seal again), `parent_trashed`,
+        `key_generation_conflict`, `invalid_node`, `invalid_commit` or `quota_exceeded`
+        for the metadata.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdoptIncomingRequest"
+      responses:
+        "201":
+          description: The new node.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Node"
+        default:
+          $ref: "#/components/responses/Error"
 components:
   securitySchemes:
     sessionCookie:
@@ -2197,6 +2462,9 @@ components:
             - `link_limit_reached`: the link has given all its downloads (410)
             - `link_token_required`, `link_token_invalid`: no good `X-Link-Token` (401)
             - `link_password_invalid`: wrong password (401)
+            - `request_file_too_large`: the file is larger than the request takes (413)
+            - `request_files_reached`: the request has taken all the files it takes (409)
+            - `request_bytes_reached`: the file does not fit in what the request has left (413)
           examples: [not_found]
     KDF:
       type: object
@@ -3742,9 +4010,15 @@ components:
           items:
             type: string
             pattern: "^[0-9a-f]{32}$"
+    LinkKind:
+      type: string
+      description: |
+        `view` shows a node and what is under it. `request` takes files into a folder
+        from anyone who has it, and shows nothing.
+      enum: [view, request]
     LinkRole:
       type: string
-      description: Links only ever give read access.
+      description: What a view link gives, which is only ever read access. A request has none.
       enum: [view]
     LinkPassword:
       type: object
@@ -3761,10 +4035,16 @@ components:
         wrapped_key:
           type: string
           format: byte
-          description: The link key wrapped under the password, 73 bytes. Required in `e2e` mode, absent in `none`.
+          description: |
+            The link key wrapped under the password, 73 bytes. Required on a view link in
+            `e2e` mode, and absent in `none` and on a request, whose URL keeps its key.
     CreateLinkRequest:
       type: object
-      required: [id, node_id, role, key_generation, sealed_key, owner_sealed_key]
+      description: |
+        `kind` left out is `view`. A view link needs `role`. A request has none, an empty
+        `sealed_key` and no `download_limit`; it needs `public_key`, and may have
+        `max_file_size`, `file_limit` and `bytes_limit`, which a view link may not.
+      required: [id, node_id, key_generation, sealed_key, owner_sealed_key]
       properties:
         id:
           type: string
@@ -3773,6 +4053,8 @@ components:
         node_id:
           type: string
           pattern: "^[0-9a-f]{32}$"
+        kind:
+          $ref: "#/components/schemas/LinkKind"
         role:
           $ref: "#/components/schemas/LinkRole"
         key_generation:
@@ -3782,11 +4064,18 @@ components:
         sealed_key:
           type: string
           format: byte
-          description: The node key sealed under the link key, 73 bytes. Empty in `none` mode.
+          description: The node key sealed under the link key, 73 bytes. Empty in `none` mode, and on a request.
         owner_sealed_key:
           type: string
           format: byte
-          description: The link key sealed for its owner, 73 bytes, so a rotation can reach it. Empty in `none` mode.
+          description: |
+            73 bytes, empty in `none` mode. On a view link, the link key sealed for its owner,
+            so a rotation can reach it. On a request, its X25519 private key sealed under the
+            owner's master key (CRYPTO.md, section 20).
+        public_key:
+          type: string
+          format: byte
+          description: A request's X25519 public key, 32 bytes. Empty in `none` mode, and absent on a view link.
         expires_at:
           type: string
           format: date-time
@@ -3794,17 +4083,37 @@ components:
           type: integer
           format: int64
           minimum: 1
-          description: How many files may be fetched in all. See `getPublicBlob` for what counts.
+          description: How many files may be fetched in all, on a view link. See `getPublicBlob` for what counts.
+        max_file_size:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The largest file a request takes, in plaintext bytes.
+        file_limit:
+          type: integer
+          format: int64
+          minimum: 1
+          description: How many files a request takes in all.
+        bytes_limit:
+          type: integer
+          format: int64
+          minimum: 1
+          description: How many plaintext bytes a request takes in all.
         password:
           $ref: "#/components/schemas/LinkPassword"
     Link:
       type: object
-      required: [id, node_id, role, key_generation, sealed_key, owner_sealed_key, has_password, download_count, created_at]
+      description: |
+        A view link carries `role`, and its download limit. A request carries `public_key`, its
+        limits and what it has received.
+      required: [id, node_id, kind, key_generation, sealed_key, owner_sealed_key, has_password, download_count, created_at]
       properties:
         id:
           type: string
         node_id:
           type: string
+        kind:
+          $ref: "#/components/schemas/LinkKind"
         role:
           $ref: "#/components/schemas/LinkRole"
         key_generation:
@@ -3816,6 +4125,10 @@ components:
         owner_sealed_key:
           type: string
           format: byte
+        public_key:
+          type: string
+          format: byte
+          description: Present on a request.
         has_password:
           type: boolean
         expires_at:
@@ -3827,6 +4140,27 @@ components:
         download_count:
           type: integer
           format: int64
+        max_file_size:
+          type: integer
+          format: int64
+        file_limit:
+          type: integer
+          format: int64
+        bytes_limit:
+          type: integer
+          format: int64
+        files_received:
+          type: integer
+          format: int64
+          description: On a request, the files that have arrived or are on their way.
+        bytes_received:
+          type: integer
+          format: int64
+          description: On a request, their plaintext bytes.
+        uploads_in_progress:
+          type: integer
+          format: int64
+          description: On a request, the files on their way now, at most 20. One that receives nothing for an hour is dropped.
         revoked_at:
           type: string
           format: date-time
@@ -3948,6 +4282,212 @@ components:
           type: string
           format: byte
           description: 32 bytes. See `LinkPassword`.
+    PublicRequest:
+      type: object
+      description: |
+        A file request as a sender sees it. `password_required` carries `kdf` and nothing
+        else that belongs to the request. `open` carries `token`, `token_expires_at`,
+        `suite` and the room the request has left, and `public_key`, which a sender MUST
+        compare with the key in its URL and refuse if they differ (CRYPTO.md, section 20).
+        Nothing names the folder, its owner or what is in it.
+      required: [id, state]
+      properties:
+        id:
+          type: string
+        state:
+          type: string
+          enum: [open, password_required]
+        kdf:
+          $ref: "#/components/schemas/KDF"
+        suite:
+          $ref: "#/components/schemas/Suite"
+        public_key:
+          type: string
+          format: byte
+          description: The request's X25519 public key, 32 bytes. Empty in `none` mode.
+        token:
+          type: string
+          description: Goes in `X-Link-Token`. Keep it in memory and renew it with `getPublicRequest` before it ends.
+        token_expires_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        max_file_size:
+          type: integer
+          format: int64
+          description: The largest file it takes, in plaintext bytes. Absent if there is no limit.
+        files_remaining:
+          type: integer
+          format: int64
+          description: How many more files it takes. Absent if there is no limit.
+        bytes_remaining:
+          type: integer
+          format: int64
+          description: How many more plaintext bytes it takes. Absent if there is no limit.
+    CreateRequestUploadRequest:
+      type: object
+      description: |
+        The sizes of a file, before anything of it is sealed. The server chooses the ids the
+        file's node and version will have, so a sender cannot ask whether an id is in use.
+      required: [suite, frame_count, frame_size, stored_size]
+      properties:
+        suite:
+          $ref: "#/components/schemas/Suite"
+        frame_count:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1048576
+        frame_size:
+          type: integer
+          format: int64
+          minimum: 1024
+          maximum: 16777216
+        stored_size:
+          type: integer
+          format: int64
+          minimum: 0
+    CommitRequestUploadRequest:
+      type: object
+      required: [sealed_key, sealed_metadata]
+      properties:
+        sealed_key:
+          type: string
+          format: byte
+          description: The file's node key sealed to the request's public key, 105 bytes. Empty in `none` mode.
+        sealed_metadata:
+          type: string
+          format: byte
+          description: |
+            The file's metadata sealed under its node key, at most 8 KiB, with the sender's
+            name and message if they gave them.
+    RequestUpload:
+      type: object
+      required: [id, node_id, version_id, frame_count, frame_size, stored_size, frames, created_at]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+          description: The id the file's node will have, chosen by the server. It enters the AAD.
+        version_id:
+          type: string
+          description: The id its version will have, chosen by the server.
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        stored_size:
+          type: integer
+          format: int64
+        frames:
+          type: array
+          description: The indexes of the frames that have arrived, in order.
+          items:
+            type: integer
+            format: int64
+        created_at:
+          type: string
+          format: date-time
+    IncomingItem:
+      type: object
+      description: |
+        A file that arrived through a request and waits to be adopted. `id` is the id its
+        node will have, and `version_id` its first version's. Untrusted, as anything from
+        someone else is.
+      required: [id, link_id, folder_id, suite, sealed_key, sealed_metadata, public_key, sealed_private_key, version_id, blob_id, size, stored_size, frame_count, frame_size, frame_hashes, created_at]
+      properties:
+        id:
+          type: string
+        link_id:
+          type: string
+        folder_id:
+          type: string
+          description: The request's folder, which adopting puts it in.
+        suite:
+          $ref: "#/components/schemas/Suite"
+        sealed_key:
+          type: string
+          format: byte
+          description: Its node key, sealed to the request's public key. Empty in `none` mode.
+        sealed_metadata:
+          type: string
+          format: byte
+        public_key:
+          type: string
+          format: byte
+          description: The request's public key, as `Link.public_key`.
+        sealed_private_key:
+          type: string
+          format: byte
+          description: The request's private key under the owner's master key, as `Link.owner_sealed_key`.
+        version_id:
+          type: string
+        blob_id:
+          type: string
+        size:
+          type: integer
+          format: int64
+          description: Plaintext bytes.
+        stored_size:
+          type: integer
+          format: int64
+        frame_count:
+          type: integer
+          format: int64
+        frame_size:
+          type: integer
+          format: int64
+        frame_hashes:
+          type: string
+          format: byte
+          description: The SHA-256 of each stored frame, in order, as on a `Version`.
+        created_at:
+          type: string
+          format: date-time
+    IncomingPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/IncomingItem"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    AdoptIncomingRequest:
+      type: object
+      required: [parent_key_generation, wrapped_key, name_tag, sealed_metadata, signature, manifest]
+      properties:
+        parent_key_generation:
+          type: integer
+          format: int64
+          description: The folder's current generation, which `wrapped_key` is made under.
+        wrapped_key:
+          type: string
+          format: byte
+          description: The item's node key wrapped under the folder's, as for any child. Empty in `none` mode.
+        name_tag:
+          type: string
+          format: byte
+          description: 32 bytes, under the folder's key.
+        sealed_metadata:
+          type: string
+          format: byte
+          description: The metadata as the owner keeps it, sealed again.
+        signature:
+          type: string
+          format: byte
+          description: The owner's signature over the manifest, 64 bytes in `e2e` mode, empty in `none`.
+        manifest:
+          type: string
+          format: byte
+          description: 1 byte to 4 KiB, opaque, kept as sent.
     PublicVersion:
       type: object
       description: |
@@ -4120,6 +4660,14 @@ components:
         The token of an open link. Bound to one link and its node, and good for 15 minutes.
         Anything missing answers `link_token_required`, anything else wrong
         `link_token_invalid`.
+    RequestUploadID:
+      name: upload_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+      description: An upload this request has given out. Anything else answers `not_found`.
     LinkNodeID:
       name: node_id
       in: path

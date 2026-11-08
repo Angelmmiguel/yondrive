@@ -29,6 +29,7 @@
 	import { linkStatus, type LinkStatus } from '../links';
 	import { unrekeyedText } from '../rotation';
 	import type { Person } from '../sharing';
+	import RequestPane from './RequestPane.svelte';
 
 	interface Props {
 		node: DriveNode;
@@ -65,7 +66,9 @@
 	let made = $state<string | null>(null);
 
 	const links = $derived(
-		sharing.links.filter(({ link }) => link.node_id === node.id).map(({ link }) => link)
+		sharing.links
+			.filter(({ link }) => link.node_id === node.id && link.kind === 'view')
+			.map(({ link }) => link)
 	);
 	const direct = $derived(people.filter((person) => !person.access.inherited));
 	const inherited = $derived(people.filter((person) => person.access.inherited));
@@ -217,7 +220,10 @@
 		label="How to share"
 		tabs={[
 			{ id: 'people', label: 'People' },
-			{ id: 'link', label: 'Public link' }
+			{ id: 'link', label: 'Public link' },
+			...(node.kind === 'folder' && node.role === 'owner'
+				? [{ id: 'request', label: 'Request files' }]
+				: [])
 		]}
 		bind:value={tab}
 	>
@@ -321,6 +327,8 @@
 						{#if people.length === 0}<li class="none">Only you have this.</li>{/if}
 					</ul>
 				</div>
+			{:else if selected === 'request'}
+				<RequestPane {node} />
 			{:else}
 				<div class="pane">
 					{#if linkError}<Banner tone="danger">{linkError}</Banner>{/if}

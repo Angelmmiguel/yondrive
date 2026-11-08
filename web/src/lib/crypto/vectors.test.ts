@@ -31,6 +31,14 @@ import {
 	unwrapLinkKey,
 	wrapLinkKey
 } from './link';
+import {
+	decodeRequestFragment,
+	encodeRequestFragment,
+	openNodeKeyFromRequest,
+	openRequestPrivateKey,
+	sealNodeKeyToRequest,
+	sealRequestPrivateKey
+} from './request';
 import { signVersion, verifyVersion, versionMessage } from './manifest';
 import { nameHmac, normalizeName, openMetadata, sealMetadata } from './metadata';
 import {
@@ -503,5 +511,56 @@ describe('pins', () => {
 		expect(bytesToHex(sealPins(h(p.plaintext), h(p.masterKey), p.userId))).toBe(p.sealed);
 		expect(bytesToHex(openPins(h(p.sealed), h(p.masterKey), p.userId))).toBe(p.plaintext);
 		expect(() => openPins(h(p.sealed), h(p.masterKey), 'someone-else')).toThrow(SealError);
+	});
+});
+
+describe('file request', () => {
+	const r = v.request;
+	const keys = { privateKey: h(r.privateKey), publicKey: h(r.publicKey) };
+
+	it('seals and opens the private key under the master key, bound to its key and folder', () => {
+		fixRandom(r.owner.nonce);
+		const master = h(r.owner.masterKey);
+		const sealed = h(r.owner.sealed);
+
+		expect(bytesToHex(sealRequestPrivateKey(keys, master, r.linkId, r.folderId))).toBe(
+			r.owner.sealed
+		);
+		expect(
+			bytesToHex(openRequestPrivateKey(sealed, master, r.linkId, keys.publicKey, r.folderId))
+		).toBe(r.privateKey);
+		const other = h(v.grant.recipientPublic);
+		expect(() => openRequestPrivateKey(sealed, master, r.linkId, other, r.folderId)).toThrow(
+			SealError
+		);
+		expect(() =>
+			openRequestPrivateKey(sealed, master, r.linkId, keys.publicKey, 'node-elsewhere')
+		).toThrow(SealError);
+	});
+
+	it('seals a node key to the request and opens it with its private key', () => {
+		const n = r.nodeKey;
+		fixRandom(n.ephemeralPrivate, n.nonce);
+
+		expect(
+			bytesToHex(sealNodeKeyToRequest(h(n.plaintext), keys.publicKey, r.linkId, r.nodeId))
+		).toBe(n.sealed);
+		expect(bytesToHex(openNodeKeyFromRequest(h(n.sealed), keys, r.linkId, r.nodeId))).toBe(
+			n.plaintext
+		);
+		expect(() => openNodeKeyFromRequest(h(n.sealed), keys, 'link-other', r.nodeId)).toThrow(
+			SealError
+		);
+		expect(() => openNodeKeyFromRequest(h(n.sealed), keys, r.linkId, 'node-other')).toThrow(
+			SealError
+		);
+	});
+
+	it('carries the public key as unpadded base64url, and nothing in suite none', () => {
+		expect(encodeRequestFragment(keys.publicKey)).toBe(r.fragment);
+		expect(bytesToHex(decodeRequestFragment(r.fragment))).toBe(r.publicKey);
+		expect(decodeRequestFragment('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).toHaveLength(0);
+		expect(decodeRequestFragment('short')).toHaveLength(0);
+		expect(sealerFor(SUITE_NONE).requestFragment(keys.publicKey)).toBe('');
 	});
 });

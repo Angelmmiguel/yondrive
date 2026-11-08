@@ -86,6 +86,14 @@ export type PublicNodePage = Schemas['PublicNodePage'];
 export type PublicLink = Schemas['PublicLink'];
 export type PublicVersion = Schemas['PublicVersion'];
 export type UnlockLinkRequest = Schemas['UnlockLinkRequest'];
+export type LinkKind = Schemas['LinkKind'];
+export type PublicRequest = Schemas['PublicRequest'];
+export type CreateRequestUploadRequest = Schemas['CreateRequestUploadRequest'];
+export type CommitRequestUploadRequest = Schemas['CommitRequestUploadRequest'];
+export type RequestUpload = Schemas['RequestUpload'];
+export type IncomingItem = Schemas['IncomingItem'];
+export type IncomingPage = Schemas['IncomingPage'];
+export type AdoptIncomingRequest = Schemas['AdoptIncomingRequest'];
 export type AuthMethods = Schemas['AuthMethods'];
 export type OidcStart = Schemas['OIDCStart'];
 export type OidcStartRequest = Schemas['OIDCStartRequest'];
@@ -196,6 +204,9 @@ export type ErrorCode =
 	| 'link_token_required'
 	| 'link_token_invalid'
 	| 'link_password_invalid'
+	| 'request_file_too_large'
+	| 'request_files_reached'
+	| 'request_bytes_reached'
 	| 'sso_disabled'
 	| 'sso_only'
 	| 'local_accounts_disabled'

@@ -26,10 +26,20 @@ import {
 	unwrapMasterKey,
 	wrapMasterKey,
 	type Identity,
+	type KeyPair,
 	type PublicKeys,
 	type WrapPurpose
 } from './keys';
 import { signGrant, verifyGrant, type GrantFields } from './grant';
+import {
+	decodeRequestFragment,
+	encodeRequestFragment,
+	generateRequestKeys,
+	openNodeKeyFromRequest,
+	openRequestPrivateKey,
+	sealNodeKeyToRequest,
+	sealRequestPrivateKey
+} from './request';
 import {
 	decodeLinkFragment,
 	encodeLinkFragment,
@@ -200,6 +210,36 @@ export interface Sealer {
 	/** The link key in a fragment; empty if there is none, which a key that is needed then refuses. */
 	parseLinkFragment(fragment: string): Bytes;
 
+	/** A fresh key pair for a file request; both keys empty in suite `none`. */
+	newRequestKeys(): KeyPair;
+	/** The private key under the master key, bound to the public key and the request's folder. */
+	sealRequestPrivateKey(
+		keys: KeyPair,
+		masterKey: Uint8Array,
+		linkId: string,
+		folderId: string
+	): Bytes;
+	/** Throws unless the private key opens for this folder and matches `publicKey`. */
+	openRequestPrivateKey(
+		stored: Uint8Array,
+		masterKey: Uint8Array,
+		linkId: string,
+		publicKey: Uint8Array,
+		folderId: string
+	): Bytes;
+	/** What a sender makes of a file's node key: sealed to the request's public key. */
+	sealNodeKeyToRequest(
+		nodeKey: Uint8Array,
+		publicKey: Uint8Array,
+		linkId: string,
+		nodeId: string
+	): Bytes;
+	openNodeKeyFromRequest(sealed: Uint8Array, keys: KeyPair, linkId: string, nodeId: string): Bytes;
+	/** A URL's fragment for a request's public key; empty when there is none. */
+	requestFragment(publicKey: Uint8Array): string;
+	/** The public key in a fragment; empty if there is none. */
+	parseRequestFragment(fragment: string): Bytes;
+
 	/** What a contact's keys are pinned as; empty in suite `none`, which pins nothing. */
 	fingerprint(keys: PublicKeys): Bytes;
 	safetyNumber(a: Uint8Array, b: Uint8Array): string;
@@ -315,6 +355,14 @@ const e2eSealer: Sealer = {
 	linkFragment: encodeLinkFragment,
 	parseLinkFragment: decodeLinkFragment,
 
+	newRequestKeys: generateRequestKeys,
+	sealRequestPrivateKey,
+	openRequestPrivateKey,
+	sealNodeKeyToRequest,
+	openNodeKeyFromRequest,
+	requestFragment: encodeRequestFragment,
+	parseRequestFragment: decodeRequestFragment,
+
 	fingerprint,
 	safetyNumber,
 	sealPins,
@@ -422,6 +470,14 @@ const noneSealer: Sealer = {
 	unwrapLinkKey: empty,
 	linkFragment: () => '',
 	parseLinkFragment: empty,
+
+	newRequestKeys: () => ({ privateKey: empty(), publicKey: empty() }),
+	sealRequestPrivateKey: empty,
+	openRequestPrivateKey: empty,
+	sealNodeKeyToRequest: empty,
+	openNodeKeyFromRequest: empty,
+	requestFragment: () => '',
+	parseRequestFragment: empty,
 
 	fingerprint: empty,
 	safetyNumber: () => '',

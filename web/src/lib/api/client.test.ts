@@ -248,3 +248,53 @@ describe('the routes of sharing', () => {
 		expect(calls[0].headers.has('X-Link-Token')).toBe(false);
 	});
 });
+
+describe('the routes of file requests', () => {
+	const owner: [string, string, (api: Api) => Promise<unknown>][] = [
+		['GET', '/incoming?limit=5', (a) => a.listIncoming({ limit: 5 })],
+		['DELETE', '/incoming/i', (a) => a.deleteIncoming('i')],
+		['POST', '/incoming/i/adopt', (a) => a.adoptIncoming('i', body)],
+		['POST', '/public/requests/r/unlock', (a) => a.unlockPublicRequest('r', body)]
+	];
+
+	it.each(owner)('%s %s', async (method, path, call) => {
+		const { api, calls } = respond(200, {});
+		await call(api);
+		expect(calls[0]).toMatchObject({ method, path: `/api/v1${path}` });
+		expect(calls[0].headers.has('X-Link-Token')).toBe(false);
+	});
+
+	const underRequest: [string, string, (api: Api) => Promise<unknown>][] = [
+		['GET', '/public/requests/r', (a) => a.getPublicRequest('r', 'tok')],
+		['POST', '/public/requests/r/uploads', (a) => a.createRequestUpload('r', 'tok', body)],
+		['GET', '/public/requests/r/uploads/u', (a) => a.getRequestUpload('r', 'u', 'tok')],
+		['DELETE', '/public/requests/r/uploads/u', (a) => a.abortRequestUpload('r', 'u', 'tok')],
+		[
+			'POST',
+			'/public/requests/r/uploads/u/commit',
+			(a) => a.commitRequestUpload('r', 'u', 'tok', body)
+		]
+	];
+
+	it.each(underRequest)('%s %s carries the token in a header', async (method, path, call) => {
+		const { api, calls } = respond(200, {});
+		await call(api);
+		expect(calls[0]).toMatchObject({ method, path: `/api/v1${path}` });
+		expect(calls[0].headers.get('X-Link-Token')).toBe('tok');
+	});
+
+	it('sends a frame through a request as bytes, with its digest and token', async () => {
+		const seen: { init?: RequestInit; path: string }[] = [];
+		const api = createApi((async (input: RequestInfo | URL, init?: RequestInit) => {
+			seen.push({ path: String(input), init });
+			return new Response(null, { status: 204 });
+		}) as typeof fetch);
+		const bytes = new Uint8Array([1, 2, 3]);
+		await api.putRequestFrame('r', 'u', 4, 'tok', bytes, 'digest=');
+		expect(seen[0].path).toBe('/api/v1/public/requests/r/uploads/u/frames/4');
+		expect(seen[0].init?.body).toBe(bytes);
+		const headers = new Headers(seen[0].init?.headers);
+		expect(headers.get('X-Content-SHA256')).toBe('digest=');
+		expect(headers.get('X-Link-Token')).toBe('tok');
+	});
+});

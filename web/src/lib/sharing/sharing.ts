@@ -24,7 +24,15 @@ import type { AuthorKeys } from '$lib/drive/download/reader';
 import { newId } from '$lib/drive/ids';
 import type { DriveTree } from '$lib/drive/tree';
 import { ContactKeysChangedError, type Contacts } from './contacts';
-import { buildLink, linkUrl, urlOfLink, type LinkOptions } from './links';
+import {
+	buildLink,
+	buildRequest,
+	linkUrl,
+	requestUrl,
+	urlOfLink,
+	type LinkOptions,
+	type RequestOptions
+} from './links';
 import {
 	runRotation,
 	type RotationDeps,
@@ -474,6 +482,44 @@ export class Sharing {
 				} catch (e) {
 					if (tried >= 3 || !isApiError(e, 'key_generation_conflict')) throw e;
 					await tree().refresh(nodeId);
+				}
+			}
+		} finally {
+			if (root !== undefined) zero(root);
+		}
+	}
+
+	/** Makes a request for files into a folder, and gives its address. */
+	async createRequest(
+		folderId: string,
+		options: Omit<RequestOptions, 'password'> & { password?: string }
+	): Promise<{ link: Link; url: string }> {
+		const { api, sealer, keys, tree, deriveRoot } = this.#deps;
+		const { password, ...params } = options;
+		const request: RequestOptions = params;
+		let root: Bytes | undefined;
+		if (password !== undefined) {
+			const kdf = (this.#deps.newKdfParams ?? newKdfParams)();
+			root = await deriveRoot(password, kdf);
+			request.password = { kdf, root };
+		}
+		try {
+			for (let tried = 1; ; tried++) {
+				const id = newId();
+				await tree().nodeKey(folderId);
+				const { body, fragment } = buildRequest(
+					{ id, folderId, generation: tree().generationOf(folderId) ?? 1 },
+					request,
+					sealer,
+					keys()
+				);
+				try {
+					const link = await api.createLink(body);
+					await this.refreshMade().catch(() => {});
+					return { link, url: requestUrl(this.#origin(), id, fragment) };
+				} catch (e) {
+					if (tried >= 3 || !isApiError(e, 'key_generation_conflict')) throw e;
+					await tree().refresh(folderId);
 				}
 			}
 		} finally {

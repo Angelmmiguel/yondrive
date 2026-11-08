@@ -60,10 +60,11 @@ lock              advisory lock against a second process
 | `node_key_history` | The key of each past generation of a node, sealed under the next. |
 | `versions` | Node, blob, author, the id it was sealed as and its signer, key generation, sizes, frame hashes, opaque signature and manifest. |
 | `grants` | Node, grantee, granter, role, key generation, sealed key, signature, when it was read. |
-| `links` | Node, owner, key generation, sealed keys, KDF parameters and auth hash of a password, expiry, download limit and count, revocation. |
+| `links` | Node, owner, kind (`view` or `request`), role of a view link, key generation, sealed keys, a request's public key, KDF parameters and auth hash of a password, expiry, download limit and count, a request's limits and what it has received, revocation. |
 | `link_downloads` | What each link's sessions have counted. |
 | `blobs` | Owner, node if any, kind, suite, size, ref count. |
-| `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. |
+| `uploads`, `upload_frames` | Uploads in progress and the digest of each frame that has arrived. One through a request names its link. |
+| `incoming` | Files sent through a request, waiting to be adopted: the node id and version id they will have, the blob, the sealed node key and metadata, sizes and frame digests, and when the upload completed. |
 | `changes` | The journal: sequence, the user whose journal it is, node, operation, time. `users.journal_floor` is the highest sequence trimmed from each. |
 | `file_removals` | Files whose rows have gone, waiting to be unlinked. |
 | `edit_status` | Who has a file open in an editor: node, user, when the run of heartbeats began and when the last one lapses. The sweep drops lapsed rows. |
@@ -168,6 +169,16 @@ GET    /public/links/{id}/nodes/{nid}   X-Link-Token, as all below
 GET    /public/links/{id}/nodes/{nid}/children?cursor=
 GET    /public/links/{id}/nodes/{nid}/version    the current one
 GET    /public/links/{id}/blobs/{bid}   Range
+GET    /incoming?cursor=                complete items of my requests, with their keys
+POST   /incoming/{id}/adopt             owner: wrapped key, name tag, metadata, signed manifest
+DELETE /incoming/{id}                   owner
+GET    /public/requests/{id}            state, or open with a token and the room left
+POST   /public/requests/{id}/unlock     auth key of the password -> open with a token
+POST   /public/requests/{id}/uploads    X-Link-Token, as all below: a file on its way
+GET    /public/requests/{id}/uploads/{uid}
+DELETE /public/requests/{id}/uploads/{uid}
+PUT    /public/requests/{id}/uploads/{uid}/frames/{n}
+POST   /public/requests/{id}/uploads/{uid}/commit   -> an incoming item, and nothing back
 ```
 
 **Who may call what.** `guard` is a middleware on every generated operation, and
@@ -188,7 +199,8 @@ on everything that checks a credential (login, registration, rekey, password res
 minting a token, enrolling and disabling TOTP, an admin invite, issuing a reset) and six times that on the KDF route.
 Looking up a username takes three times that per user and per address. A link's password takes the
 default per address and five times it per link, both counted on its state as well as on an attempt, and
-opening any link six times it per address.
+opening any link six times it per address. Starting an upload through a file request takes three times
+the default per address.
 Wrong setup tokens count, right ones do not. Guesses at a second factor are also
 limited per user, since they come only with the right auth key and no stranger can
 use that to lock anyone out. The address is the connection's peer, or the last
@@ -359,6 +371,31 @@ are free. `link_downloads` makes this one transaction with the count, and a file
 file costs nothing. The sweeper forgets claims older than a session can last, which gives nothing back to the
 limit. Once it is reached, a new visitor gets `410`. Sessions that have started keep browsing, and finish what
 they had claimed.
+
+**File requests.** A link of kind `request` takes files into a folder from anyone who has it, and shows
+nothing: its routes are their own (`/public/requests/...`), the view routes answer `404` for a request and
+the request routes for a view link, and none of them names the folder, its owner or anything in it. It holds
+no node key, so a rotation leaves it alone. Opening it, its password, its token and its endings work as a
+view link's.
+
+An upload through a request is an ordinary upload row, whose node is the request's folder, whose user and
+owner are the folder's owner, and which names its link. It reserves room in the owner's quota and its frames
+take the same checks; the owner's own upload routes do not see it, and its upload id is known only to whoever
+started it. Starting it also writes an `incoming` row and counts the file and its plaintext bytes against the
+request, in one transaction, so that uploads that start together cannot pass a limit together: the largest
+file, the number of files and the total, each with its code. The server chooses the ids the node and the
+version will have, so a sender learns nothing of which ids exist. A request has at most 20 uploads in
+progress, and the sweeper drops one that has received no frame for an hour, which gives its place back. The
+commit brings the sealed node key and metadata, places the file as a blob that belongs to no node yet, and
+marks the item complete; the blob counts against the quota from then on. A commit of an upload already
+handed over answers the same again, so a lost answer can be retried, and `not_found` means nothing arrived. An upload that goes before it completes, aborted or dropped as stale, takes its
+item and its place on the request with it, through a trigger.
+
+The owner's client lists complete items and adopts each: one transaction makes the node, under the id the
+sender chose, gives it the blob, adds the version the owner signed, and deletes the item. An item that is
+deleted takes its blob with it, and keeps its place on the request. Deleting the request deletes its items,
+as only its private key opens them. The sweeper drops what a request that was revoked or has expired never saw
+adopted, once the purge grace period has passed since it ended.
 
 ## Backup
 
@@ -659,7 +696,9 @@ several people on it, and wired up by `Drive`. `src/lib/state/sharing.svelte.ts`
 | `contacts.ts` | Pins and safety numbers. A different key from the pinned one throws, and the app shows a warning that takes an answer. |
 | `sharing.ts` | Grants, verified before anything of them is used; who may sign what; links; notifications. |
 | `rotation.ts` | The body of a rotation, and walking a subtree from a job written down first. |
-| `links.ts`, `public.ts` | Making a link, and reading under one with no account. |
+| `links.ts`, `public.ts` | Making a link or a file request, and reading under a link with no account. |
+| `request.ts` | Sending files through a request with no account: the key from the URL, compared with the server's, sealed to, and nothing kept. |
+| `incoming.ts` | Adopting what arrived: opening it with the request's private key, naming it in its folder, signing it as the owner. |
 | `roles.ts` | What the screens offer. The server decides. |
 
 **In the tree.** A node's key comes from its parent's, or at the top of a share from a verified grant, and the
@@ -683,6 +722,18 @@ usual, so a `404` drops it and all under it, and a rotated folder reads its chil
 **The public page** runs `bootLink` in place of `boot`: the mode, through the same guard, and no session. It has no
 shell, and reads through the frame workers into memory, since streams from the service worker use the session's route.
 Nothing is read until someone asks, as a read counts against a download limit.
+
+**The request page** (`/r/<id>`) boots the same way. It takes the public key out of the address at once,
+refuses a server that claims `none` mode for an address that carries a key before it asks anything else,
+refuses a request whose key the server names otherwise, and sends files a few at a time, each under a key of its
+own that it zeroes when the file is handed over. A file that fails goes on from the frames the server has, while
+the page is open, and one the server has dropped starts over by itself; nothing is written to the device, so
+a reload starts over. When its token runs out on a request with a password, it asks for the password again.
+Once everything is sent the list is cleared.
+
+**Adopting.** `src/lib/state/incoming.svelte.ts` adopts every complete item when the drive starts and on each
+poll, counts them for the notification, and keeps what could not be adopted for the "Shared by me" page, where
+the owner tries again or deletes it. A clash takes the next free name, `name (2).ext`, as a new file does.
 
 ### Search
 
@@ -978,7 +1029,7 @@ Measured when the budgets were set (gzip, KiB), each budget about 5% above:
 | `/sheet/[id]` (grid, formula engine, sheet formats) | 89.1 | 94 |
 | `/admin` | 13.4 | 15 |
 | `/setup` | 11.6 | 13 |
-| Every other route | 1.2 to 8.2 | 2 to 9 |
+| Every other route | 1.2 to 9.0 | 2 to 10 |
 
 Moving the name lookups out of the format modules, and loading the code behind the no-`Worker` fallbacks of the
 formats and sheets clients on first call, took the shell from 253 to 169 KiB. pdf.js (1.2 MB before gzip) is

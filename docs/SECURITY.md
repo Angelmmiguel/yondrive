@@ -18,13 +18,15 @@ encryption, none of the confidentiality claims below apply: see
 | Someone with a grant | Yes, for what was shared. That is the point. |
 | Someone with a public link | Yes, for what it covers: the current version of each file and no history. |
 | Someone with a public link's id but not its key | No. Without a password on the link, they can fetch ciphertext within its limits. With one, they get nothing until they have it. |
+| Someone with a file request | No. They can send files into its folder, within its limits, and read nothing there, what they sent included. |
 | Malware on an unlocked device | Yes. |
 
 ## What the server still sees
 
 The server sees who the users are, the folder structure as anonymous ids, who shares with
 whom and in which role, which links exist with their expiry and download count, when things
-change and who is currently editing. It sees exact sizes: nothing is
+change and who is currently editing. Of a file request it sees how many files arrive, their sizes and
+times, and the address of whoever sends them, as with any upload. It sees exact sizes: nothing is
 padded, so the plaintext size of each version follows from what is stored, and it is also
 in the manifest. It sees the frame digests, the content hash, signatures and public keys.
 
@@ -50,7 +52,8 @@ It cannot see names, types, tags, dates inside metadata, or contents.
 **Held in plaintext, in both modes:** usernames, email addresses, the subject of each identity at a
 provider, the email address an invite was made for, and the names given to device tokens. The
 audit trail and the request log hold the client address of each event, including the anonymous
-ones of public links (opening one, a wrong password, unlocking it). In `none` mode the search index
+ones of public links and file requests (opening one, a wrong password, unlocking it, a file arriving).
+In `none` mode the search index
 segments are stored as plaintext too, like everything else there.
 
 **What people a node is shared with see of each other.** The owner sees every grant on a node and
@@ -266,6 +269,46 @@ in memory, up to 1 GiB, as the service worker's streams use the session's route.
 hold under any concurrency. A file started and abandoned has counted. The count is not a statement
 about what anyone received, and a session already reading a file finishes it.
 
+## File requests
+
+A file request takes files into a folder from anyone who has its address, which carries the request's
+X25519 public key in the fragment (CRYPTO.md, section 20). The sender's page encrypts each file under a
+key of its own and seals that key to the request's public key, so neither the sender, nor the server, nor
+anyone with the address can open what arrives: only the owner's master key opens the request's private key.
+
+**The key is the one in the address.** The sender's page takes the public key from the fragment alone.
+The server's copy is only compared with it, and a difference stops the page before anything is sent, so a
+server that swaps the key in its answer gets nothing sealed to a key of its own. The owner's client opens
+the private key only beside the public key it was sealed with, and shows the address only after that, so a
+server that swaps the stored key gets no address with its key in it either. The private key is bound to the
+request's folder as well, and the app adopts only into a folder it owns, so a server cannot have a
+file's key wrapped under another folder, such as one shared with someone else. An address made on an
+encrypting server is the proof that it encrypts: a page whose server claims `none` mode refuses before
+anything is sent ("Downgrade", above). A server that also replaces the
+app is the limit documented above, as everywhere.
+
+**What arrives is untrusted.** A server, or anyone with the address, can send files of its own through a
+request, as that is what a request is for. The owner's app names what arrives after the name the sender gave,
+cleaned as any name is, keeps the sender's name and message as text cut to size, and signs the version to
+say that it adopted the file, not who wrote it. A file arrives as a file and is opened as any other, by the
+viewers and editors that treat every file as untrusted input. The media type a sender gives is kept only in
+the form of one, and otherwise the name's extension decides; HTML and SVG are downloaded, never drawn.
+
+**Limits** are enforced by the server, on top of the owner's quota, which what arrives counts against: the
+largest file, how many files and how many bytes, an expiry, and at most 20 uploads in progress at once.
+An upload that receives no frame for an hour is dropped and gives its place back, so a stranger cannot
+hold every place for long. The app suggests a total of 1 GB for a new request. **A request with no total
+and an owner with no quota have no bound**: anyone with the address can fill the disk. The server
+chooses the ids of what is sent, so a sender cannot ask whether an id exists.
+Starting an upload through a request is rate limited per address, more tightly than an upload by a user,
+and its password is limited as a link's is. Nothing that waits to be adopted outlives the request's end by
+more than the purge grace period. A request answers with no listing and no ids but those of the sender's
+own uploads, and the sender learns nothing of the folder, its owner or what is in it.
+
+**The sender's page** takes the key out of the address at once, keeps the files' keys in memory only, and
+clears its list when everything is sent. Nothing about what was sent is written on the sender's device, so a
+reload cannot resume.
+
 ## Downgrade
 
 A hostile server could claim to be in `none` mode so that clients upload plaintext. The mode is
@@ -278,6 +321,11 @@ claims `none`, has nothing to compare against and accepts. And in the web app, t
 mistakes and migrations but not a server that also replaces the JavaScript. Native clients do
 not load code from the server, so the check is stronger there. The app shows a permanent "Not
 encrypted" indicator in `none` mode.
+
+**A file request** is sent by someone with no account and no pin. Its address carries the request's
+public key when it was made on an encrypting server, so a page whose server then claims `none`
+refuses before it asks anything about the request, and says that nothing was sent. An address with
+no key, from a server that has always been in `none` mode, sends files as that mode says.
 
 ## No-encryption mode
 

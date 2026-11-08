@@ -49,17 +49,22 @@ type Upload struct {
 	// KeyGeneration is the generation of the node's key the frames are sealed under.
 	// On the way in, zero means whichever is current.
 	KeyGeneration int64
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// LinkID names the request an anonymous upload came through; NodeID is then
+	// the request's folder, and UserID its owner.
+	LinkID    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
-const uploadColumns = `id, user_id, owner_id, node_id, version_id, suite, frame_count, frame_size, stored_size, key_generation, created_at, updated_at`
+const uploadColumns = `id, user_id, owner_id, node_id, version_id, suite, frame_count, frame_size, stored_size, key_generation,
+	coalesce(link_id, ''), created_at, updated_at`
 
 func oneUpload(ctx context.Context, q querier, id string) (Upload, error) {
 	var u Upload
 	var created, updated int64
 	err := q.QueryRowContext(ctx, "SELECT "+uploadColumns+" FROM uploads WHERE id = ?", id).Scan(
-		&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize, &u.StoredSize, &u.KeyGeneration, &created, &updated)
+		&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize, &u.StoredSize, &u.KeyGeneration,
+		&u.LinkID, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Upload{}, ErrNotFound
 	}
@@ -135,7 +140,7 @@ func (s *Store) CreateUpload(ctx context.Context, u Upload) (Upload, error) {
 			return err
 		}
 		var open int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM uploads WHERE user_id = ?", u.UserID).Scan(&open); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM uploads WHERE user_id = ? AND link_id IS NULL", u.UserID).Scan(&open); err != nil {
 			return fmt.Errorf("store: count uploads: %w", err)
 		}
 		if open >= MaxOpenUploads {
@@ -244,6 +249,10 @@ func (s *Store) CommitUpload(ctx context.Context, uploadID string, req CommitReq
 		if err != nil {
 			return err
 		}
+		// One through a request becomes an incoming item, never a version here.
+		if u.LinkID != "" {
+			return ErrNotFound
+		}
 		n, err := oneNode(ctx, tx, "id = ?", u.NodeID)
 		if err != nil {
 			return err
@@ -329,7 +338,7 @@ type UploadSummary struct {
 // in id order, after the id given.
 func (s *Store) ListUploads(ctx context.Context, userID, after string, limit int) ([]UploadSummary, error) {
 	rows, err := s.read.QueryContext(ctx, "SELECT "+uploadColumns+`, (SELECT count(*) FROM upload_frames WHERE upload_id = uploads.id)
-		FROM uploads WHERE user_id = ? AND id > ? ORDER BY id LIMIT ?`, userID, after, limit)
+		FROM uploads WHERE user_id = ? AND link_id IS NULL AND id > ? ORDER BY id LIMIT ?`, userID, after, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list uploads: %w", err)
 	}
@@ -339,7 +348,7 @@ func (s *Store) ListUploads(ctx context.Context, userID, after string, limit int
 		var u UploadSummary
 		var created, updated int64
 		err := rows.Scan(&u.ID, &u.UserID, &u.OwnerID, &u.NodeID, &u.VersionID, &u.Suite, &u.FrameCount, &u.FrameSize,
-			&u.StoredSize, &u.KeyGeneration, &created, &updated, &u.FramesReceived)
+			&u.StoredSize, &u.KeyGeneration, &u.LinkID, &created, &updated, &u.FramesReceived)
 		if err != nil {
 			return nil, fmt.Errorf("store: list uploads: %w", err)
 		}

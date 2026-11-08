@@ -35,7 +35,7 @@ All made in review. No questions remain open.
 | D14 | Third-party code | Our own code for ZIP, XML, office formats and formulas. Small exceptions: **ProseMirror**, **pdf.js** and the crypto libraries. Their licences are checked in [section 5.10](#510-third-party-licences). |
 | D15 | Formats left out of v1 | **`.pages` and `.numbers`.** They can be stored, shared and downloaded like any file, but not opened in the editors. |
 | D16 | License | AGPL-3.0. |
-| D17 | After 1.0 | **File requests** (phase 9), then **comments** (phase 10). Emergency access is a later feature. |
+| D17 | After 1.0 | **File requests** (phase 9), then **comments** (phase 10), released together as 1.1. Emergency access is a later feature. |
 
 Smaller assumptions, which I will follow unless you object:
 
@@ -715,7 +715,14 @@ notification and an incoming list for the owner, with adopt and delete.
 
 **Exit:** an anonymous visitor uploads to a password-protected request, the owner adopts the files, and the canary
 test confirms that names and contents never reach the server. A tamper test confirms that a swapped request key is
-refused. Uploads stop at each limit with a stable error code. **Release 1.1.**
+refused. Uploads stop at each limit with a stable error code. Released with phase 10 in 1.1.
+
+Built as designed, with these additions from review: the owner's copy of the request key also binds the folder, so
+a server cannot redirect adoption into another folder; the sender's page refuses to send when the address carries
+a key and the server claims no encryption; the server chooses the ids of uploaded files; uploads through a request
+that stay idle for an hour are dropped and give their place back; and a new request offers a 1 GB total limit by
+default. See [docs/CRYPTO.md](docs/CRYPTO.md) section 20 and the "File requests" section of
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ### Phase 10: Comments (L)
 
@@ -750,7 +757,7 @@ and file requests do not show comments.
 
 **Exit:** two users comment on a shared document, sheet and note in both modes; an anchor survives edits to the text
 around it and rows inserted above a cell; a comment with a forged author is refused; the canary test covers comment
-bodies; saving a commented `.docx` or `.xlsx` leaves its bytes unchanged. **Release 1.2.**
+bodies; saving a commented `.docx` or `.xlsx` leaves its bytes unchanged. **Release 1.1**, with file requests.
 
 ## 9. Testing
 

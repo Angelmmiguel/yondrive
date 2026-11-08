@@ -424,7 +424,7 @@ func TestStaleKeyGenerationsAreRefused(t *testing.T) {
 
 func addLink(t *testing.T, st *Store, owner, node string, limit int64) Link {
 	t.Helper()
-	l, err := st.CreateLink(ctx, Link{ID: NewID(), NodeID: node, OwnerID: owner, Role: LinkRoleView, KeyGeneration: 1,
+	l, err := st.CreateLink(ctx, Link{ID: NewID(), NodeID: node, OwnerID: owner, Kind: LinkKindView, Role: LinkRoleView, KeyGeneration: 1,
 		DownloadLimit: limit, CreatedAt: t0})
 	if err != nil {
 		t.Fatalf("CreateLink: %v", err)

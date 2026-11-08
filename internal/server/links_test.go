@@ -231,10 +231,12 @@ func TestPublicLinkExposesNoOwner(t *testing.T) {
 
 func TestReferrerPolicyOnPublicPages(t *testing.T) {
 	e := configured(t, "none", server.Config{UI: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })})
-	resp := e.call(http.MethodGet, "/s/"+store.NewID(), nil)
-	resp.wantStatus(t, http.StatusOK)
-	if got := resp.header.Get("Referrer-Policy"); got != "no-referrer" {
-		t.Errorf("Referrer-Policy %q", got)
+	for _, page := range []string{"/s/", "/r/"} {
+		resp := e.call(http.MethodGet, page+store.NewID(), nil)
+		resp.wantStatus(t, http.StatusOK)
+		if got := resp.header.Get("Referrer-Policy"); got != "no-referrer" {
+			t.Errorf("%s: Referrer-Policy %q", page, got)
+		}
 	}
 }
 

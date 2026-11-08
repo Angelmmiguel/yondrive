@@ -141,6 +141,7 @@ func (d *driveUser) get(id string) nodeBody {
 
 type uploadBody struct {
 	ID         string  `json:"id"`
+	NodeID     string  `json:"node_id"`
 	VersionID  string  `json:"version_id"`
 	FrameCount int64   `json:"frame_count"`
 	FrameSize  int64   `json:"frame_size"`

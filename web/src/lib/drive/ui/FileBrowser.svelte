@@ -19,6 +19,7 @@
 		type IconName,
 		type MenuItem
 	} from '$lib/components';
+	import { linkStatus } from '$lib/sharing/links';
 	import { canChangePlace, canWrite, isOwner } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
@@ -132,6 +133,15 @@
 	/** The role over the folder it lives in, if that is known here. */
 	const movable = (node: DriveNode) =>
 		canChangePlace(node, node.parentId === null ? undefined : drive.node(node.parentId));
+
+	/** The folders a live file request is taking files into. */
+	const requesting = $derived(
+		new Set(
+			sharing.links
+				.filter(({ link }) => link.kind === 'request' && linkStatus(link, Date.now()) === 'live')
+				.map(({ link }) => link.node_id)
+		)
+	);
 
 	const peopleOf = (node: DriveNode) => {
 		void drive.rev;
@@ -406,6 +416,7 @@
 						caption={captionFor(node)}
 						tags={tagsOf(node)}
 						people={peopleOf(node)}
+						requesting={requesting.has(node.id)}
 						modified={formatWhen(node.modified || node.updatedAt)}
 						size={node.kind === 'file' ? formatBytes(node.size) : '—'}
 						starred={node.favorite}

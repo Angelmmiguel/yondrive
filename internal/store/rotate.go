@@ -195,10 +195,11 @@ func resealGrants(ctx context.Context, tx *sql.Tx, nodeID string, r Rotation, no
 
 // resealLinks ignores a link that has stopped being live, which can happen
 // between the client reading the list and this transaction: its key is never
-// served again. Any other link it does not expect is a conflict.
+// served again. Any other link it does not expect is a conflict. A request holds
+// no node key, so a rotation has nothing to seal for it.
 func resealLinks(ctx context.Context, tx *sql.Tx, nodeID string, r Rotation, now time.Time) error {
 	rows, err := tx.QueryContext(ctx, `SELECT id, revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
-		FROM links WHERE node_id = ?`, now.Unix(), nodeID)
+		FROM links WHERE node_id = ? AND kind = 'view'`, now.Unix(), nodeID)
 	if err != nil {
 		return fmt.Errorf("store: read links: %w", err)
 	}

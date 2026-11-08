@@ -164,7 +164,7 @@ describe.each(SUITES)('the tree in mode %s', (_, suite) => {
 		expect(trash.map((n) => n.name)).toEqual(['Old']);
 
 		const purged = await tree.purge(folder.id);
-		expect(purged.removeAt).toBeGreaterThan(Date.now() - 365 * 86_400_000);
+		expect(purged.removeAt).toBeGreaterThan(purged.trashedAt as number);
 
 		const back = await tree.restore(folder.id);
 		expect(back.trashedAt).toBeNull();

@@ -184,6 +184,15 @@ func (s *Store) CreateNode(ctx context.Context, n Node, parentGeneration *int64)
 		if err := checkRoom(ctx, tx, n.OwnerID, int64(len(n.SealedMetadata))); err != nil {
 			return err
 		}
+		// An incoming item has its node's id already, for when it is adopted.
+		var held int
+		err = tx.QueryRowContext(ctx, "SELECT 1 FROM incoming WHERE id = ?", n.ID).Scan(&held)
+		if err == nil {
+			return ErrIDTaken
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("store: check node id: %w", err)
+		}
 		if err := insertNode(ctx, tx, n); err != nil {
 			return err
 		}

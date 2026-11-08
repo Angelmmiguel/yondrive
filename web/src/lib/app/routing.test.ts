@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { destinationFor } from './routing';
 
-describe('a public link', () => {
+describe('a public link or a file request', () => {
 	it.each(['needs-setup', 'signed-out', 'locked', 'unlocked'] as const)(
 		'stays where it is when %s',
 		(status) => {
 			expect(destinationFor({ status, path: '/s/abc' })).toBeNull();
+			expect(destinationFor({ status, path: '/r/abc' })).toBeNull();
 		}
 	);
 });

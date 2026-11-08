@@ -8,7 +8,7 @@
 	import Icon from './Icon.svelte';
 	import type { IconName } from './icons';
 
-	type Tone = 'info' | 'warn' | 'danger' | 'neutral';
+	type Tone = 'info' | 'ok' | 'warn' | 'danger' | 'neutral';
 
 	interface Props {
 		tone?: Tone;
@@ -33,6 +33,7 @@
 
 	const ICON: Record<Tone, IconName> = {
 		info: 'info',
+		ok: 'check',
 		neutral: 'info',
 		warn: 'warn',
 		danger: 'warn'
@@ -78,6 +79,15 @@
 	.info {
 		background: var(--info-soft);
 		color: var(--info-ink);
+	}
+
+	.ok {
+		background: var(--ok-soft);
+		color: var(--ok-ink);
+	}
+
+	.ok .icon {
+		color: var(--ok);
 	}
 
 	.warn {

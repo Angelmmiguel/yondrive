@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -997,42 +998,34 @@ func TestSealedMetadataCountsAgainstTheQuota(t *testing.T) {
 
 func TestTheMigrationChargesNodesThatAreThere(t *testing.T) {
 	dir := t.TempDir()
+	// A database from before the charge, with 7 bytes of blobs and two nodes, written
+	// as that release wrote them.
+	db, err := sql.Open("sqlite", dsn(filepath.Join(dir, dbFile), "_pragma=journal_mode(WAL)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := migrateTo(ctx, db, 3); err != nil {
+		t.Fatal(err)
+	}
+	u := NewID()
+	exec(t, db, `INSERT INTO users (id, username, role, kdf, used_bytes, created_at) VALUES (?, 'alice', 'user', ?, 7, ?)`,
+		u, []byte(`{"name":"argon2id"}`), t0.Unix())
+	rootID := NewID()
+	node := `INSERT INTO nodes (id, owner_id, parent_id, kind, suite, sealed_metadata, wrapped_key, name_tag, created_at, updated_at)
+		VALUES (?, ?, ?, 'folder', ?, ?, ?, ?, ?, ?)`
+	exec(t, db, node, rootID, u, nil, suiteTest, []byte{}, []byte{}, nil, t0.Unix(), t0.Unix())
+	for i, size := range []int{20, 5} {
+		exec(t, db, node, NewID(), u, rootID, suiteTest, make([]byte, size), []byte{}, tag(fmt.Sprint("n", i)), t0.Unix(), t0.Unix())
+	}
+	_ = db.Close()
+
 	st, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	u := addUser(t, st, "alice")
-	r := root(t, st, u.ID)
-	// A database from before the charge: no triggers, and 7 bytes of blobs.
-	for _, name := range []string{"nodes_charge", "nodes_recharge", "nodes_discharge"} {
-		if _, err := st.write.Exec("DROP TRIGGER " + name); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i, size := range []int{20, 5} {
-		c := child(NewID(), u.ID, r.ID, KindFolder, fmt.Sprint("n", i))
-		c.SealedMetadata = make([]byte, size)
-		if _, err := st.CreateNode(ctx, c, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := st.write.Exec("UPDATE users SET used_bytes = 7"); err != nil {
-		t.Fatal(err)
-	}
-	// And without what later migrations add.
-	for _, stmt := range []string{"DROP INDEX changes_at", "DROP INDEX audit_at", "ALTER TABLE users DROP COLUMN journal_floor", "ALTER TABLE users DROP COLUMN unlock_auth_key_hash", "DROP TABLE edit_status", "PRAGMA user_version = 3"} {
-		if _, err := st.write.Exec(stmt); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_ = st.Close()
-
-	st, err = Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
 	defer func() { _ = st.Close() }()
-	if got := usage(t, st, u.ID).UsedBytes; got != 7+25 {
+	if got := usage(t, st, u).UsedBytes; got != 7+25 {
 		t.Errorf("used %d, want 32", got)
 	}
 }

@@ -298,6 +298,7 @@
 		<h2>Notices and feedback</h2>
 		<Banner tone="info" title="Opened from .docx">Changes are saved back in the same format.</Banner
 		>
+		<Banner tone="ok" title="Sent">Your 3 files were sent.</Banner>
 		<Banner tone="warn" dismissible title="Someone else is editing"
 			>Their changes may replace yours when you save.</Banner
 		>

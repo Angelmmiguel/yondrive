@@ -11,6 +11,7 @@ import {
 	type ErrorCode,
 	type Grant,
 	type GrantRole,
+	type IncomingItem,
 	type KeyLink,
 	type Link,
 	type Node,
@@ -75,7 +76,11 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		/** The server's clock for links, which a test moves. */
 		now: 1_760_000_000_000,
 		/** Fails the next rotations with this, one each, as a conflict or a stop would. */
-		failRotation: [] as ((id: string) => ApiError | null)[]
+		failRotation: [] as ((id: string) => ApiError | null)[],
+		/** A public key a hostile server names for a request, in place of its own. */
+		requestKey: null as string | null,
+		/** Takes no session token any more, as after the server has forgotten them. */
+		forgetSessions: false
 	};
 	const users = new Map<string, FakeUser>();
 	const grants = new Map<string, Grant & { read?: boolean }>();
@@ -88,8 +93,15 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			sessions: Map<string, Set<string>>;
 		}
 	>();
+	/** Uploads through requests, by id, and what has arrived and waits. */
+	const requestUploads = new Map<
+		string,
+		StoredUpload & { linkId: string; nodeId: string; size: number }
+	>();
+	const incoming = new Map<string, IncomingItem>();
 	const history = new Map<string, KeyLink[]>();
 	let grantSeq = 0;
+	let requestSeq = 0;
 
 	const lineage = (node: Node): Node[] => {
 		const out: Node[] = [node];
@@ -235,6 +247,66 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		if (linkId !== id || session === undefined) throw fail(401, 'link_token_invalid');
 		return { link, session };
 	};
+
+	const authorizeRequest = (id: string, token: string) => {
+		const found = authorizeLink(id, token);
+		if (found.link.kind !== 'request') throw fail(404, 'not_found');
+		return found;
+	};
+
+	const requestDoc = (link: ReturnType<typeof liveLink>, session: string) => ({
+		id: link.id,
+		state: 'open' as const,
+		suite,
+		public_key: state.requestKey ?? link.public_key ?? '',
+		token: `${link.id}.${session}`,
+		token_expires_at: new Date(state.now + 15 * 60_000).toISOString(),
+		expires_at: link.expires_at,
+		max_file_size: link.max_file_size,
+		files_remaining:
+			link.file_limit === undefined
+				? undefined
+				: Math.max(link.file_limit - (link.files_received ?? 0), 0),
+		bytes_remaining:
+			link.bytes_limit === undefined
+				? undefined
+				: Math.max(link.bytes_limit - (link.bytes_received ?? 0), 0)
+	});
+
+	const requestUpload = (linkId: string, uploadId: string) => {
+		const stored = requestUploads.get(uploadId);
+		if (stored === undefined || stored.linkId !== linkId) throw fail(404, 'not_found');
+		return stored;
+	};
+
+	/** Checks and keeps a frame, as the real server does. */
+	function putInto(stored: StoredUpload, index: number, bytes: Uint8Array, digest: string) {
+		const { upload } = stored;
+		const stride = upload.frame_size + overhead;
+		const length =
+			index === upload.frame_count - 1
+				? upload.stored_size - (upload.frame_count - 1) * stride
+				: stride;
+		if (index >= upload.frame_count || bytes.length !== length) throw fail(400, 'frame_length');
+		if (encodeBase64(sha256(bytes)) !== digest) throw fail(400, 'frame_hash');
+		const existing = stored.frames.get(index);
+		if (existing !== undefined && existing.digest !== digest) throw fail(409, 'frame_conflict');
+		stored.frames.set(index, { data: bytes.slice(), digest });
+	}
+
+	/** The stored file of a complete upload, and its frames' digests. */
+	function assemble({ upload, frames }: StoredUpload) {
+		const hashes = new Uint8Array(upload.frame_count * 32);
+		const blob = new Uint8Array(upload.stored_size);
+		let at = 0;
+		for (let i = 0; i < upload.frame_count; i++) {
+			const frame = frames.get(i) as { data: Uint8Array; digest: string };
+			blob.set(frame.data, at);
+			at += frame.data.length;
+			hashes.set(decodeBase64(frame.digest), i * 32);
+		}
+		return { hashes, blob };
+	}
 
 	const underLink = (link: { node_id: string }, id: string) => {
 		const node = need(id);
@@ -787,6 +859,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			}
 			const live = [...links.values()].filter(
 				(l) =>
+					l.kind === 'view' &&
 					l.node_id === id &&
 					l.revoked_at === undefined &&
 					(l.expires_at === undefined || Date.parse(l.expires_at) > state.now)
@@ -852,10 +925,18 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			if (node.parent_id === undefined) throw fail(409, 'root_immutable');
 			checkGeneration(node, body.key_generation);
 			if (links.has(body.id)) throw fail(409, 'id_taken');
+			if (body.kind === 'request' && node.kind !== 'folder') throw fail(409, 'not_a_folder');
 			const stored = {
 				id: body.id,
 				node_id: body.node_id,
+				kind: body.kind ?? 'view',
 				role: body.role,
+				public_key: body.public_key,
+				max_file_size: body.max_file_size,
+				file_limit: body.file_limit,
+				bytes_limit: body.bytes_limit,
+				files_received: body.kind === 'request' ? 0 : undefined,
+				bytes_received: body.kind === 'request' ? 0 : undefined,
 				key_generation: body.key_generation,
 				sealed_key: body.sealed_key,
 				owner_sealed_key: body.owner_sealed_key,
@@ -894,6 +975,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		},
 		getPublicLink: async (id, token) => {
 			const link = liveLink(id);
+			if (link.kind !== 'view') throw fail(404, 'not_found');
 			let session: string | undefined;
 			if (token !== undefined && token.startsWith(`${id}.`)) session = token.split('.')[1];
 			if (session === undefined) {
@@ -966,6 +1048,182 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			const blob = blobs.get(blobId);
 			if (blob === undefined) throw fail(404, 'not_found');
 			return (range ? blob.slice(range.start, range.end + 1) : blob.slice()) as Bytes;
+		},
+		getPublicRequest: async (id, token) => {
+			const link = liveLink(id);
+			if (link.kind !== 'request') throw fail(404, 'not_found');
+			let session: string | undefined;
+			if (token !== undefined && token.startsWith(`${id}.`) && !state.forgetSessions)
+				session = token.split('.')[1];
+			if (session === undefined && link.has_password) {
+				return { id, state: 'password_required' as const, kdf: link.kdf as never };
+			}
+			return requestDoc(link, session ?? String(link.sessions.size + 1));
+		},
+		unlockPublicRequest: async (id, body) => {
+			const link = liveLink(id);
+			if (link.kind !== 'request') throw fail(404, 'not_found');
+			if (link.auth_key !== body.auth_key) throw fail(401, 'link_password_invalid');
+			return requestDoc(link, String(link.sessions.size + 1));
+		},
+		createRequestUpload: async (id, token, body) => {
+			const { link } = authorizeRequest(id, token);
+			checkSuite(body.suite);
+			const size = body.stored_size - body.frame_count * overhead;
+			if (link.max_file_size !== undefined && size > link.max_file_size) {
+				throw fail(413, 'request_file_too_large');
+			}
+			if (link.file_limit !== undefined && (link.files_received ?? 0) >= link.file_limit) {
+				throw fail(409, 'request_files_reached');
+			}
+			if (link.bytes_limit !== undefined && (link.bytes_received ?? 0) + size > link.bytes_limit) {
+				throw fail(413, 'request_bytes_reached');
+			}
+			if (state.quota > 0 && used + reserved + body.stored_size > state.quota) {
+				throw fail(413, 'quota_exceeded');
+			}
+			reserved += body.stored_size;
+			link.files_received = (link.files_received ?? 0) + 1;
+			link.bytes_received = (link.bytes_received ?? 0) + size;
+			const upload: Upload = {
+				id: 'r' + String(++requestSeq).padStart(31, '0'),
+				node_id: link.node_id,
+				version_id: 'v' + String(requestSeq).padStart(31, '0'),
+				suite: body.suite,
+				frame_count: body.frame_count,
+				frame_size: body.frame_size,
+				stored_size: body.stored_size,
+				frames: [],
+				created_at: clock()
+			};
+			requestUploads.set(upload.id, {
+				upload,
+				frames: new Map(),
+				linkId: id,
+				nodeId: 'n' + String(requestSeq).padStart(31, '0'),
+				size
+			});
+			return { ...upload, node_id: 'n' + String(requestSeq).padStart(31, '0'), frames: [] };
+		},
+		getRequestUpload: async (id, uploadId, token) => {
+			authorizeRequest(id, token);
+			const stored = requestUpload(id, uploadId);
+			return {
+				...stored.upload,
+				node_id: stored.nodeId,
+				frames: [...stored.frames.keys()].sort((a, b) => a - b)
+			};
+		},
+		abortRequestUpload: async (id, uploadId, token) => {
+			const { link } = authorizeRequest(id, token);
+			const stored = requestUpload(id, uploadId);
+			reserved -= stored.upload.stored_size;
+			link.files_received = (link.files_received ?? 1) - 1;
+			link.bytes_received = (link.bytes_received ?? stored.size) - stored.size;
+			requestUploads.delete(uploadId);
+		},
+		putRequestFrame: async (id, uploadId, index, token, bytes, digest) => {
+			authorizeRequest(id, token);
+			calls.push(`request frame ${index}`);
+			const failure = state.failFrame?.(index);
+			if (failure) throw failure;
+			putInto(requestUpload(id, uploadId), index, bytes, digest);
+		},
+		commitRequestUpload: async (id, uploadId, token, body) => {
+			const { link } = authorizeRequest(id, token);
+			const done = [...incoming.values()].some(
+				(item) => item.blob_id === uploadId && item.link_id === id
+			);
+			if (done) return;
+			const stored = requestUpload(id, uploadId);
+			const { upload, frames } = stored;
+			if (frames.size !== upload.frame_count) throw fail(409, 'upload_incomplete');
+			const { hashes, blob } = assemble(stored);
+			blobs.set(upload.id, blob);
+			reserved -= upload.stored_size;
+			used += upload.stored_size;
+			requestUploads.delete(uploadId);
+			incoming.set(stored.nodeId, {
+				id: stored.nodeId,
+				link_id: id,
+				folder_id: link.node_id,
+				suite: upload.suite,
+				sealed_key: body.sealed_key,
+				sealed_metadata: body.sealed_metadata,
+				public_key: link.public_key ?? '',
+				sealed_private_key: link.owner_sealed_key,
+				version_id: upload.version_id,
+				blob_id: upload.id,
+				size: stored.size,
+				stored_size: upload.stored_size,
+				frame_count: upload.frame_count,
+				frame_size: upload.frame_size,
+				frame_hashes: encodeBase64(hashes),
+				created_at: clock()
+			});
+		},
+
+		listIncoming: async ({ cursor } = {}) => {
+			const mine = [...incoming.values()].filter(
+				(item) => need(item.folder_id).owner_id === state.actor
+			);
+			const { items, next } = page(mine, (item) => item.id, cursor);
+			return { items, next_cursor: next };
+		},
+		deleteIncoming: async (id) => {
+			const item = incoming.get(id);
+			if (item === undefined || need(item.folder_id).owner_id !== state.actor) {
+				throw fail(404, 'not_found');
+			}
+			incoming.delete(id);
+			blobs.delete(item.blob_id);
+			used -= item.stored_size;
+		},
+		adoptIncoming: async (id, body) => {
+			const item = incoming.get(id);
+			if (item === undefined) throw fail(404, 'not_found');
+			const folder = needRole(item.folder_id, 'own');
+			if (trashedAbove(folder)) throw fail(409, 'parent_trashed');
+			checkGeneration(folder, body.parent_key_generation);
+			if (takenAmong(folder.id, body.name_tag)) throw fail(409, 'name_conflict');
+			const now = clock();
+			const node: Node = {
+				id,
+				owner_id: folder.owner_id,
+				...madeGeneration,
+				parent_id: folder.id,
+				kind: 'file',
+				suite: item.suite,
+				sealed_metadata: body.sealed_metadata,
+				wrapped_key: body.wrapped_key,
+				name_tag: body.name_tag,
+				current_version: item.version_id,
+				created_at: now,
+				updated_at: now
+			};
+			const version: Version = {
+				id: item.version_id,
+				node_id: id,
+				blob_id: item.blob_id,
+				suite: item.suite,
+				author_id: folder.owner_id,
+				content_version_id: item.version_id,
+				content_author_id: folder.owner_id,
+				key_generation: 1,
+				stored_size: item.stored_size,
+				frame_count: item.frame_count,
+				frame_size: item.frame_size,
+				frame_hashes: item.frame_hashes,
+				signature: body.signature,
+				manifest: body.manifest,
+				created_at: now
+			};
+			nodes.set(id, node);
+			versions.set(id, [version]);
+			incoming.delete(id);
+			journal(id, 'created');
+			journal(id, 'version');
+			return { ...node, role: 'owner' as const };
 		}
 	};
 
@@ -981,6 +1239,8 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		users,
 		grants,
 		links,
+		incoming,
+		requestUploads,
 		/** The same server, with every call made as this user. */
 		as(userId: string): Api {
 			return new Proxy(api as Api, {

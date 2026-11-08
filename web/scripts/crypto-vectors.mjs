@@ -483,6 +483,54 @@ function sharingVectors() {
 	};
 }
 
+function requestVector() {
+	const linkId = 'link-2';
+	const folderId = 'node-folder';
+	const nodeId = 'node-1';
+	const privateKey = bytes(91, 32);
+	const publicKey = publicOf('x25519', privateKey);
+	const ephemeralPrivate = bytes(93, 32);
+	const ephemeralPublic = publicOf('x25519', ephemeralPrivate);
+	const shared = x25519(ephemeralPrivate, publicKey);
+	assert.deepEqual(shared, x25519(privateKey, ephemeralPublic));
+	const wrapKey = hkdf(shared, fields('yondrive/request/key/v1', ephemeralPublic, publicKey));
+	const nonce = bytes(94, 24);
+	const aad = fields(
+		'yondrive/request/node/v1',
+		ephemeralPublic,
+		publicKey,
+		utf8(linkId),
+		utf8(nodeId)
+	);
+	return {
+		linkId,
+		nodeId,
+		folderId,
+		privateKey: hex(privateKey),
+		publicKey: hex(publicKey),
+		fragment: publicKey.toString('base64url'),
+		owner: {
+			masterKey: hex(master),
+			...wrap(
+				hkdf(master, 'yondrive/request-owner/v1'),
+				bytes(92, 24),
+				fields('yondrive/request/owner/v1', utf8(linkId), publicKey, utf8(folderId)),
+				privateKey
+			)
+		},
+		nodeKey: {
+			plaintext: hex(nodeKey),
+			ephemeralPrivate: hex(ephemeralPrivate),
+			ephemeralPublic: hex(ephemeralPublic),
+			shared: hex(shared),
+			wrapKey: hex(wrapKey),
+			nonce: hex(nonce),
+			aad: hex(aad),
+			sealed: hex(Buffer.concat([ephemeralPublic, seal(wrapKey, nonce, aad, nodeKey)]))
+		}
+	};
+}
+
 const childWrapKey = hkdf(parentKey, 'yondrive/node-wrap/v1');
 
 const content = contentVector();
@@ -543,7 +591,8 @@ const vectors = {
 	manifest: manifestVector(content.contentHash),
 	pinning: pinningVector(),
 	smallBlobs: smallBlobVectors(),
-	...sharingVectors()
+	...sharingVectors(),
+	request: requestVector()
 };
 
 process.stdout.write(`${JSON.stringify(vectors, null, '\t')}\n`);

@@ -129,3 +129,35 @@ export async function stranger(browser: Browser): Promise<Page> {
 	const context = await browser.newContext({ acceptDownloads: true });
 	return context.newPage();
 }
+
+/** Makes a file request into a folder through its share dialog, and returns its address. */
+export async function makeRequest(
+	page: Page,
+	name: string,
+	options: { password?: string; maxMb?: string; files?: number; totalMb?: string } = {}
+): Promise<string> {
+	await act(page, name, 'Share');
+	const dialog = shareDialog(page, name);
+	await dialog.getByRole('tab', { name: 'Request files' }).click();
+	// With requests made already, the form waits behind a button.
+	const another = dialog.getByRole('button', { name: 'New request' });
+	const create = dialog.getByRole('button', { name: 'Create request link' });
+	await expect(another.or(create)).toBeVisible();
+	if (await another.isVisible()) await another.click();
+	if (options.password !== undefined) {
+		await dialog.getByLabel('Request password').fill(options.password);
+	}
+	if (options.maxMb !== undefined)
+		await dialog.getByLabel('Largest file, in MB').fill(options.maxMb);
+	if (options.files !== undefined) {
+		await dialog.getByLabel('Files', { exact: true }).fill(String(options.files));
+	}
+	if (options.totalMb !== undefined) await dialog.getByLabel('Total, in MB').fill(options.totalMb);
+	await dialog.getByRole('button', { name: 'Create request link' }).click();
+	const code = dialog.getByTestId('request-url').locator('pre, code').first();
+	await expect(code).toBeVisible({ timeout: 30_000 });
+	const url = (await code.innerText()).trim();
+	await dialog.getByRole('button', { name: 'Done' }).click();
+	await expect(dialog).toHaveCount(0);
+	return url;
+}

@@ -8,42 +8,69 @@ import (
 	"time"
 )
 
-// LinkRoleView is the only role a link can give.
-const LinkRoleView = "view"
+// Kinds of link, and the one role a view link gives.
+const (
+	LinkKindView    = "view"
+	LinkKindRequest = "request"
+	LinkRoleView    = "view"
+)
 
 // ErrLinkLimit means a link has counted all the downloads it allows.
 var ErrLinkLimit = errors.New("store: link has reached its download limit")
 
-// Link is a public link to a node and everything under it. The keys are opaque.
-// KDF is nil on a link with no password. A zero time and a zero limit mean none.
+// Link is a public link to a node and everything under it, or a request for
+// files into a folder. The keys are opaque. KDF is nil on a link with no
+// password. A zero time and a zero limit mean none.
 type Link struct {
-	ID                 string
-	NodeID             string
-	OwnerID            string
-	Role               string
-	KeyGeneration      int64
-	SealedKey          []byte
-	OwnerSealedKey     []byte
+	ID      string
+	NodeID  string
+	OwnerID string
+	Kind    string
+	// Role is what a view link gives, and empty on a request.
+	Role          string
+	KeyGeneration int64
+	SealedKey     []byte
+	// OwnerSealedKey holds a view link's key, or a request's private key, for
+	// its owner.
+	OwnerSealedKey []byte
+	// PublicKey is a request's X25519 public key, and nil on a view link.
+	PublicKey          []byte
 	KDF                []byte
 	PasswordWrappedKey []byte
 	AuthHash           []byte
 	ExpiresAt          time.Time
 	DownloadLimit      int64
 	DownloadCount      int64
-	RevokedAt          time.Time
-	CreatedAt          time.Time
+	// The limits of a request, in plaintext bytes, and what has arrived or is on
+	// its way.
+	MaxFileSize   int64
+	FileLimit     int64
+	BytesLimit    int64
+	FilesReceived int64
+	BytesReceived int64
+	// UploadsInProgress is how many uploads through a request have not completed.
+	UploadsInProgress int64
+	RevokedAt         time.Time
+	CreatedAt         time.Time
 }
 
-const linkColumns = `id, node_id, owner_id, role, key_generation, sealed_key, owner_sealed_key, kdf, password_wrapped_key,
-	auth_hash, expires_at, coalesce(download_limit, 0), download_count, revoked_at, created_at`
+const linkColumns = `id, node_id, owner_id, kind, coalesce(role, ''), key_generation, sealed_key, owner_sealed_key,
+	public_key, kdf, password_wrapped_key, auth_hash, expires_at, coalesce(download_limit, 0), download_count,
+	coalesce(max_file_size, 0), coalesce(file_limit, 0), coalesce(bytes_limit, 0), files_received, bytes_received,
+	(SELECT count(*) FROM uploads WHERE uploads.link_id = links.id),
+	revoked_at, created_at`
 
 func scanLink(row interface{ Scan(...any) error }) (Link, error) {
 	var l Link
 	var expires, revoked sql.NullInt64
 	var created int64
-	err := row.Scan(&l.ID, &l.NodeID, &l.OwnerID, &l.Role, &l.KeyGeneration, &l.SealedKey, &l.OwnerSealedKey, &l.KDF,
-		&l.PasswordWrappedKey, &l.AuthHash, &expires, &l.DownloadLimit, &l.DownloadCount, &revoked, &created)
+	err := row.Scan(&l.ID, &l.NodeID, &l.OwnerID, &l.Kind, &l.Role, &l.KeyGeneration, &l.SealedKey, &l.OwnerSealedKey,
+		&l.PublicKey, &l.KDF, &l.PasswordWrappedKey, &l.AuthHash, &expires, &l.DownloadLimit, &l.DownloadCount,
+		&l.MaxFileSize, &l.FileLimit, &l.BytesLimit, &l.FilesReceived, &l.BytesReceived, &l.UploadsInProgress, &revoked, &created)
 	l.SealedKey, l.OwnerSealedKey = nonNil(l.SealedKey), nonNil(l.OwnerSealedKey)
+	if l.Kind == LinkKindRequest {
+		l.PublicKey = nonNil(l.PublicKey)
+	}
 	l.ExpiresAt, l.RevokedAt = fromNull(expires), fromNull(revoked)
 	l.CreatedAt = time.Unix(created, 0).UTC()
 	return l, err
@@ -83,6 +110,9 @@ func (s *Store) CreateLink(ctx context.Context, l Link) (Link, error) {
 		if n.KeyGeneration != l.KeyGeneration {
 			return ErrKeyGeneration
 		}
+		if l.Kind == LinkKindRequest && n.Kind != KindFolder {
+			return ErrNotFolder
+		}
 		var exists int
 		err = tx.QueryRowContext(ctx, "SELECT 1 FROM links WHERE id = ?", l.ID).Scan(&exists)
 		if err == nil {
@@ -91,18 +121,23 @@ func (s *Store) CreateLink(ctx context.Context, l Link) (Link, error) {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("store: check link id: %w", err)
 		}
-		var expires, limit sql.NullInt64
+		var expires sql.NullInt64
 		if !l.ExpiresAt.IsZero() {
 			expires = sql.NullInt64{Int64: l.ExpiresAt.Unix(), Valid: true}
 		}
-		if l.DownloadLimit > 0 {
-			limit = sql.NullInt64{Int64: l.DownloadLimit, Valid: true}
+		var role, public any
+		if l.Kind == LinkKindRequest {
+			public = nonNil(l.PublicKey)
+		} else {
+			role = l.Role
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO links (id, node_id, owner_id, role, key_generation, sealed_key, owner_sealed_key,
-			kdf, password_wrapped_key, auth_hash, expires_at, download_limit, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			l.ID, l.NodeID, l.OwnerID, l.Role, l.KeyGeneration, nonNil(l.SealedKey), nonNil(l.OwnerSealedKey),
-			l.KDF, l.PasswordWrappedKey, l.AuthHash, expires, limit, l.CreatedAt.Unix())
+		_, err = tx.ExecContext(ctx, `INSERT INTO links (id, node_id, owner_id, kind, role, key_generation, sealed_key,
+			owner_sealed_key, public_key, kdf, password_wrapped_key, auth_hash, expires_at, download_limit,
+			max_file_size, file_limit, bytes_limit, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			l.ID, l.NodeID, l.OwnerID, l.Kind, role, l.KeyGeneration, nonNil(l.SealedKey), nonNil(l.OwnerSealedKey),
+			public, l.KDF, l.PasswordWrappedKey, l.AuthHash, expires, positive(l.DownloadLimit),
+			positive(l.MaxFileSize), positive(l.FileLimit), positive(l.BytesLimit), l.CreatedAt.Unix())
 		if err != nil {
 			return fmt.Errorf("store: insert link: %w", err)
 		}
@@ -110,6 +145,11 @@ func (s *Store) CreateLink(ctx context.Context, l Link) (Link, error) {
 		return err
 	})
 	return out, err
+}
+
+// positive is a limit as it is stored: NULL for none.
+func positive(n int64) sql.NullInt64 {
+	return sql.NullInt64{Int64: n, Valid: n > 0}
 }
 
 // ListLinksByOwner returns a page of the links a user has made, by id.

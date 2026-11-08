@@ -23,6 +23,8 @@
 		tags?: readonly FileTag[];
 		/** People it is shared with; none reads as "Only you". */
 		people?: readonly string[];
+		/** Whether a file request is taking files into it. */
+		requesting?: boolean;
 		modified: string;
 		size: string;
 		starred?: boolean;
@@ -44,6 +46,7 @@
 		caption,
 		tags = [],
 		people = [],
+		requesting = false,
 		modified,
 		size,
 		starred = false,
@@ -102,7 +105,8 @@
 		{#each people as person (person)}<span class="overlap"
 				><Avatar name={person} size={24} ring /></span
 			>{/each}
-		{#if people.length === 0}<span class="solo">Only you</span>{/if}
+		{#if requesting}<span class="solo requesting">Requesting files</span
+			>{:else if people.length === 0}<span class="solo">Only you</span>{/if}
 	</span>
 	<span role="cell" class="meta">{modified}</span>
 	<span role="cell" class="meta size">{size}</span>
@@ -206,6 +210,10 @@
 	}
 
 	.caption,
+	.requesting {
+		color: var(--accent-ink);
+	}
+
 	.solo {
 		font-size: 12px;
 		color: var(--text-muted);

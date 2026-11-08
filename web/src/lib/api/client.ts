@@ -8,6 +8,7 @@ import {
 	ApiError,
 	parseErrorCode,
 	type Account,
+	type AdoptIncomingRequest,
 	type AdminHealth,
 	type AuditPage,
 	type Editing,
@@ -24,6 +25,8 @@ import {
 	type CreateInviteRequest,
 	type CreateLinkRequest,
 	type CreateNodeRequest,
+	type CommitRequestUploadRequest,
+	type CreateRequestUploadRequest,
 	type CreateRootRequest,
 	type CreateTokenRequest,
 	type CreateUploadRequest,
@@ -35,6 +38,7 @@ import {
 	type Grant,
 	type GrantPage,
 	type Health,
+	type IncomingPage,
 	type Invite,
 	type Kdf,
 	type Link,
@@ -54,9 +58,11 @@ import {
 	type PublicLink,
 	type PublicNode,
 	type PublicNodePage,
+	type PublicRequest,
 	type PublicVersion,
 	type RecoveryCodes,
 	type RegisterRequest,
+	type RequestUpload,
 	type RekeyRequest,
 	type RestoreVersionRequest,
 	type RotateNodeRequest,
@@ -309,6 +315,50 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		createLink: (body: CreateLinkRequest) => json<Link>('POST', '/links', { body }),
 		deleteLink: (linkId: string) => empty('DELETE', `/links/${id(linkId)}`),
 		revokeLink: (linkId: string) => json<Link>('POST', `/links/${id(linkId)}/revoke`),
+
+		listIncoming: (page: PageOptions = {}) =>
+			json<IncomingPage>('GET', `/incoming${query({ ...page })}`),
+		deleteIncoming: (itemId: string) => empty('DELETE', `/incoming/${id(itemId)}`),
+		adoptIncoming: (itemId: string, body: AdoptIncomingRequest) =>
+			json<Node>('POST', `/incoming/${id(itemId)}/adopt`, { body }),
+
+		getPublicRequest: (linkId: string, linkToken?: string) =>
+			json<PublicRequest>('GET', `/public/requests/${id(linkId)}`, { linkToken }),
+		unlockPublicRequest: (linkId: string, body: UnlockLinkRequest) =>
+			json<PublicRequest>('POST', `/public/requests/${id(linkId)}/unlock`, { body }),
+		createRequestUpload: (linkId: string, linkToken: string, body: CreateRequestUploadRequest) =>
+			json<RequestUpload>('POST', `/public/requests/${id(linkId)}/uploads`, { body, linkToken }),
+		getRequestUpload: (linkId: string, uploadId: string, linkToken: string) =>
+			json<RequestUpload>('GET', `/public/requests/${id(linkId)}/uploads/${id(uploadId)}`, {
+				linkToken
+			}),
+		abortRequestUpload: (linkId: string, uploadId: string, linkToken: string) =>
+			empty('DELETE', `/public/requests/${id(linkId)}/uploads/${id(uploadId)}`, { linkToken }),
+		putRequestFrame: (
+			linkId: string,
+			uploadId: string,
+			index: number,
+			linkToken: string,
+			bytes: Uint8Array<ArrayBuffer>,
+			sha256: string,
+			signal?: AbortSignal
+		) =>
+			empty('PUT', `/public/requests/${id(linkId)}/uploads/${id(uploadId)}/frames/${index}`, {
+				bytes,
+				sha256,
+				signal,
+				linkToken
+			}),
+		commitRequestUpload: (
+			linkId: string,
+			uploadId: string,
+			linkToken: string,
+			body: CommitRequestUploadRequest
+		) =>
+			empty('POST', `/public/requests/${id(linkId)}/uploads/${id(uploadId)}/commit`, {
+				body,
+				linkToken
+			}),
 
 		getPublicLink: (linkId: string, linkToken?: string) =>
 			json<PublicLink>('GET', `/public/links/${id(linkId)}`, { linkToken }),

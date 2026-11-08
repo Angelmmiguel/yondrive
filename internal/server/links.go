@@ -100,24 +100,42 @@ func linkView(l store.Link) oapi.Link {
 	out := oapi.Link{
 		Id:             l.ID,
 		NodeId:         l.NodeID,
-		Role:           oapi.LinkRole(l.Role),
+		Kind:           oapi.LinkKind(l.Kind),
 		KeyGeneration:  l.KeyGeneration,
 		SealedKey:      l.SealedKey,
 		OwnerSealedKey: l.OwnerSealedKey,
 		HasPassword:    l.KDF != nil,
 		DownloadCount:  l.DownloadCount,
+		DownloadLimit:  optionalCount(l.DownloadLimit),
 		ExpiresAt:      optionalTime(l.ExpiresAt),
 		RevokedAt:      optionalTime(l.RevokedAt),
 		CreatedAt:      l.CreatedAt,
 	}
-	if l.DownloadLimit > 0 {
-		out.DownloadLimit = &l.DownloadLimit
+	if l.Kind == store.LinkKindRequest {
+		out.PublicKey = &l.PublicKey
+		out.MaxFileSize = optionalCount(l.MaxFileSize)
+		out.FileLimit = optionalCount(l.FileLimit)
+		out.BytesLimit = optionalCount(l.BytesLimit)
+		out.FilesReceived, out.BytesReceived = &l.FilesReceived, &l.BytesReceived
+		out.UploadsInProgress = &l.UploadsInProgress
+	} else {
+		role := oapi.LinkRole(l.Role)
+		out.Role = &role
 	}
 	return out
 }
 
+// optionalCount is a limit as the API shows it: absent for none.
+func optionalCount(n int64) *int64 {
+	if n <= 0 {
+		return nil
+	}
+	return &n
+}
+
 // checkLinkPassword validates the password of a new link and fills in what is
-// stored of it.
+// stored of it. A view link's key is wrapped under it in end-to-end mode; a
+// request's URL keeps its key, so it has nothing wrapped.
 func (s *Server) checkLinkPassword(in *oapi.LinkPassword, l *store.Link) error {
 	if in == nil {
 		return nil
@@ -133,7 +151,7 @@ func (s *Server) checkLinkPassword(in *oapi.LinkPassword, l *store.Link) error {
 	if in.WrappedKey != nil {
 		wrapped = *in.WrappedKey
 	}
-	if !s.checkSealed(wrapped, sealedKeyLen) {
+	if l.Kind == store.LinkKindRequest && len(wrapped) > 0 || l.Kind == store.LinkKindView && !s.checkSealed(wrapped, sealedKeyLen) {
 		return badRequest(codeInvalidLink)
 	}
 	if len(wrapped) > 0 {
@@ -143,37 +161,71 @@ func (s *Server) checkLinkPassword(in *oapi.LinkPassword, l *store.Link) error {
 	return nil
 }
 
-// CreateLink makes a public link to a node of the caller's.
+// checkLinkKind fills in what a link of its kind has, and refuses what it does
+// not. A request holds no node key: what opens its uploads is its own key pair.
+func (s *Server) checkLinkKind(in *oapi.CreateLinkRequest, l *store.Link) error {
+	limits := []*int64{in.MaxFileSize, in.FileLimit, in.BytesLimit, in.DownloadLimit}
+	for _, n := range limits {
+		if n != nil && *n < 1 {
+			return badRequest(codeInvalidLink)
+		}
+	}
+	if l.Kind == store.LinkKindView {
+		if in.Role == nil || !in.Role.Valid() || in.PublicKey != nil || in.MaxFileSize != nil || in.FileLimit != nil ||
+			in.BytesLimit != nil || !s.checkSealed(in.SealedKey, sealedKeyLen) {
+			return badRequest(codeInvalidLink)
+		}
+		l.Role, l.SealedKey = string(*in.Role), in.SealedKey
+		if in.DownloadLimit != nil {
+			l.DownloadLimit = *in.DownloadLimit
+		}
+		return nil
+	}
+	if in.Role != nil || in.DownloadLimit != nil || len(in.SealedKey) != 0 || in.PublicKey == nil ||
+		!s.checkSealed(*in.PublicKey, publicKeyLen) {
+		return badRequest(codeInvalidLink)
+	}
+	l.PublicKey = *in.PublicKey
+	for i, to := range []*int64{&l.MaxFileSize, &l.FileLimit, &l.BytesLimit} {
+		if limits[i] != nil {
+			*to = *limits[i]
+		}
+	}
+	return nil
+}
+
+// CreateLink makes a public link to a node of the caller's, or a request for
+// files into a folder of theirs.
 func (s *Server) CreateLink(ctx context.Context, req oapi.CreateLinkRequestObject) (oapi.CreateLinkResponseObject, error) {
 	in := req.Body
 	if !blobs.ValidID(in.Id) {
 		return nil, badRequest(codeInvalidID)
 	}
 	now := s.cfg.Now()
-	if !in.Role.Valid() || !s.checkSealed(in.SealedKey, sealedKeyLen) || !s.checkSealed(in.OwnerSealedKey, sealedKeyLen) {
+	kind := oapi.LinkKindView
+	if in.Kind != nil {
+		kind = *in.Kind
+	}
+	if !kind.Valid() || !s.checkSealed(in.OwnerSealedKey, sealedKeyLen) {
 		return nil, badRequest(codeInvalidLink)
 	}
 	l := store.Link{
 		ID:             in.Id,
 		NodeID:         in.NodeId,
 		OwnerID:        principalFrom(ctx).user.ID,
-		Role:           string(in.Role),
+		Kind:           string(kind),
 		KeyGeneration:  in.KeyGeneration,
-		SealedKey:      in.SealedKey,
 		OwnerSealedKey: in.OwnerSealedKey,
 		CreatedAt:      now,
+	}
+	if err := s.checkLinkKind(in, &l); err != nil {
+		return nil, err
 	}
 	if in.ExpiresAt != nil {
 		if !in.ExpiresAt.After(now) {
 			return nil, badRequest(codeInvalidLink)
 		}
 		l.ExpiresAt = *in.ExpiresAt
-	}
-	if in.DownloadLimit != nil {
-		if *in.DownloadLimit < 1 {
-			return nil, badRequest(codeInvalidLink)
-		}
-		l.DownloadLimit = *in.DownloadLimit
 	}
 	if err := s.checkLinkPassword(in.Password, &l); err != nil {
 		return nil, err
@@ -253,19 +305,25 @@ func (s *Server) DeleteLink(ctx context.Context, req oapi.DeleteLinkRequestObjec
 	if err := s.store.DeleteLink(ctx, l.ID); err != nil {
 		return nil, driveError(err)
 	}
+	// A request's items go with it, and so do their files.
+	s.drainRemovalsLogged(ctx)
 	s.audit(ctx, auditLinkDeleted, l.OwnerID, l.ID)
 	return oapi.DeleteLink204Response{}, nil
 }
 
-// liveLink loads a link anyone may use now. A link whose owner cannot sign in, or
-// whose node is in the trash, is as good as not there.
-func (s *Server) liveLink(ctx context.Context, id string) (store.Link, error) {
+// liveLink loads a link of a kind that anyone may use now. A link whose owner
+// cannot sign in, or whose node is in the trash, is as good as not there, and so
+// is one of the other kind.
+func (s *Server) liveLink(ctx context.Context, id, kind string) (store.Link, error) {
 	if !blobs.ValidID(id) {
 		return store.Link{}, badRequest(codeInvalidID)
 	}
 	l, err := s.store.LinkByID(ctx, id)
 	if err != nil {
 		return store.Link{}, driveError(err)
+	}
+	if l.Kind != kind {
+		return store.Link{}, fail(http.StatusNotFound, codeNotFound)
 	}
 	if !l.RevokedAt.IsZero() {
 		return store.Link{}, fail(http.StatusGone, codeLinkRevoked)
@@ -289,7 +347,7 @@ func (s *Server) liveLink(ctx context.Context, id string) (store.Link, error) {
 
 // authorizeLink checks a request's link token against a link that is live now.
 // Nothing else counts: not a cookie, not a bearer token.
-func (s *Server) authorizeLink(ctx context.Context, id string, token *string) (store.Link, linkSession, error) {
+func (s *Server) authorizeLink(ctx context.Context, id, kind string, token *string) (store.Link, linkSession, error) {
 	if !blobs.ValidID(id) {
 		return store.Link{}, linkSession{}, badRequest(codeInvalidID)
 	}
@@ -300,7 +358,7 @@ func (s *Server) authorizeLink(ctx context.Context, id string, token *string) (s
 	if !ok {
 		return store.Link{}, linkSession{}, fail(http.StatusUnauthorized, codeLinkTokenInvalid)
 	}
-	l, err := s.liveLink(ctx, id)
+	l, err := s.liveLink(ctx, id, kind)
 	if err != nil {
 		return store.Link{}, linkSession{}, err
 	}
@@ -362,7 +420,7 @@ func (s *Server) openLink(ctx context.Context, l store.Link, sess linkSession) (
 	token := s.mintLinkToken(sess)
 	out := oapi.PublicLink{
 		Id:             l.ID,
-		State:          oapi.Open,
+		State:          oapi.PublicLinkStateOpen,
 		Node:           &node,
 		SealedKey:      &l.SealedKey,
 		KeyGeneration:  &l.KeyGeneration,
@@ -385,7 +443,7 @@ func (s *Server) GetPublicLink(ctx context.Context, req oapi.GetPublicLinkReques
 	if !s.linkOpenLimiter.Allow(s.rateLimitKey(requestFrom(ctx))) {
 		return nil, fail(http.StatusTooManyRequests, codeRateLimited)
 	}
-	l, err := s.liveLink(ctx, req.Id)
+	l, err := s.liveLink(ctx, req.Id, store.LinkKindView)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +465,7 @@ func (s *Server) GetPublicLink(ctx context.Context, req oapi.GetPublicLinkReques
 			if err := json.Unmarshal(l.KDF, &kdf); err != nil {
 				return nil, err
 			}
-			return oapi.GetPublicLink200JSONResponse(oapi.PublicLink{Id: l.ID, State: oapi.PasswordRequired, Kdf: &kdf, ExpiresAt: optionalTime(l.ExpiresAt)}), nil
+			return oapi.GetPublicLink200JSONResponse(oapi.PublicLink{Id: l.ID, State: oapi.PublicLinkStatePasswordRequired, Kdf: &kdf, ExpiresAt: optionalTime(l.ExpiresAt)}), nil
 		}
 	}
 	out, err := s.openLink(ctx, l, sess)
@@ -427,7 +485,7 @@ func (s *Server) UnlockPublicLink(ctx context.Context, req oapi.UnlockPublicLink
 	if err := s.checkLinkAttempt(ctx, req.Id); err != nil {
 		return nil, err
 	}
-	l, err := s.liveLink(ctx, req.Id)
+	l, err := s.liveLink(ctx, req.Id, store.LinkKindView)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +528,7 @@ func (s *Server) linkNode(ctx context.Context, l store.Link, id string) (store.N
 
 // GetPublicNode returns a node under a link.
 func (s *Server) GetPublicNode(ctx context.Context, req oapi.GetPublicNodeRequestObject) (oapi.GetPublicNodeResponseObject, error) {
-	l, _, err := s.authorizeLink(ctx, req.Id, req.Params.XLinkToken)
+	l, _, err := s.authorizeLink(ctx, req.Id, store.LinkKindView, req.Params.XLinkToken)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +541,7 @@ func (s *Server) GetPublicNode(ctx context.Context, req oapi.GetPublicNodeReques
 
 // ListPublicChildren returns a page of a folder's children under a link.
 func (s *Server) ListPublicChildren(ctx context.Context, req oapi.ListPublicChildrenRequestObject) (oapi.ListPublicChildrenResponseObject, error) {
-	l, _, err := s.authorizeLink(ctx, req.Id, req.Params.XLinkToken)
+	l, _, err := s.authorizeLink(ctx, req.Id, store.LinkKindView, req.Params.XLinkToken)
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +572,7 @@ func (s *Server) ListPublicChildren(ctx context.Context, req oapi.ListPublicChil
 // GetPublicVersion returns a file's current version under a link. The signer is
 // their key and nothing else about them.
 func (s *Server) GetPublicVersion(ctx context.Context, req oapi.GetPublicVersionRequestObject) (oapi.GetPublicVersionResponseObject, error) {
-	l, _, err := s.authorizeLink(ctx, req.Id, req.Params.XLinkToken)
+	l, _, err := s.authorizeLink(ctx, req.Id, store.LinkKindView, req.Params.XLinkToken)
 	if err != nil {
 		return nil, err
 	}
@@ -595,7 +653,7 @@ func (s *Server) linkBlob(ctx context.Context, l store.Link, id string) (store.B
 // GetPublicBlob serves a stored file under a link. Content is counted before the
 // first byte goes, in a transaction, so a limit holds however many ask at once.
 func (s *Server) GetPublicBlob(ctx context.Context, req oapi.GetPublicBlobRequestObject) (oapi.GetPublicBlobResponseObject, error) {
-	l, sess, err := s.authorizeLink(ctx, req.Id, req.Params.XLinkToken)
+	l, sess, err := s.authorizeLink(ctx, req.Id, store.LinkKindView, req.Params.XLinkToken)
 	if err != nil {
 		return nil, err
 	}
