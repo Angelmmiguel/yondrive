@@ -129,7 +129,7 @@ image version=YONDRIVE_VERSION:
 
 # Report files that gofmt would change.
 fmt:
-    git ls-files '*.go' | xargs gofmt -l
+    git ls-files --cached --others --exclude-standard '*.go' | xargs gofmt -l
 
 # Regenerate the Go and TypeScript code from api/openapi.yaml, after linting it.
 api: web-install
