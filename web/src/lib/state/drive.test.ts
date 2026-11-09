@@ -18,6 +18,7 @@ const node = (over: Partial<DriveNode>): DriveNode => ({
 	favorite: false,
 	currentVersion: 'v',
 	thumbBlobId: null,
+	commentSeq: 0,
 	trashedAt: null,
 	purgedAt: null,
 	removeAt: null,

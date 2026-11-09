@@ -79,6 +79,17 @@ const routes: [string, string, (api: Api) => Promise<unknown>, boolean][] = [
 	['POST', '/nodes/n1/versions/v1/restore', (a) => a.restoreVersion('n1', 'v1', body), true],
 	['GET', '/nodes/n1/editing', (a) => a.getEditing('n1'), true],
 	['PUT', '/nodes/n1/editing', (a) => a.putEditing('n1'), true],
+	[
+		'GET',
+		'/nodes/n1/comments?cursor=7&limit=2',
+		(a) => a.listComments('n1', { cursor: '7', limit: 2 }),
+		true
+	],
+	['POST', '/nodes/n1/comments', (a) => a.createComment('n1', body), true],
+	['PUT', '/nodes/n1/comments/c1', (a) => a.updateComment('n1', 'c1', body), true],
+	['DELETE', '/nodes/n1/comments/c1', (a) => a.deleteComment('n1', 'c1'), false],
+	['PUT', '/nodes/n1/comments/c1/anchor', (a) => a.updateCommentAnchor('n1', 'c1', body), true],
+	['PUT', '/nodes/n1/comments/c1/resolved', (a) => a.resolveComment('n1', 'c1', body), true],
 	['POST', '/uploads', (a) => a.createUpload(body), true],
 	['GET', '/uploads/u1', (a) => a.getUpload('u1'), true],
 	['DELETE', '/uploads/u1', (a) => a.abortUpload('u1'), false],

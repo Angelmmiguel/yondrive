@@ -1107,6 +1107,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{id}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a file's comments, oldest first
+         * @description Every comment and reply on the file, thread roots and replies alike, for anyone
+         *     who can read it. The bodies and anchors are sealed under the node's key of the
+         *     generation each records, and `key_chain` reaches the oldest of them on the page
+         *     (CRYPTO.md, section 21). Public links and file requests have no route here.
+         */
+        get: operations["listComments"];
+        put?: never;
+        /**
+         * Start a thread, or reply to one
+         * @description Needs the `commenter` role or more. Without `thread_id` the comment starts a
+         *     thread, which may carry an anchor; with it, it replies to that thread's first
+         *     comment. The id is the client's, since it is sealed into the body. Answers
+         *     `invalid_comment` when a sealed field is missing or the wrong size for the mode,
+         *     `comment_too_large` (413) when the body or the anchor is over its limit,
+         *     `comment_limit_reached` (409) when the file has all the comments it takes,
+         *     `key_generation_conflict` (412) when the node's key has moved on, `not_a_file`
+         *     on a folder, and `node_trashed` when it is in the trash. Its readers who did not
+         *     write it are notified, with ids only.
+         */
+        post: operations["createComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/comments/{comment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the body of the caller's own comment
+         * @description The author alone, while they still hold the `commenter` role or more. The body
+         *     is sealed and signed again under the node's current generation.
+         */
+        put: operations["updateComment"];
+        post?: never;
+        /**
+         * Delete a comment
+         * @description Its author, while they can still comment, or the file's owner, who may delete
+         *     any. Deleting the first comment of a thread deletes the thread with its replies,
+         *     so its author may delete it only while nobody else has replied
+         *     (`comment_has_replies`); the owner may delete any thread.
+         */
+        delete: operations["deleteComment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/comments/{comment_id}/anchor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Move a thread's anchor
+         * @description For an editor or the owner, whose edit moved what the thread is about, such as
+         *     rows inserted above a commented cell. The anchor is sealed and signed by the
+         *     caller, who becomes its `signer_id`. Only the first comment of a thread has an
+         *     anchor; anything else answers `invalid_comment`.
+         */
+        put: operations["updateCommentAnchor"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{id}/comments/{comment_id}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Resolve a thread, or reopen it
+         * @description For an editor or the owner, on the first comment of a thread. The flag is the
+         *     server's and is not signed.
+         */
+        put: operations["resolveComment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/uploads": {
         parameters: {
             query?: never;
@@ -1398,9 +1523,11 @@ export interface paths {
          * List who can reach a node through a grant
          * @description The grants on the node and on the folders above it, nearest first, for anyone
          *     who can read the node: a client verifies a version's signature against an
-         *     author who holds edit rights, and they are the owner and the editors here.
+         *     author who holds edit rights, and they are the owner and the editors here, and
+         *     a comment's against an author who may comment, which the commenters may too.
          *     The owner gets every grant, with its sealed key and signature. Anyone else
-         *     gets their own grants and the editors', and not who else may only read.
+         *     gets their own grants, the editors' and the commenters', and not who else may
+         *     only read.
          */
         get: operations["listNodeAccess"];
         put?: never;
@@ -1477,7 +1604,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List what has been shared with the signed-in user and not marked as read */
+        /** List what has been shared with the signed-in user, and new comments, not marked as read */
         get: operations["listNotifications"];
         put?: never;
         post?: never;
@@ -2090,6 +2217,12 @@ export interface components {
              *     - `request_file_too_large`: the file is larger than the request takes (413)
              *     - `request_files_reached`: the request has taken all the files it takes (409)
              *     - `request_bytes_reached`: the file does not fit in what the request has left (413)
+             *     - `invalid_comment`: a sealed field of a comment is missing or the wrong size for
+             *       the mode, or a reply, an anchor or a resolve names anything but a thread's first comment
+             *     - `comment_too_large`: a comment's body or anchor is over its limit (413)
+             *     - `comment_limit_reached`: the file has all the comments it takes (409)
+             *     - `comment_has_replies`: others have replied to this thread, and only the
+             *       file's owner may delete it with their replies (409)
              * @example not_found
              */
             code: string;
@@ -2624,11 +2757,14 @@ export interface components {
          *     of the grants they hold on it and above it. A `viewer` reads. An `editor`
          *     also creates, renames, moves within the shared subtree, uploads versions and
          *     trashes, but not on the node a grant is on unless something above it is
-         *     shared too, since those change the folder it lives in. Only an `owner`
-         *     shares, rotates, restores, purges or deletes versions.
+         *     shared too, since those change the folder it lives in. A `commenter` reads
+         *     and comments, and changes nothing else. Every role reads comments; an
+         *     `editor` also resolves threads and moves their anchors. Only an `owner`
+         *     shares, rotates, restores, purges, deletes versions or deletes other
+         *     people's comments.
          * @enum {string}
          */
-        NodeRole: "owner" | "editor" | "viewer";
+        NodeRole: "owner" | "editor" | "commenter" | "viewer";
         /**
          * @description A file or folder. The server cannot read the sealed fields. On the node of
          *     a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
@@ -2660,6 +2796,12 @@ export interface components {
              *     rotation does not open: treat it as missing, and make another.
              */
             thumb_blob_id?: string;
+            /**
+             * Format: int64
+             * @description How many times the file's comments have changed, 0 before the first. A
+             *     client that keeps anything made from them reads them again when it moves.
+             */
+            comment_seq?: number;
             /**
              * Format: int64
              * @description Which generation of this node's key is current: what `wrapped_key`,
@@ -2871,6 +3013,128 @@ export interface components {
              */
             since: string;
         };
+        /**
+         * @description Where a thread points, sealed and signed by `signer_id`: its author when the
+         *     thread starts, and then whichever editor last moved it (CRYPTO.md, section 21).
+         */
+        CommentAnchor: {
+            /**
+             * Format: int64
+             * @description The generation of the node's key it is sealed under.
+             */
+            key_generation: number;
+            /** Format: byte */
+            sealed_anchor: string;
+            /**
+             * Format: byte
+             * @description Empty in `none` mode.
+             */
+            signature: string;
+            signer_id: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /**
+         * @description A comment on a file, kept beside it: the file's bytes never change for one. The
+         *     server cannot read `sealed_body` or the anchor; in `none` mode they hold readable
+         *     JSON. A client MUST verify the signature against the author's pinned key, and
+         *     check that the author may comment on the node, before showing the comment as
+         *     theirs (CRYPTO.md, section 21).
+         */
+        Comment: {
+            id: string;
+            node_id: string;
+            /** @description The first comment of the thread; its own id on that one. */
+            thread_id: string;
+            author_id: string;
+            author_username: string;
+            /**
+             * Format: int64
+             * @description The generation of the node's key the body is sealed under.
+             */
+            key_generation: number;
+            /** Format: byte */
+            sealed_body: string;
+            /**
+             * Format: byte
+             * @description The author's, over the body. Empty in `none` mode.
+             */
+            signature: string;
+            anchor?: components["schemas"]["CommentAnchor"];
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When the body was last replaced.
+             */
+            edited_at?: string;
+            /** @description On the first comment of a thread, whether the thread is resolved. */
+            resolved: boolean;
+            resolved_by?: string;
+            /** Format: date-time */
+            resolved_at?: string;
+        };
+        CommentPage: {
+            comments: components["schemas"]["Comment"][];
+            /**
+             * @description From the node's current key to the oldest generation that a comment or an
+             *     anchor on the page is sealed under, newest link first. Absent when that is
+             *     the current key, and always in `none` mode.
+             */
+            key_chain?: components["schemas"]["KeyLink"][];
+            /** @description Present if there may be more. */
+            next_cursor?: string;
+        };
+        CommentAnchorInput: {
+            /**
+             * Format: int64
+             * @description The node's current generation, which it is sealed under.
+             */
+            key_generation: number;
+            /**
+             * Format: byte
+             * @description At most 4 KiB.
+             */
+            sealed_anchor: string;
+            /**
+             * Format: byte
+             * @description The caller's Ed25519 signature, 64 bytes. Empty in `none` mode.
+             */
+            signature: string;
+        };
+        CreateCommentRequest: {
+            /** @description Chosen by the client. */
+            id: string;
+            /** @description The first comment of the thread this replies to. Absent starts a thread. */
+            thread_id?: string;
+            /**
+             * Format: int64
+             * @description The node's current generation, which the body is sealed under.
+             */
+            key_generation: number;
+            /**
+             * Format: byte
+             * @description At most 16 KiB.
+             */
+            sealed_body: string;
+            /**
+             * Format: byte
+             * @description The author's Ed25519 signature, 64 bytes. Empty in `none` mode.
+             */
+            signature: string;
+            anchor?: components["schemas"]["CommentAnchorInput"];
+        };
+        UpdateCommentRequest: {
+            /** Format: int64 */
+            key_generation: number;
+            /** Format: byte */
+            sealed_body: string;
+            /** Format: byte */
+            signature: string;
+        };
+        ResolveCommentRequest: {
+            resolved: boolean;
+        };
         CreateUploadRequest: {
             node_id: string;
             /** @description Chosen by the client, as it enters the frames' AAD. */
@@ -3000,9 +3264,10 @@ export interface components {
          *     its children, so read them again. `revoked`: the caller lost a way of reaching
          *     this node; read it, and if the answer is `not_found` drop it and all under it.
          *     Trashing a folder also appears as `trashed` on each grant under it.
+         *     `commented`: its comments changed, and its `comment_seq` with them.
          * @enum {string}
          */
-        ChangeOp: "created" | "updated" | "moved" | "trashed" | "restored" | "purged" | "removed" | "version" | "version_deleted" | "thumbnail" | "granted" | "role_changed" | "revoked" | "rotated";
+        ChangeOp: "created" | "updated" | "moved" | "trashed" | "restored" | "purged" | "removed" | "version" | "version_deleted" | "thumbnail" | "granted" | "role_changed" | "revoked" | "rotated" | "commented";
         Change: {
             /** Format: int64 */
             seq: number;
@@ -3017,7 +3282,7 @@ export interface components {
             next_cursor: string;
         };
         /** @enum {string} */
-        GrantRole: "viewer" | "editor";
+        GrantRole: "viewer" | "commenter" | "editor";
         /**
          * @description A role over a node and everything under it. `sealed_key` and `signature` are
          *     opaque to the server, and empty in `none` mode (CRYPTO.md, section 8). A client
@@ -3117,14 +3382,43 @@ export interface components {
             /** Format: date-time */
             created_at: string;
         };
+        /**
+         * @description New comments by someone else on a file the user can read, since they last
+         *     marked it as read. Ids only, as the comments are sealed.
+         */
+        CommentNotification: {
+            node_id: string;
+            /** @description The newest of them. */
+            comment_id: string;
+            /** @description Who wrote the newest. */
+            author_id: string;
+            /** @description How many there have been. */
+            count: number;
+            /**
+             * Format: date-time
+             * @description When the newest was written.
+             */
+            created_at: string;
+        };
         NotificationList: {
             /** @description The newest first, at most 50. */
             notifications: components["schemas"]["Notification"][];
             has_more: boolean;
+            /**
+             * @description One entry per file, the newest first, at most 50. Files the user cannot
+             *     read now are left out.
+             */
+            comments: components["schemas"]["CommentNotification"][];
         };
+        /**
+         * @description With neither list, marks everything. With either, only what it names: a body
+         *     with `grant_ids` alone leaves the comment notices as they are.
+         */
         MarkNotificationsReadRequest: {
-            /** @description Which to mark. Absent marks all of them. */
+            /** @description Which grants to mark. */
             grant_ids?: string[];
+            /** @description The files whose comment notices to mark. */
+            node_ids?: string[];
         };
         RotatedChild: {
             id: string;
@@ -3707,6 +4001,8 @@ export interface components {
     parameters: {
         /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
         ID: string;
+        /** @description A comment id. */
+        CommentID: string;
         /** @description A version id. */
         VersionID: string;
         /** @description The `next_cursor` of the previous page. */
@@ -5158,6 +5454,177 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Editing"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    listComments: {
+        parameters: {
+            query?: {
+                /** @description The `next_cursor` of the previous page. */
+                cursor?: string;
+                /** @description The most to return. Anything above the maximum is treated as it. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommentPage"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    createComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The comment. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    deleteComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    updateCommentAnchor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommentAnchorInput"];
+            };
+        };
+        responses: {
+            /** @description The thread's first comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    resolveComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+                /** @description A comment id. */
+                comment_id: components["parameters"]["CommentID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description The thread's first comment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Comment"];
                 };
             };
             default: components["responses"]["Error"];

@@ -29,6 +29,10 @@ export function searchOfDrive(core: Drive, deps: SearchOfDrive): SearchService {
 			const node = core.tree.nodes.get(id);
 			return node === undefined ? undefined : docOf(node, core.tree.tags, deps.userId);
 		},
+		async comments(id) {
+			const { commentText } = await import('$lib/comments/comments');
+			return commentText(id, core.commentDeps);
+		},
 		async read(id) {
 			const node = await core.tree.resolve(id);
 			if (node.currentVersion === null) return null;

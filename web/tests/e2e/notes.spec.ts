@@ -530,6 +530,16 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByTestId('note-side')).toBeVisible();
 			await page.getByTestId('note-side').getByRole('button', { name: 'Close the panel' }).click();
 			await expect(page.getByTestId('note-side')).toHaveCount(0);
+			// Comments are a button away on a phone too, in a drawer that closes.
+			const comments = page.getByRole('button', { name: /^Comments/ });
+			expect((await comments.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+			await comments.click();
+			await expect(
+				page.getByTestId('note-side').getByRole('tab', { name: 'Comments', selected: true })
+			).toBeVisible();
+			expect(await fits()).toBe(true);
+			await page.getByTestId('note-side').getByRole('button', { name: 'Close the panel' }).click();
+			await expect(page.getByTestId('note-side')).toHaveCount(0);
 			await page.setViewportSize({ width: 1280, height: 800 });
 		});
 

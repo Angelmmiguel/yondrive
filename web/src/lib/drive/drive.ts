@@ -4,6 +4,7 @@
  * what a lock comes down to: keys zeroed, workers gone, nothing left in memory.
  */
 import type { Api } from '$lib/api/client';
+import type { CommentDeps } from '$lib/comments/comments';
 import type { Bytes } from '$lib/crypto/encoding';
 import { deriveRootInWorker } from '$lib/crypto/kdf-client';
 import type { KdfParams } from '$lib/crypto/kdf';
@@ -234,6 +235,12 @@ export class Drive {
 		await resume.remove(upload.id).catch(() => {});
 		const node = this.tree.nodes.get(upload.node_id);
 		if (node?.currentVersion === null) await this.tree.discard(node.id).catch(() => {});
+	}
+
+	/** What the comments on this drive's files are read and written with. */
+	get commentDeps(): CommentDeps {
+		const { api, sealer, keys, userId } = this.#deps;
+		return { api, sealer, keys, userId, tree: this.tree, signerKeys: this.sharing.signerKeys };
 	}
 
 	#reader() {

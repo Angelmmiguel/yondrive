@@ -759,6 +759,18 @@ and file requests do not show comments.
 around it and rows inserted above a cell; a comment with a forged author is refused; the canary test covers comment
 bodies; saving a commented `.docx` or `.xlsx` leaves its bytes unchanged. **Release 1.1**, with file requests.
 
+Built as designed, with these choices from building it: a thread may also be about the whole file, which is what the
+viewers offer; the body and the anchor are signed over the sealed bytes with the ids and the generation, and the
+anchor is believed only from the thread's author or from someone who may edit; an editor's moves of cell anchors are
+signed and sent once the file is saved, and a cell whose row or column is deleted stays with the thread as lost;
+a file counts the changes to its comments (`comment_seq`), which the journal reports as `commented`, so other
+devices read them again and search indexes their words with the file's text. Sorting a range does not move
+anchors. A thread's author may delete its first comment only while nobody else has replied; the owner may delete
+any thread, and deleting a user takes the replies to the threads they started with them. Undoing the delete of a
+row or column finds its threads' cells again. Bodies are limited to 16 KiB sealed, anchors to 4 KiB and a file to
+2,000 comments, and placing quotes reads a document once and weighs each quote at a bounded number of places. See
+[docs/CRYPTO.md](docs/CRYPTO.md) section 21 and [docs/SECURITY.md](docs/SECURITY.md).
+
 ## 9. Testing
 
 - **Go:** `go test -race` on every route and store operation; hardening tests for limits, ids and headers.
@@ -789,5 +801,4 @@ bodies; saving a commented `.docx` or `.xlsx` leaves its bytes unchanged. **Rele
 
 ## 11. What happens next
 
-1.0 is out. Phase 9 starts with the spec changes for request links and incoming items in `api/openapi.yaml` and the
-key flow in `docs/CRYPTO.md`, reviewed before any code. Phase 10 follows the same way.
+1.0 is out, and phases 9 and 10 are built for 1.1.

@@ -53,6 +53,14 @@ export type VersionPage = Schemas['VersionPage'];
 export type Editing = Schemas['Editing'];
 export type Editor = Schemas['Editor'];
 export type RestoreVersionRequest = Schemas['RestoreVersionRequest'];
+export type Comment = Schemas['Comment'];
+export type CommentAnchor = Schemas['CommentAnchor'];
+export type CommentAnchorInput = Schemas['CommentAnchorInput'];
+export type CommentPage = Schemas['CommentPage'];
+export type CreateCommentRequest = Schemas['CreateCommentRequest'];
+export type UpdateCommentRequest = Schemas['UpdateCommentRequest'];
+export type ResolveCommentRequest = Schemas['ResolveCommentRequest'];
+export type CommentNotification = Schemas['CommentNotification'];
 export type CreateUploadRequest = Schemas['CreateUploadRequest'];
 export type Upload = Schemas['Upload'];
 export type CommitUploadRequest = Schemas['CommitUploadRequest'];
@@ -207,6 +215,10 @@ export type ErrorCode =
 	| 'request_file_too_large'
 	| 'request_files_reached'
 	| 'request_bytes_reached'
+	| 'invalid_comment'
+	| 'comment_too_large'
+	| 'comment_limit_reached'
+	| 'comment_has_replies'
 	| 'sso_disabled'
 	| 'sso_only'
 	| 'local_accounts_disabled'

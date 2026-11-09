@@ -20,6 +20,7 @@ import (
 
 // Defines values for ChangeOp.
 const (
+	ChangeOpCommented      ChangeOp = "commented"
 	ChangeOpCreated        ChangeOp = "created"
 	ChangeOpGranted        ChangeOp = "granted"
 	ChangeOpMoved          ChangeOp = "moved"
@@ -39,6 +40,8 @@ const (
 // Valid indicates whether the value is a known member of the ChangeOp enum.
 func (e ChangeOp) Valid() bool {
 	switch e {
+	case ChangeOpCommented:
+		return true
 	case ChangeOpCreated:
 		return true
 	case ChangeOpGranted:
@@ -74,13 +77,16 @@ func (e ChangeOp) Valid() bool {
 
 // Defines values for GrantRole.
 const (
-	GrantRoleEditor GrantRole = "editor"
-	GrantRoleViewer GrantRole = "viewer"
+	GrantRoleCommenter GrantRole = "commenter"
+	GrantRoleEditor    GrantRole = "editor"
+	GrantRoleViewer    GrantRole = "viewer"
 )
 
 // Valid indicates whether the value is a known member of the GrantRole enum.
 func (e GrantRole) Valid() bool {
 	switch e {
+	case GrantRoleCommenter:
+		return true
 	case GrantRoleEditor:
 		return true
 	case GrantRoleViewer:
@@ -191,14 +197,17 @@ func (e NodeKind) Valid() bool {
 
 // Defines values for NodeRole.
 const (
-	NodeRoleEditor NodeRole = "editor"
-	NodeRoleOwner  NodeRole = "owner"
-	NodeRoleViewer NodeRole = "viewer"
+	NodeRoleCommenter NodeRole = "commenter"
+	NodeRoleEditor    NodeRole = "editor"
+	NodeRoleOwner     NodeRole = "owner"
+	NodeRoleViewer    NodeRole = "viewer"
 )
 
 // Valid indicates whether the value is a known member of the NodeRole enum.
 func (e NodeRole) Valid() bool {
 	switch e {
+	case NodeRoleCommenter:
+		return true
 	case NodeRoleEditor:
 		return true
 	case NodeRoleOwner:
@@ -510,6 +519,7 @@ type Change struct {
 	// its children, so read them again. `revoked`: the caller lost a way of reaching
 	// this node; read it, and if the answer is `not_found` drop it and all under it.
 	// Trashing a folder also appears as `trashed` on each grant under it.
+	// `commented`: its comments changed, and its `comment_seq` with them.
 	Op  ChangeOp `json:"op"`
 	Seq int64    `json:"seq"`
 }
@@ -519,6 +529,7 @@ type Change struct {
 // its children, so read them again. `revoked`: the caller lost a way of reaching
 // this node; read it, and if the answer is `not_found` drop it and all under it.
 // Trashing a folder also appears as `trashed` on each grant under it.
+// `commented`: its comments changed, and its `comment_seq` with them.
 type ChangeOp string
 
 // ChangePage defines model for ChangePage.
@@ -527,6 +538,95 @@ type ChangePage struct {
 
 	// NextCursor Where to read from next, also when this page is empty.
 	NextCursor string `json:"next_cursor"`
+}
+
+// Comment A comment on a file, kept beside it: the file's bytes never change for one. The
+// server cannot read `sealed_body` or the anchor; in `none` mode they hold readable
+// JSON. A client MUST verify the signature against the author's pinned key, and
+// check that the author may comment on the node, before showing the comment as
+// theirs (CRYPTO.md, section 21).
+type Comment struct {
+	// Anchor Where a thread points, sealed and signed by `signer_id`: its author when the
+	// thread starts, and then whichever editor last moved it (CRYPTO.md, section 21).
+	Anchor         *CommentAnchor `json:"anchor,omitempty"`
+	AuthorId       string         `json:"author_id"`
+	AuthorUsername string         `json:"author_username"`
+	CreatedAt      time.Time      `json:"created_at"`
+
+	// EditedAt When the body was last replaced.
+	EditedAt *time.Time `json:"edited_at,omitempty"`
+	Id       string     `json:"id"`
+
+	// KeyGeneration The generation of the node's key the body is sealed under.
+	KeyGeneration int64  `json:"key_generation"`
+	NodeId        string `json:"node_id"`
+
+	// Resolved On the first comment of a thread, whether the thread is resolved.
+	Resolved   bool       `json:"resolved"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	ResolvedBy *string    `json:"resolved_by,omitempty"`
+	SealedBody []byte     `json:"sealed_body"`
+
+	// Signature The author's, over the body. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+
+	// ThreadId The first comment of the thread; its own id on that one.
+	ThreadId string `json:"thread_id"`
+}
+
+// CommentAnchor Where a thread points, sealed and signed by `signer_id`: its author when the
+// thread starts, and then whichever editor last moved it (CRYPTO.md, section 21).
+type CommentAnchor struct {
+	// KeyGeneration The generation of the node's key it is sealed under.
+	KeyGeneration int64  `json:"key_generation"`
+	SealedAnchor  []byte `json:"sealed_anchor"`
+
+	// Signature Empty in `none` mode.
+	Signature []byte    `json:"signature"`
+	SignerId  string    `json:"signer_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// CommentAnchorInput defines model for CommentAnchorInput.
+type CommentAnchorInput struct {
+	// KeyGeneration The node's current generation, which it is sealed under.
+	KeyGeneration int64 `json:"key_generation"`
+
+	// SealedAnchor At most 4 KiB.
+	SealedAnchor []byte `json:"sealed_anchor"`
+
+	// Signature The caller's Ed25519 signature, 64 bytes. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+}
+
+// CommentNotification New comments by someone else on a file the user can read, since they last
+// marked it as read. Ids only, as the comments are sealed.
+type CommentNotification struct {
+	// AuthorId Who wrote the newest.
+	AuthorId string `json:"author_id"`
+
+	// CommentId The newest of them.
+	CommentId string `json:"comment_id"`
+
+	// Count How many there have been.
+	Count int `json:"count"`
+
+	// CreatedAt When the newest was written.
+	CreatedAt time.Time `json:"created_at"`
+	NodeId    string    `json:"node_id"`
+}
+
+// CommentPage defines model for CommentPage.
+type CommentPage struct {
+	Comments []Comment `json:"comments"`
+
+	// KeyChain From the node's current key to the oldest generation that a comment or an
+	// anchor on the page is sealed under, newest link first. Absent when that is
+	// the current key, and always in `none` mode.
+	KeyChain *[]KeyLink `json:"key_chain,omitempty"`
+
+	// NextCursor Present if there may be more.
+	NextCursor *string `json:"next_cursor,omitempty"`
 }
 
 // CommitRequestUploadRequest defines model for CommitRequestUploadRequest.
@@ -567,6 +667,26 @@ type CompletePasswordResetRequest struct {
 type ConfirmTOTPRequest struct {
 	// Code Examples: 123456
 	Code string `json:"code"`
+}
+
+// CreateCommentRequest defines model for CreateCommentRequest.
+type CreateCommentRequest struct {
+	Anchor *CommentAnchorInput `json:"anchor,omitempty"`
+
+	// Id Chosen by the client.
+	Id string `json:"id"`
+
+	// KeyGeneration The node's current generation, which the body is sealed under.
+	KeyGeneration int64 `json:"key_generation"`
+
+	// SealedBody At most 16 KiB.
+	SealedBody []byte `json:"sealed_body"`
+
+	// Signature The author's Ed25519 signature, 64 bytes. Empty in `none` mode.
+	Signature []byte `json:"signature"`
+
+	// ThreadId The first comment of the thread this replies to. Absent starts a thread.
+	ThreadId *string `json:"thread_id,omitempty"`
 }
 
 // CreateGrantRequest defines model for CreateGrantRequest.
@@ -901,6 +1021,12 @@ type Error struct {
 	// - `request_file_too_large`: the file is larger than the request takes (413)
 	// - `request_files_reached`: the request has taken all the files it takes (409)
 	// - `request_bytes_reached`: the file does not fit in what the request has left (413)
+	// - `invalid_comment`: a sealed field of a comment is missing or the wrong size for
+	//   the mode, or a reply, an anchor or a resolve names anything but a thread's first comment
+	// - `comment_too_large`: a comment's body or anchor is over its limit (413)
+	// - `comment_limit_reached`: the file has all the comments it takes (409)
+	// - `comment_has_replies`: others have replied to this thread, and only the
+	//   file's owner may delete it with their replies (409)
 	//
 	//
 	// Examples: not_found
@@ -1164,10 +1290,14 @@ type LoginRequest struct {
 	Username         string  `json:"username"`
 }
 
-// MarkNotificationsReadRequest defines model for MarkNotificationsReadRequest.
+// MarkNotificationsReadRequest With neither list, marks everything. With either, only what it names: a body
+// with `grant_ids` alone leaves the comment notices as they are.
 type MarkNotificationsReadRequest struct {
-	// GrantIds Which to mark. Absent marks all of them.
+	// GrantIds Which grants to mark.
 	GrantIds *[]string `json:"grant_ids,omitempty"`
+
+	// NodeIds The files whose comment notices to mark.
+	NodeIds *[]string `json:"node_ids,omitempty"`
 }
 
 // Mode The encryption mode of the whole server, fixed at setup. Absent from
@@ -1219,7 +1349,10 @@ type NewAccount struct {
 // a grant, with nothing above it shared, `parent_id` and `name_tag` are absent
 // and `wrapped_key` empty, as they belong to a folder the grantee cannot see.
 type Node struct {
-	CreatedAt time.Time `json:"created_at"`
+	// CommentSeq How many times the file's comments have changed, 0 before the first. A
+	// client that keeps anything made from them reads them again when it moves.
+	CommentSeq *int64    `json:"comment_seq,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 
 	// CurrentVersion Absent until a file's first commit.
 	CurrentVersion *string `json:"current_version,omitempty"`
@@ -1246,8 +1379,11 @@ type Node struct {
 	// of the grants they hold on it and above it. A `viewer` reads. An `editor`
 	// also creates, renames, moves within the shared subtree, uploads versions and
 	// trashes, but not on the node a grant is on unless something above it is
-	// shared too, since those change the folder it lives in. Only an `owner`
-	// shares, rotates, restores, purges or deletes versions.
+	// shared too, since those change the folder it lives in. A `commenter` reads
+	// and comments, and changes nothing else. Every role reads comments; an
+	// `editor` also resolves threads and moves their anchors. Only an `owner`
+	// shares, rotates, restores, purges, deletes versions or deletes other
+	// people's comments.
 	Role           *NodeRole `json:"role,omitempty"`
 	SealedMetadata []byte    `json:"sealed_metadata"`
 
@@ -1303,8 +1439,11 @@ type NodePage struct {
 // of the grants they hold on it and above it. A `viewer` reads. An `editor`
 // also creates, renames, moves within the shared subtree, uploads versions and
 // trashes, but not on the node a grant is on unless something above it is
-// shared too, since those change the folder it lives in. Only an `owner`
-// shares, rotates, restores, purges or deletes versions.
+// shared too, since those change the folder it lives in. A `commenter` reads
+// and comments, and changes nothing else. Every role reads comments; an
+// `editor` also resolves threads and moves their anchors. Only an `owner`
+// shares, rotates, restores, purges, deletes versions or deletes other
+// people's comments.
 type NodeRole string
 
 // Notification A grant its holder has not marked as read. Ids only, as names are sealed.
@@ -1317,7 +1456,10 @@ type Notification struct {
 
 // NotificationList defines model for NotificationList.
 type NotificationList struct {
-	HasMore bool `json:"has_more"`
+	// Comments One entry per file, the newest first, at most 50. Files the user cannot
+	// read now are left out.
+	Comments []CommentNotification `json:"comments"`
+	HasMore  bool                  `json:"has_more"`
 
 	// Notifications The newest first, at most 50.
 	Notifications []Notification `json:"notifications"`
@@ -1631,6 +1773,11 @@ type RequestUpload struct {
 	VersionId string `json:"version_id"`
 }
 
+// ResolveCommentRequest defines model for ResolveCommentRequest.
+type ResolveCommentRequest struct {
+	Resolved bool `json:"resolved"`
+}
+
 // RestoreVersionRequest defines model for RestoreVersionRequest.
 type RestoreVersionRequest struct {
 	// ExpectedVersion The version the client believes is current. Left out, nothing is
@@ -1877,6 +2024,13 @@ type UnlockLinkRequest struct {
 	AuthKey []byte `json:"auth_key"`
 }
 
+// UpdateCommentRequest defines model for UpdateCommentRequest.
+type UpdateCommentRequest struct {
+	KeyGeneration int64  `json:"key_generation"`
+	SealedBody    []byte `json:"sealed_body"`
+	Signature     []byte `json:"signature"`
+}
+
 // UpdateGrantRequest defines model for UpdateGrantRequest.
 type UpdateGrantRequest struct {
 	Role GrantRole `json:"role"`
@@ -2113,6 +2267,9 @@ type VersionSummary struct {
 // own; see docs/RELEASE.md.
 type WebBundle = string
 
+// CommentID defines model for CommentID.
+type CommentID = string
+
 // ContentSHA256 defines model for ContentSHA256.
 type ContentSHA256 = string
 
@@ -2226,6 +2383,15 @@ type ListIndexBlobsParams struct {
 type ListChildrenParams struct {
 	// Cursor The `next_cursor` of the previous page.
 	Cursor *IDCursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most to return. Anything above the maximum is treated as it.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListCommentsParams defines parameters for ListComments.
+type ListCommentsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit The most to return. Anything above the maximum is treated as it.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
@@ -2453,6 +2619,18 @@ type CreateRootNodeJSONRequestBody = CreateRootRequest
 // UpdateNodeJSONRequestBody defines body for UpdateNode for application/json ContentType.
 type UpdateNodeJSONRequestBody = UpdateNodeRequest
 
+// CreateCommentJSONRequestBody defines body for CreateComment for application/json ContentType.
+type CreateCommentJSONRequestBody = CreateCommentRequest
+
+// UpdateCommentJSONRequestBody defines body for UpdateComment for application/json ContentType.
+type UpdateCommentJSONRequestBody = UpdateCommentRequest
+
+// UpdateCommentAnchorJSONRequestBody defines body for UpdateCommentAnchor for application/json ContentType.
+type UpdateCommentAnchorJSONRequestBody = CommentAnchorInput
+
+// ResolveCommentJSONRequestBody defines body for ResolveComment for application/json ContentType.
+type ResolveCommentJSONRequestBody = ResolveCommentRequest
+
 // MoveNodeJSONRequestBody defines body for MoveNode for application/json ContentType.
 type MoveNodeJSONRequestBody = MoveNodeRequest
 
@@ -2659,6 +2837,24 @@ type ServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(w http.ResponseWriter, r *http.Request, id ID, params ListChildrenParams)
+	// ListComments List a file's comments, oldest first
+	// (GET /api/v1/nodes/{id}/comments)
+	ListComments(w http.ResponseWriter, r *http.Request, id ID, params ListCommentsParams)
+	// CreateComment Start a thread, or reply to one
+	// (POST /api/v1/nodes/{id}/comments)
+	CreateComment(w http.ResponseWriter, r *http.Request, id ID)
+	// DeleteComment Delete a comment
+	// (DELETE /api/v1/nodes/{id}/comments/{comment_id})
+	DeleteComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID)
+	// UpdateComment Replace the body of the caller's own comment
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id})
+	UpdateComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID)
+	// UpdateCommentAnchor Move a thread's anchor
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id}/anchor)
+	UpdateCommentAnchor(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID)
+	// ResolveComment Resolve a thread, or reopen it
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id}/resolved)
+	ResolveComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID)
 	// GetEditing List who else has this file open in an editor
 	// (GET /api/v1/nodes/{id}/editing)
 	GetEditing(w http.ResponseWriter, r *http.Request, id ID)
@@ -2695,7 +2891,7 @@ type ServerInterface interface {
 	// RestoreVersion Make a new current version from an older one
 	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
 	RestoreVersion(w http.ResponseWriter, r *http.Request, id ID, versionId VersionID)
-	// ListNotifications List what has been shared with the signed-in user and not marked as read
+	// ListNotifications List what has been shared with the signed-in user, and new comments, not marked as read
 	// (GET /api/v1/notifications)
 	ListNotifications(w http.ResponseWriter, r *http.Request)
 	// MarkNotificationsRead Mark notifications as read
@@ -4140,6 +4336,227 @@ func (siw *ServerInterfaceWrapper) ListChildren(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListChildren(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListComments operation middleware
+func (siw *ServerInterfaceWrapper) ListComments(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCommentsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListComments(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateComment operation middleware
+func (siw *ServerInterfaceWrapper) CreateComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateComment(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteComment operation middleware
+func (siw *ServerInterfaceWrapper) DeleteComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "comment_id" -------------
+	var commentId CommentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "comment_id", r.PathValue("comment_id"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "comment_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteComment(w, r, id, commentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateComment operation middleware
+func (siw *ServerInterfaceWrapper) UpdateComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "comment_id" -------------
+	var commentId CommentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "comment_id", r.PathValue("comment_id"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "comment_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateComment(w, r, id, commentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCommentAnchor operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCommentAnchor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "comment_id" -------------
+	var commentId CommentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "comment_id", r.PathValue("comment_id"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "comment_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCommentAnchor(w, r, id, commentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResolveComment operation middleware
+func (siw *ServerInterfaceWrapper) ResolveComment(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "comment_id" -------------
+	var commentId CommentID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "comment_id", r.PathValue("comment_id"), &commentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "comment_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResolveComment(w, r, id, commentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6017,6 +6434,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/versions/{version_id}/restore", wrapper.RestoreVersion)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/editing", wrapper.GetEditing)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/nodes/{id}/editing", wrapper.PutEditing)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/nodes/{id}/comments", wrapper.ListComments)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/nodes/{id}/comments", wrapper.CreateComment)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/nodes/{id}/comments/{comment_id}", wrapper.DeleteComment)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/nodes/{id}/comments/{comment_id}", wrapper.UpdateComment)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/nodes/{id}/comments/{comment_id}/anchor", wrapper.UpdateCommentAnchor)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/api/v1/nodes/{id}/comments/{comment_id}/resolved", wrapper.ResolveComment)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads", wrapper.ListUploads)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads", wrapper.CreateUpload)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/uploads/{id}", wrapper.AbortUpload)
@@ -8216,6 +8639,243 @@ func (response ListChildrendefaultJSONResponse) VisitListChildrenResponse(w http
 	return err
 }
 
+type ListCommentsRequestObject struct {
+	Id     ID `json:"id"`
+	Params ListCommentsParams
+}
+
+type ListCommentsResponseObject interface {
+	VisitListCommentsResponse(w http.ResponseWriter) error
+}
+
+type ListComments200JSONResponse CommentPage
+
+func (response ListComments200JSONResponse) VisitListCommentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCommentsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListCommentsdefaultJSONResponse) VisitListCommentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCommentRequestObject struct {
+	Id   ID `json:"id"`
+	Body *CreateCommentJSONRequestBody
+}
+
+type CreateCommentResponseObject interface {
+	VisitCreateCommentResponse(w http.ResponseWriter) error
+}
+
+type CreateComment201JSONResponse Comment
+
+func (response CreateComment201JSONResponse) VisitCreateCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCommentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateCommentdefaultJSONResponse) VisitCreateCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCommentRequestObject struct {
+	Id        ID        `json:"id"`
+	CommentId CommentID `json:"comment_id"`
+}
+
+type DeleteCommentResponseObject interface {
+	VisitDeleteCommentResponse(w http.ResponseWriter) error
+}
+
+type DeleteComment204Response struct {
+}
+
+func (response DeleteComment204Response) VisitDeleteCommentResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCommentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteCommentdefaultJSONResponse) VisitDeleteCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCommentRequestObject struct {
+	Id        ID        `json:"id"`
+	CommentId CommentID `json:"comment_id"`
+	Body      *UpdateCommentJSONRequestBody
+}
+
+type UpdateCommentResponseObject interface {
+	VisitUpdateCommentResponse(w http.ResponseWriter) error
+}
+
+type UpdateComment200JSONResponse Comment
+
+func (response UpdateComment200JSONResponse) VisitUpdateCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCommentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateCommentdefaultJSONResponse) VisitUpdateCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCommentAnchorRequestObject struct {
+	Id        ID        `json:"id"`
+	CommentId CommentID `json:"comment_id"`
+	Body      *UpdateCommentAnchorJSONRequestBody
+}
+
+type UpdateCommentAnchorResponseObject interface {
+	VisitUpdateCommentAnchorResponse(w http.ResponseWriter) error
+}
+
+type UpdateCommentAnchor200JSONResponse Comment
+
+func (response UpdateCommentAnchor200JSONResponse) VisitUpdateCommentAnchorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCommentAnchordefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UpdateCommentAnchordefaultJSONResponse) VisitUpdateCommentAnchorResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveCommentRequestObject struct {
+	Id        ID        `json:"id"`
+	CommentId CommentID `json:"comment_id"`
+	Body      *ResolveCommentJSONRequestBody
+}
+
+type ResolveCommentResponseObject interface {
+	VisitResolveCommentResponse(w http.ResponseWriter) error
+}
+
+type ResolveComment200JSONResponse Comment
+
+func (response ResolveComment200JSONResponse) VisitResolveCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveCommentdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ResolveCommentdefaultJSONResponse) VisitResolveCommentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetEditingRequestObject struct {
 	Id ID `json:"id"`
 }
@@ -10228,6 +10888,24 @@ type StrictServerInterface interface {
 	// ListChildren List a folder's children outside the trash
 	// (GET /api/v1/nodes/{id}/children)
 	ListChildren(ctx context.Context, request ListChildrenRequestObject) (ListChildrenResponseObject, error)
+	// ListComments List a file's comments, oldest first
+	// (GET /api/v1/nodes/{id}/comments)
+	ListComments(ctx context.Context, request ListCommentsRequestObject) (ListCommentsResponseObject, error)
+	// CreateComment Start a thread, or reply to one
+	// (POST /api/v1/nodes/{id}/comments)
+	CreateComment(ctx context.Context, request CreateCommentRequestObject) (CreateCommentResponseObject, error)
+	// DeleteComment Delete a comment
+	// (DELETE /api/v1/nodes/{id}/comments/{comment_id})
+	DeleteComment(ctx context.Context, request DeleteCommentRequestObject) (DeleteCommentResponseObject, error)
+	// UpdateComment Replace the body of the caller's own comment
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id})
+	UpdateComment(ctx context.Context, request UpdateCommentRequestObject) (UpdateCommentResponseObject, error)
+	// UpdateCommentAnchor Move a thread's anchor
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id}/anchor)
+	UpdateCommentAnchor(ctx context.Context, request UpdateCommentAnchorRequestObject) (UpdateCommentAnchorResponseObject, error)
+	// ResolveComment Resolve a thread, or reopen it
+	// (PUT /api/v1/nodes/{id}/comments/{comment_id}/resolved)
+	ResolveComment(ctx context.Context, request ResolveCommentRequestObject) (ResolveCommentResponseObject, error)
 	// GetEditing List who else has this file open in an editor
 	// (GET /api/v1/nodes/{id}/editing)
 	GetEditing(ctx context.Context, request GetEditingRequestObject) (GetEditingResponseObject, error)
@@ -10264,7 +10942,7 @@ type StrictServerInterface interface {
 	// RestoreVersion Make a new current version from an older one
 	// (POST /api/v1/nodes/{id}/versions/{version_id}/restore)
 	RestoreVersion(ctx context.Context, request RestoreVersionRequestObject) (RestoreVersionResponseObject, error)
-	// ListNotifications List what has been shared with the signed-in user and not marked as read
+	// ListNotifications List what has been shared with the signed-in user, and new comments, not marked as read
 	// (GET /api/v1/notifications)
 	ListNotifications(ctx context.Context, request ListNotificationsRequestObject) (ListNotificationsResponseObject, error)
 	// MarkNotificationsRead Mark notifications as read
@@ -11914,6 +12592,195 @@ func (sh *strictHandler) ListChildren(w http.ResponseWriter, r *http.Request, id
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListChildrenResponseObject); ok {
 		if err := validResponse.VisitListChildrenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListComments operation middleware
+func (sh *strictHandler) ListComments(w http.ResponseWriter, r *http.Request, id ID, params ListCommentsParams) {
+	var request ListCommentsRequestObject
+
+	request.Id = id
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListComments(ctx, request.(ListCommentsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListComments")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCommentsResponseObject); ok {
+		if err := validResponse.VisitListCommentsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateComment operation middleware
+func (sh *strictHandler) CreateComment(w http.ResponseWriter, r *http.Request, id ID) {
+	var request CreateCommentRequestObject
+
+	request.Id = id
+
+	var body CreateCommentJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateComment(ctx, request.(CreateCommentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateComment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCommentResponseObject); ok {
+		if err := validResponse.VisitCreateCommentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteComment operation middleware
+func (sh *strictHandler) DeleteComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID) {
+	var request DeleteCommentRequestObject
+
+	request.Id = id
+	request.CommentId = commentId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteComment(ctx, request.(DeleteCommentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteComment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCommentResponseObject); ok {
+		if err := validResponse.VisitDeleteCommentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateComment operation middleware
+func (sh *strictHandler) UpdateComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID) {
+	var request UpdateCommentRequestObject
+
+	request.Id = id
+	request.CommentId = commentId
+
+	var body UpdateCommentJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateComment(ctx, request.(UpdateCommentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateComment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCommentResponseObject); ok {
+		if err := validResponse.VisitUpdateCommentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCommentAnchor operation middleware
+func (sh *strictHandler) UpdateCommentAnchor(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID) {
+	var request UpdateCommentAnchorRequestObject
+
+	request.Id = id
+	request.CommentId = commentId
+
+	var body UpdateCommentAnchorJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCommentAnchor(ctx, request.(UpdateCommentAnchorRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCommentAnchor")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCommentAnchorResponseObject); ok {
+		if err := validResponse.VisitUpdateCommentAnchorResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResolveComment operation middleware
+func (sh *strictHandler) ResolveComment(w http.ResponseWriter, r *http.Request, id ID, commentId CommentID) {
+	var request ResolveCommentRequestObject
+
+	request.Id = id
+	request.CommentId = commentId
+
+	var body ResolveCommentJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResolveComment(ctx, request.(ResolveCommentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResolveComment")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResolveCommentResponseObject); ok {
+		if err := validResponse.VisitResolveCommentResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

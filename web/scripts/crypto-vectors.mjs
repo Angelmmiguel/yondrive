@@ -531,6 +531,84 @@ function requestVector() {
 	};
 }
 
+function commentVector() {
+	const nodeId = 'node-1';
+	const threadId = 'comment-1';
+	const commentId = 'comment-2';
+	const authorId = 'user-author';
+	const signerId = 'user-editor';
+	const generation = 2;
+	const commentKey = hkdf(nodeKey, 'yondrive/comment/v1');
+	const body = '{"text":"Is this figure right?"}';
+	const anchor = '{"kind":"cell","sheet":"Sheet1","row":4,"col":1}';
+	const bodyAad = fields(
+		'yondrive/comment/body/v1',
+		utf8(nodeId),
+		utf8(threadId),
+		utf8(commentId),
+		u32(generation)
+	);
+	const anchorAad = fields(
+		'yondrive/comment/anchor/v1',
+		utf8(nodeId),
+		utf8(threadId),
+		u32(generation)
+	);
+	const bodyNonce = bytes(95, 24);
+	const anchorNonce = bytes(96, 24);
+	const sealedBody = seal(commentKey, bodyNonce, bodyAad, utf8(body));
+	const sealedAnchor = seal(commentKey, anchorNonce, anchorAad, utf8(anchor));
+	const authorSecret = bytes(97, 32);
+	const signerSecret = bytes(98, 32);
+	const bodyMessage = fields(
+		'yondrive/comment/signed/v1',
+		utf8(nodeId),
+		utf8(threadId),
+		utf8(commentId),
+		utf8(authorId),
+		u32(generation),
+		sealedBody
+	);
+	const anchorMessage = fields(
+		'yondrive/comment/anchor/signed/v1',
+		utf8(nodeId),
+		utf8(threadId),
+		utf8(signerId),
+		u32(generation),
+		sealedAnchor
+	);
+	return {
+		nodeKey: hex(nodeKey),
+		nodeId,
+		threadId,
+		commentId,
+		authorId,
+		signerId,
+		generation,
+		commentKey: hex(commentKey),
+		body: {
+			json: body,
+			nonce: hex(bodyNonce),
+			aad: hex(bodyAad),
+			sealed: hex(sealedBody),
+			ed25519Private: hex(authorSecret),
+			ed25519Public: hex(publicOf('ed25519', authorSecret)),
+			message: hex(bodyMessage),
+			signature: hex(sign(null, bodyMessage, privateKey('ed25519', authorSecret)))
+		},
+		anchor: {
+			json: anchor,
+			nonce: hex(anchorNonce),
+			aad: hex(anchorAad),
+			sealed: hex(sealedAnchor),
+			ed25519Private: hex(signerSecret),
+			ed25519Public: hex(publicOf('ed25519', signerSecret)),
+			message: hex(anchorMessage),
+			signature: hex(sign(null, anchorMessage, privateKey('ed25519', signerSecret)))
+		}
+	};
+}
+
 const childWrapKey = hkdf(parentKey, 'yondrive/node-wrap/v1');
 
 const content = contentVector();
@@ -592,7 +670,8 @@ const vectors = {
 	pinning: pinningVector(),
 	smallBlobs: smallBlobVectors(),
 	...sharingVectors(),
-	request: requestVector()
+	request: requestVector(),
+	comment: commentVector()
 };
 
 process.stdout.write(`${JSON.stringify(vectors, null, '\t')}\n`);

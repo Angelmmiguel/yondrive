@@ -59,7 +59,7 @@ lock              advisory lock against a second process
 | `nodes` | Owner, parent, kind, suite, opaque metadata, wrapped key and name tag, current version, key generation, trash and removal times. |
 | `node_key_history` | The key of each past generation of a node, sealed under the next. |
 | `versions` | Node, blob, author, the id it was sealed as and its signer, key generation, sizes, frame hashes, opaque signature and manifest. |
-| `grants` | Node, grantee, granter, role, key generation, sealed key, signature, when it was read. |
+| `grants` | Node, grantee, granter, role (`viewer`, `commenter` or `editor`), key generation, sealed key, signature, when it was read. |
 | `links` | Node, owner, kind (`view` or `request`), role of a view link, key generation, sealed keys, a request's public key, KDF parameters and auth hash of a password, expiry, download limit and count, a request's limits and what it has received, revocation. |
 | `link_downloads` | What each link's sessions have counted. |
 | `blobs` | Owner, node if any, kind, suite, size, ref count. |
@@ -68,6 +68,8 @@ lock              advisory lock against a second process
 | `changes` | The journal: sequence, the user whose journal it is, node, operation, time. `users.journal_floor` is the highest sequence trimmed from each. |
 | `file_removals` | Files whose rows have gone, waiting to be unlinked. |
 | `edit_status` | Who has a file open in an editor: node, user, when the run of heartbeats began and when the last one lapses. The sweep drops lapsed rows. |
+| `comments` | Node, thread, author, key generation, sealed body and signature, the first comment's sealed anchor with its generation, signature, signer and time, who resolved it and when, when it was written and last edited. `nodes.comment_seq` counts the changes to a file's comments. |
+| `comment_notices` | Per user and file, how many new comments by others they have not marked read, and the newest one's id, author and time. |
 
 Session keys are not in this list. They are memory only.
 
@@ -323,10 +325,25 @@ what is under it if the answer is `404`.
 What is sealed is opaque here as well. The server checks sizes against the mode, and holds no key. The
 constructions are in [CRYPTO.md](CRYPTO.md), sections 8 and 19.
 
-**Roles.** A viewer reads, including older versions. An editor also creates, renames, moves, uploads
+**Roles.** A viewer reads, including older versions and comments. A commenter also writes comments, and edits
+or deletes their own. An editor also creates, renames, moves, uploads
 versions, restores a version and trashes, and is charged nothing. Only an owner shares, rotates, restores
 from the trash, purges or deletes versions; what is in the trash is hidden from everyone else, so an editor
-cannot undo trashing. A root cannot be shared, as it holds the owner's tags and has no parent to wrap under.
+cannot undo trashing. An editor and the owner resolve and reopen threads and move their anchors, and only the
+owner deletes someone else's comment. A root cannot be shared, as it holds the owner's tags and has no parent to wrap under.
+
+**Comments** are rows of their own, `comments`, beside the file and never in it: a thread is its first comment,
+whose `thread_id` is its own id, and the replies that name it, and only the first has an anchor and a resolved
+state. Deleting it deletes the thread, so its author may only while nobody else has replied
+(`comment_has_replies`), and the owner may delete any thread. Deleting the file deletes its comments, and deleting
+a user deletes theirs, with everyone's replies to the threads they started. The trash keeps them as they are and
+takes no new ones. Each body and anchor records the key generation it is sealed under, as a
+version does, and the listing gives the key chain down to the oldest on the page, so a rotation seals nothing
+again. Each change bumps the file's `comment_seq` and goes in the journal as `commented` for everyone who can
+reach the file, and a new comment adds to a per-file count in `comment_notices` for each of them but its author,
+which the notifications list until they mark the file read. Bodies are capped at 16 KiB sealed, anchors at 4 KiB,
+and a file at 2,000 comments; none of it is charged to quota. The construction is in
+[CRYPTO.md](CRYPTO.md), section 21.
 
 **The node of a grant** lives in a folder its grantee may not see. Its `parent_id` and `name_tag` do not
 show, and `wrapped_key` is empty. What changes that folder, which is a rename, a move or trashing, needs
@@ -699,7 +716,7 @@ several people on it, and wired up by `Drive`. `src/lib/state/sharing.svelte.ts`
 | `links.ts`, `public.ts` | Making a link or a file request, and reading under a link with no account. |
 | `request.ts` | Sending files through a request with no account: the key from the URL, compared with the server's, sealed to, and nothing kept. |
 | `incoming.ts` | Adopting what arrived: opening it with the request's private key, naming it in its folder, signing it as the owner. |
-| `roles.ts` | What the screens offer. The server decides. |
+| `roles.ts` | What the screens offer, and the words for each role. The server decides. |
 
 **In the tree.** A node's key comes from its parent's, or at the top of a share from a verified grant, and the
 tree keeps the generation of each. Writes name it and read again on `key_generation_conflict`. A page whose children
@@ -730,6 +747,21 @@ own that it zeroes when the file is handed over. A file that fails goes on from 
 the page is open, and one the server has dropped starts over by itself; nothing is written to the device, so
 a reload starts over. When its token runs out on a request with a password, it asks for the password again.
 Once everything is sent the list is cleared.
+
+**Comments.** `src/lib/comments` reads a file's comments, verifies each signature against its author's pinned
+key and the author's right to comment from the node's access list, opens bodies and anchors with the key of
+their generation, and writes them sealed under the current one, again after a `key_generation_conflict`.
+`anchor.ts` makes and finds anchors: a quote with 32 characters either side, found again by the best match of
+its surroundings, and cells shifted by inserted and deleted rows and columns. `src/lib/state/comments.svelte.ts`
+holds the threads of the file open, and loads that code on first use. The document and note editors draw
+quotes as ProseMirror decorations (`src/lib/docs/comments.ts`), so the document never changes; the sheet grid
+draws a corner mark, and the sheet editor reports every insert and delete, undo and redo included, so the
+screen moves cell anchors and sends them, signed, after the next save. The panel is the same component in
+the three editors and the viewer, and shows every comment as plain text. A file's comments go into search
+with its text: its `comment_seq` is part of the version the index keeps, so a change reads it again. The index
+holds one text per file, so a change to the comments of a file with text of its own reads and extracts the file
+again on each device that indexes it, as a new version would; a file with no text to extract is not read. Opening
+a file's comments, in an editor or the viewer, marks its comment notice as read.
 
 **Adopting.** `src/lib/state/incoming.svelte.ts` adopts every complete item when the drive starts and on each
 poll, counts them for the notification, and keeps what could not be adopted for the "Shared by me" page, where

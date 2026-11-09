@@ -225,8 +225,9 @@ func (s *Server) ListSharedWithMe(ctx context.Context, req oapi.ListSharedWithMe
 
 // ListNodeAccess returns who reaches a node through a grant. The owner sees every
 // grant, with the sealed keys and signatures it has to replace. Anyone else sees
-// their own grants and the editors', which a client needs to check who may have
-// signed a version it reads, and not who else may only read.
+// their own grants and those of whoever may write, which a client needs to check
+// who may have signed a version or a comment it reads: the editors and the
+// commenters, and not who else may only read.
 func (s *Server) ListNodeAccess(ctx context.Context, req oapi.ListNodeAccessRequestObject) (oapi.ListNodeAccessResponseObject, error) {
 	a, err := s.authorizeNode(ctx, req.Id, permRead)
 	if err != nil {
@@ -239,7 +240,7 @@ func (s *Server) ListNodeAccess(ctx context.Context, req oapi.ListNodeAccessRequ
 	user := principalFrom(ctx).user.ID
 	out := oapi.NodeAccessList{Access: make([]oapi.NodeAccess, 0, len(grants))}
 	for _, g := range grants {
-		if a.role != roleOwner && g.GranteeID != user && g.Role != store.RoleEditor {
+		if a.role != roleOwner && g.GranteeID != user && !grantRole(g.Role).allows(permComment) {
 			continue
 		}
 		entry := oapi.NodeAccess{UserId: g.GranteeID, Username: g.GranteeName, Role: oapi.GrantRole(g.Role), Inherited: g.Depth > 0}
@@ -280,14 +281,23 @@ func (s *Server) LookupUser(ctx context.Context, req oapi.LookupUserRequestObjec
 	return oapi.LookupUser200JSONResponse(out), nil
 }
 
-// ListNotifications returns what has been shared with the caller and not marked
-// as read: ids only, as names are sealed.
+// ListNotifications returns what has been shared with the caller, and the files
+// with comments they have not seen, not marked as read: ids only, as names and
+// comments are sealed.
 func (s *Server) ListNotifications(ctx context.Context, _ oapi.ListNotificationsRequestObject) (oapi.ListNotificationsResponseObject, error) {
-	grants, err := s.store.ListUnreadGrants(ctx, principalFrom(ctx).user.ID, notificationScan)
+	user := principalFrom(ctx).user.ID
+	grants, err := s.store.ListUnreadGrants(ctx, user, notificationScan)
 	if err != nil {
 		return nil, err
 	}
-	out := oapi.NotificationList{Notifications: make([]oapi.Notification, 0, min(len(grants), maxNotifications))}
+	comments, err := s.commentNotifications(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	out := oapi.NotificationList{
+		Notifications: make([]oapi.Notification, 0, min(len(grants), maxNotifications)),
+		Comments:      comments,
+	}
 	for _, g := range grants {
 		hidden, err := s.store.NodeInTrash(ctx, g.NodeID)
 		if err != nil {
@@ -309,25 +319,48 @@ func (s *Server) ListNotifications(ctx context.Context, _ oapi.ListNotifications
 
 // MarkNotificationsRead marks the caller's notifications as read.
 func (s *Server) MarkNotificationsRead(ctx context.Context, req oapi.MarkNotificationsReadRequestObject) (oapi.MarkNotificationsReadResponseObject, error) {
-	var ids []string
-	if req.Body.GrantIds != nil {
-		ids = *req.Body.GrantIds
-		if ids == nil {
-			ids = []string{}
-		}
-		if len(ids) > maxMarkRead {
-			return nil, badRequest(codeBadRequest)
-		}
-		for _, id := range ids {
-			if !blobs.ValidID(id) {
-				return nil, badRequest(codeInvalidID)
-			}
-		}
-	}
-	if err := s.store.MarkGrantsRead(ctx, principalFrom(ctx).user.ID, ids, s.cfg.Now()); err != nil {
+	grants, err := markList(req.Body.GrantIds)
+	if err != nil {
 		return nil, err
 	}
+	nodes, err := markList(req.Body.NodeIds)
+	if err != nil {
+		return nil, err
+	}
+	user := principalFrom(ctx).user.ID
+	// Naming either kind leaves the other alone.
+	if grants != nil || nodes == nil {
+		if err := s.store.MarkGrantsRead(ctx, user, grants, s.cfg.Now()); err != nil {
+			return nil, err
+		}
+	}
+	if nodes != nil || grants == nil {
+		if err := s.store.MarkCommentNoticesRead(ctx, user, nodes); err != nil {
+			return nil, err
+		}
+	}
 	return oapi.MarkNotificationsRead204Response{}, nil
+}
+
+// markList checks a list of ids to mark as read. Nil means none was given, and an
+// empty list one that names nothing.
+func markList(given *[]string) ([]string, error) {
+	if given == nil {
+		return nil, nil
+	}
+	ids := *given
+	if ids == nil {
+		ids = []string{}
+	}
+	if len(ids) > maxMarkRead {
+		return nil, badRequest(codeBadRequest)
+	}
+	for _, id := range ids {
+		if !blobs.ValidID(id) {
+			return nil, badRequest(codeInvalidID)
+		}
+	}
+	return ids, nil
 }
 
 // RotateNode replaces a node's key: the client sealed it all, and this only checks

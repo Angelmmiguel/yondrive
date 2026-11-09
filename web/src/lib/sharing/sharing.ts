@@ -11,6 +11,7 @@ import {
 	type Grant,
 	type GrantRole,
 	type Link,
+	type CommentNotification,
 	type Node,
 	type NodeAccess,
 	type Notification
@@ -197,13 +198,25 @@ export class Sharing {
 	 * docs/SECURITY.md has it. A signer who is not on the list wrote this before losing
 	 * the right, or a server is lying, and the screen says which is the question.
 	 */
-	authorKeys = async (authorId: string, nodeId: string): Promise<AuthorKeys> => {
+	authorKeys = (authorId: string, nodeId: string): Promise<AuthorKeys> =>
+		this.signerKeys(authorId, nodeId, 'edit');
+
+	/**
+	 * As `authorKeys`, for what the signer needs a role to write: `edit` for a version
+	 * or a moved anchor, `comment` for a comment, which a commenter may write too.
+	 */
+	signerKeys = async (
+		authorId: string,
+		nodeId: string,
+		need: 'edit' | 'comment'
+	): Promise<AuthorKeys> => {
 		const { api, contacts, userId, sealer, tree } = this.#deps;
 		const me = userId();
 		const node = await tree().resolve(nodeId);
 		if (authorId === node.ownerId) return contacts.keysOf(authorId);
 		const { access } = await api.listNodeAccess(nodeId);
-		const entry = access.find((one) => one.user_id === authorId && one.role === 'editor');
+		const roles: GrantRole[] = need === 'edit' ? ['editor'] : ['editor', 'commenter'];
+		const entry = access.find((one) => one.user_id === authorId && roles.includes(one.role));
 		const keys = await contacts.keysOf(authorId);
 		if (entry === undefined) return { ...keys, former: true };
 		if (node.ownerId === me) {
@@ -570,12 +583,22 @@ export class Sharing {
 	}
 
 	/** What is unread, with who shared it where this user has seen the grant. */
-	async notifications(): Promise<{ list: Notification[]; more: boolean }> {
-		const { notifications, has_more: more } = await this.#deps.api.listNotifications();
-		return { list: notifications, more };
+	async notifications(): Promise<{
+		list: Notification[];
+		more: boolean;
+		comments: CommentNotification[];
+	}> {
+		const { notifications, has_more: more, comments } = await this.#deps.api.listNotifications();
+		return { list: notifications, more, comments };
 	}
 
+	/** Marks grants as read, or with none named everything, comments included. */
 	markRead(grantIds?: string[]): Promise<void> {
 		return this.#deps.api.markNotificationsRead({ grant_ids: grantIds });
+	}
+
+	/** Marks the new comments on these files as seen. */
+	markCommentsRead(nodeIds: string[]): Promise<void> {
+		return this.#deps.api.markNotificationsRead({ node_ids: nodeIds });
 	}
 }

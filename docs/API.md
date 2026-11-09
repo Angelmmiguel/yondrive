@@ -160,3 +160,7 @@ not from YonDrive.
   ([CRYPTO.md section 20](CRYPTO.md#20-file-requests)). Adopt what arrives for
   your requests with `GET /api/v1/incoming` and `POST /api/v1/incoming/{id}/adopt`,
   and treat it as untrusted.
+- Read a file's comments with `GET /api/v1/nodes/{id}/comments`, verify each
+  signature and the author's right to comment before showing it, and show its
+  text as plain text ([CRYPTO.md section 21](CRYPTO.md#21-comments)). A
+  `commented` entry in the journal says a file's comments changed.

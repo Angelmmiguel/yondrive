@@ -5,6 +5,7 @@
   note is kept, its numbers, exports and versions.
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import { Icon, Tabs } from '$lib/components';
@@ -19,7 +20,9 @@
 		item: NoteItem;
 		items: readonly NoteItem[];
 		words: number;
-		tab: 'links' | 'info';
+		tab: 'links' | 'info' | 'comments';
+		/** The note's comments, in a tab of their own. */
+		comments?: Snippet;
 		onopen: (id: string) => void;
 		onexport: (kind: 'md' | 'pdf' | 'html' | 'doc') => void;
 		onversions: () => void;
@@ -36,7 +39,8 @@
 		onexport,
 		onversions,
 		onlinked,
-		onclose
+		onclose,
+		comments
 	}: Props = $props();
 
 	const refs = $derived(new NoteRefs(items));
@@ -113,10 +117,11 @@
 		}
 	}
 
-	const TABS = [
+	const TABS = $derived([
 		{ id: 'links', label: 'Links' },
-		{ id: 'info', label: 'Info' }
-	];
+		{ id: 'info', label: 'Info' },
+		...(comments ? [{ id: 'comments', label: 'Comments' }] : [])
+	]);
 </script>
 
 <aside class="side" aria-label="Links and info" data-testid="note-side">
@@ -127,7 +132,9 @@
 	{/if}
 	<Tabs label="Panel" tabs={TABS} bind:value={tab} height={57}>
 		{#snippet children(id)}
-			{#if id === 'links'}
+			{#if id === 'comments'}
+				{@render comments?.()}
+			{:else if id === 'links'}
 				<div class="pane">
 					<section aria-labelledby="backlinks-h">
 						<h3 id="backlinks-h">Backlinks · {back.length}</h3>

@@ -150,6 +150,32 @@ describe.each(SUITES)('search over the drive in mode %s', (_, suite) => {
 		expect(await names(current.service, 'inner')).toEqual([]);
 	});
 
+	it('finds a file by the words of its comments, a picture as well as a text', async () => {
+		const { drive, current } = wired(suite);
+		await drive.start();
+		await current.service.start();
+		const root = drive.tree.rootId as string;
+		await upload(drive, root, 'notes.txt', 'plain words');
+		drive.queue.addFiles(root, [{ file: new File([new Uint8Array(8)], 'photo.png') }]);
+		await vi.waitFor(() => expect(drive.queue.active).toBe(false), { interval: 2 });
+		const { startThread } = await import('$lib/comments/comments');
+		for (const [name, text] of [
+			['notes.txt', 'the heron question'],
+			['photo.png', 'a heron in the reeds']
+		]) {
+			const node = drive.tree.childrenOf(root).find((n) => n.name === name)!;
+			await startThread(node.id, text, null, drive.commentDeps);
+			await drive.tree.refresh(node.id);
+		}
+		current.service.treeChanged();
+		await vi.waitFor(
+			async () =>
+				expect((await names(current.service, 'heron')).sort()).toEqual(['notes.txt', 'photo.png']),
+			{ timeout: 5000 }
+		);
+		expect(await names(current.service, 'plain')).toEqual(['notes.txt']);
+	});
+
 	it('reads text it lacks, for a file another device uploaded', async () => {
 		const server = fakeDriveServer(suite);
 		const keys = fakeUser(suite);

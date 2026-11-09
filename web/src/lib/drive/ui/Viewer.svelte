@@ -1,11 +1,13 @@
 <!-- Shows a file inside the app, once its version has been verified. -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Banner, Button, Dialog } from '$lib/components';
 	import { drive } from '$lib/state/drive.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { describeDriveError } from '../errors';
 	import { editorFor } from '../editors';
-	import { canWrite } from '$lib/sharing/roles';
+	import { canComment, canWrite, isOwner } from '$lib/sharing/roles';
+	import { FileCommentsState } from '$lib/state/comments.svelte';
 	import { inferType } from '../kinds';
 	import { viewerFor } from '../viewers/kinds';
 	import type { VerifiedVersion } from '../download/reader';
@@ -35,6 +37,24 @@
 		former = false;
 	});
 
+	// The file's comments, beside it on demand; the panel's code comes with the first look.
+	let commentsOpen = $state(false);
+	const viewingId = $derived(node?.id ?? null);
+	const comments = $derived(
+		viewingId === null
+			? null
+			: new FileCommentsState(
+					viewingId,
+					() => drive.core?.commentDeps ?? null,
+					() => void sharing.markCommentsRead(viewingId)
+				)
+	);
+	$effect(() => {
+		const c = comments;
+		void node?.commentSeq;
+		untrack(() => void c?.load());
+	});
+
 	const describe = (e: unknown) => {
 		sharing.warn(e);
 		return describeDriveError(e);
@@ -54,8 +74,28 @@
 			</div>
 		{/if}
 		<ViewerStage file={node} {kind} {source} {describe} />
+		{#if commentsOpen && comments}
+			<div class="comments">
+				{#await import('$lib/comments/ui/CommentsPanel.svelte') then { default: CommentsPanel }}
+					<CommentsPanel
+						{comments}
+						canComment={canComment(node)}
+						canResolve={canWrite(node)}
+						owner={isOwner(node)}
+						draft={null}
+					/>
+				{/await}
+			</div>
+		{/if}
 		{#snippet footer()}
 			<span class="type">{inferType(node.name, node.type)}</span>
+			<Button
+				icon="comment"
+				variant="ghost"
+				aria-pressed={commentsOpen}
+				onclick={() => (commentsOpen = !commentsOpen)}
+				>Comments{comments && comments.open.length > 0 ? ` (${comments.open.length})` : ''}</Button
+			>
 			{#if editorFor(node.name) !== null && canWrite(node)}
 				<Button icon="pencil" onclick={() => node && drive.edit(node)}>Edit</Button>
 			{/if}
@@ -67,6 +107,11 @@
 <style>
 	.note {
 		margin-bottom: 12px;
+	}
+
+	.comments {
+		margin-top: 12px;
+		border-top: 1px solid var(--border);
 	}
 
 	.type {

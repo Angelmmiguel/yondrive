@@ -39,6 +39,8 @@ export interface DriveNode extends NodeMetadata {
 	kind: 'file' | 'folder';
 	currentVersion: string | null;
 	thumbBlobId: string | null;
+	/** How many times its comments have changed, as of when it was last read. */
+	commentSeq: number;
 	trashedAt: number | null;
 	purgedAt: number | null;
 	removeAt: number | null;
@@ -298,6 +300,7 @@ export class DriveTree {
 			kind: node.kind,
 			currentVersion: node.current_version ?? null,
 			thumbBlobId: node.thumb_blob_id ?? null,
+			commentSeq: node.comment_seq ?? 0,
 			trashedAt,
 			purgedAt: time(node.purged_at),
 			removeAt: time(node.remove_at),

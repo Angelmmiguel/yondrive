@@ -8,8 +8,8 @@ before it is uploaded, so the machine hosting your data, and whoever administers
 it, holds only ciphertext. It runs as one container with one data directory.
 
 > **Status: 1.0.** Drive, sharing, search, documents, spreadsheets and notes are
-> released. File requests and comments come next. [PLAN.md](PLAN.md) tracks what
-> is done, what is planned and what is still unverified.
+> released. File requests and comments are done for 1.1. [PLAN.md](PLAN.md) tracks
+> what is done, what is planned and what is still unverified.
 
 ## Why YonDrive
 
@@ -143,7 +143,12 @@ the ZIP export turns into relative paths.
 
 ### Sharing
 
-- Share files and folders with other users as viewer or editor
+- Share files and folders with other users as viewer, commenter or editor
+- Comments on documents, notes and spreadsheets, and on any file in the viewer:
+  threads on a passage of text or a cell, with replies, resolving and
+  notifications. They are kept beside the file, so a `.docx` or `.xlsx` keeps
+  its exact bytes, and in end-to-end mode they are encrypted and signed by
+  whoever wrote them
 - Public links with optional password, expiry and revocation
 - File requests: a link that lets anyone drop files into one of your folders,
   with a password, an expiry and limits on size and count, without seeing what
@@ -209,8 +214,8 @@ It does not hide everything, and we would rather say so:
 
 - **The server sees metadata:** who your users are, the folder structure as
   anonymous ids, file sizes, when things change, who shares with
-  whom, and who is currently editing a file. It cannot see names, types or
-  contents.
+  whom, who is currently editing a file, and who commented on which file and
+  when. It cannot see names, types, contents or what comments say.
 - **The server delivers the web app.** Someone who takes control of the running
   server could serve a modified app that captures your passphrase the next time
   you unlock. The same is true of every browser-based end-to-end encrypted

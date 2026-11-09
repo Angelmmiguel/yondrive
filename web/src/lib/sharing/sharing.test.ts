@@ -20,7 +20,7 @@ import {
 	USER_ID
 } from '$lib/testing/drive';
 import { ContactKeysChangedError, Contacts, memoryPinStorage } from './contacts';
-import { canChangePlace, canWrite, isOwner } from './roles';
+import { canChangePlace, canComment, canWrite, isOwner, ROLE_LABELS } from './roles';
 import { memoryRotationJobs, type RotationProgress } from './rotation';
 import { PublicLinkSession, WrongLinkPasswordError } from './public';
 import { UntrustedGrantError } from './sharing';
@@ -1020,6 +1020,12 @@ describe('roles', () => {
 	it('offers what the role allows', () => {
 		const parent = { role: 'editor' as const };
 		expect(canWrite({ role: 'viewer' })).toBe(false);
+		expect(canWrite({ role: 'commenter' })).toBe(false);
+		expect(canComment({ role: 'commenter' })).toBe(true);
+		expect(canComment({ role: 'viewer' })).toBe(false);
+		expect(canComment({ role: 'editor' })).toBe(true);
+		expect(ROLE_LABELS.commenter).toBe('Can comment');
+		expect(canChangePlace({ role: 'commenter', parentId: 'p' }, { role: 'commenter' })).toBe(false);
 		expect(isOwner({ role: 'editor' })).toBe(false);
 		expect(canChangePlace({ role: 'editor', parentId: null }, undefined)).toBe(false);
 		expect(canChangePlace({ role: 'editor', parentId: 'p' }, parent)).toBe(true);

@@ -41,6 +41,8 @@ var (
 	upRequest  = strings.Repeat("0e", 16)
 	upArrived  = strings.Repeat("0f", 16)
 	upOnItsWay = strings.Repeat("10", 16)
+	upComment  = strings.Repeat("11", 16)
+	upReply    = strings.Repeat("12", 16)
 )
 
 const (
@@ -153,6 +155,19 @@ var seeds = []func(t *testing.T, db *sql.DB){
 			upOnItsWay, upRoot, upRoot, upFolder, strings.Repeat("1d", 16), upRequest, upAt, upAt)
 		exec(t, db, incoming, strings.Repeat("1c", 16), upRequest, upRoot, upOnItsWay, strings.Repeat("1d", 16),
 			blob(5, 105), blob(6, 40), 100, 141, nil, upAt, nil)
+	},
+	// 9: bob comments on the file as a commenter, with an anchor and a reply, and
+	// root has not read it yet.
+	func(t *testing.T, db *sql.DB) {
+		exec(t, db, `UPDATE grants SET role = 'commenter' WHERE id = ?`, upGrant)
+		comment := `INSERT INTO comments (id, node_id, thread_id, author_id, key_generation, sealed_body, signature,
+			anchor_generation, sealed_anchor, anchor_signature, anchor_signer_id, anchor_updated_at, created_at)
+			VALUES (?, ?, ?, ?, 2, ?, ?, ?, ?, ?, ?, ?, ?)`
+		exec(t, db, comment, upComment, upFile, upComment, upBob, blob(1, 60), blob(9, 64), 2, blob(2, 50), blob(9, 64), upBob, upAt, upAt)
+		exec(t, db, comment, upReply, upFile, upComment, upRoot, blob(1, 60), blob(9, 64), nil, nil, nil, nil, nil, upAt+1)
+		exec(t, db, `UPDATE nodes SET comment_seq = 2 WHERE id = ?`, upFile)
+		exec(t, db, `INSERT INTO comment_notices (user_id, node_id, comment_id, author_id, count, created_at) VALUES (?, ?, ?, ?, 1, ?)`,
+			upRoot, upFile, upComment, upBob, upAt)
 	},
 }
 
@@ -375,6 +390,20 @@ func checkUpgradedData(t *testing.T, st *Store, k int) {
 	if up, err := st.UploadByID(ctx, upOnItsWay); err != nil || up.LinkID != upRequest {
 		t.Errorf("upload through the request = %+v, %v", up, err)
 	}
+	if k < 9 {
+		return
+	}
+
+	if grants, err := st.ListGrantsForGrantee(ctx, upBob, "", 10); err != nil || len(grants) != 1 || grants[0].Role != RoleCommenter {
+		t.Errorf("bob's grant = %+v, %v", grants, err)
+	}
+	comments, err := st.ListComments(ctx, upFile, 0, 10)
+	if err != nil || len(comments) != 2 || comments[0].Anchor == nil || comments[0].Anchor.SignerID != upBob || comments[1].ThreadID != upComment {
+		t.Errorf("comments = %+v, %v", comments, err)
+	}
+	if notices, err := st.ListCommentNotices(ctx, upRoot, 10); err != nil || len(notices) != 1 || notices[0].CommentID != upComment {
+		t.Errorf("notices = %+v, %v", notices, err)
+	}
 }
 
 // checkWritable writes through the store what the latest release writes, on top
@@ -414,6 +443,25 @@ func checkWritable(t *testing.T, st *Store, k int) {
 	if _, _, err := st.AdoptIncoming(ctx, item.ID, Adoption{ParentGeneration: &gen, WrappedKey: blob(7, 73), NameTag: hash("adopted"),
 		SealedMetadata: blob(6, 40), Signature: blob(9, 64), Manifest: []byte("m")}, t0); err != nil {
 		t.Errorf("adopt after the upgrade: %v", err)
+	}
+	// A comment and a reply on the file, and a grant to comment.
+	thread := Comment{ID: NewID(), NodeID: upFile, AuthorID: upRoot, KeyGeneration: 1, SealedBody: blob(1, 60),
+		Signature: blob(9, 64), Anchor: &CommentAnchor{KeyGeneration: 1, Sealed: blob(2, 50), Signature: blob(9, 64)}, CreatedAt: t0}
+	if k >= 3 {
+		thread.KeyGeneration, thread.Anchor.KeyGeneration = 2, 2
+	}
+	thread.ThreadID = thread.ID
+	if _, err := st.CreateComment(ctx, thread, 10); err != nil {
+		t.Errorf("a comment after the upgrade: %v", err)
+	}
+	reply := thread
+	reply.ID, reply.Anchor = NewID(), nil
+	if _, err := st.CreateComment(ctx, reply, 10); err != nil {
+		t.Errorf("a reply after the upgrade: %v", err)
+	}
+	if _, err := st.CreateGrant(ctx, Grant{ID: NewID(), NodeID: upFolder, GranteeID: carol.ID, GranterID: upRoot, Role: RoleCommenter,
+		KeyGeneration: 1, SealedKey: blob(3, 105), Signature: blob(9, 64), CreatedAt: t0}); err != nil {
+		t.Errorf("a commenter's grant after the upgrade: %v", err)
 	}
 	if _, err := st.TrashNode(ctx, upFile, t0); err != nil {
 		t.Errorf("trash after the upgrade: %v", err)

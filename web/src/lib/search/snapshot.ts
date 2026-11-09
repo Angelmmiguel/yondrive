@@ -14,7 +14,10 @@ export interface TreeView {
 	tags: readonly TagDefinition[];
 }
 
-/** A node as the index holds it. Tags are the owner's alone, so a share's are nobody's here. */
+/**
+ * A node as the index holds it. Tags are the owner's alone, so a share's are nobody's here.
+ * Its comments are words of its text, so a change to them is a new version of that text.
+ */
 export function docOf(node: DriveNode, tags: readonly TagDefinition[], ownerId: string): IndexDoc {
 	const shared = node.ownerId !== ownerId;
 	const kept = shared ? [] : tags.filter((tag) => node.tags.includes(tag.id));
@@ -29,8 +32,11 @@ export function docOf(node: DriveNode, tags: readonly TagDefinition[], ownerId: 
 		shared,
 		tagIds: kept.map((tag) => tag.id),
 		tagNames: kept.map((tag) => tag.name),
-		version: node.currentVersion,
-		text: node.kind === 'file' && extractorFor(node) !== null
+		version:
+			node.currentVersion === null || node.commentSeq === 0
+				? node.currentVersion
+				: `${node.currentVersion}+c${node.commentSeq}`,
+		text: node.kind === 'file' && (extractorFor(node) !== null || node.commentSeq > 0)
 	};
 }
 

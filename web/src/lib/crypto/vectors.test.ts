@@ -20,6 +20,18 @@ import {
 } from './keys';
 import { grantMessage, signGrant, verifyGrant } from './grant';
 import {
+	anchorMessage,
+	commentMessage,
+	openCommentAnchor,
+	openCommentBody,
+	sealCommentAnchor,
+	sealCommentBody,
+	signAnchor,
+	signComment,
+	verifyAnchor,
+	verifyComment
+} from './comment';
+import {
 	decodeLinkFragment,
 	encodeLinkFragment,
 	linkAuthKey,
@@ -562,5 +574,99 @@ describe('file request', () => {
 		expect(decodeRequestFragment('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')).toHaveLength(0);
 		expect(decodeRequestFragment('short')).toHaveLength(0);
 		expect(sealerFor(SUITE_NONE).requestFragment(keys.publicKey)).toBe('');
+	});
+});
+
+describe('comment', () => {
+	const c = v.comment;
+	const ref = {
+		nodeId: c.nodeId,
+		threadId: c.threadId,
+		commentId: c.commentId,
+		generation: c.generation
+	};
+	const at = { nodeId: c.nodeId, threadId: c.threadId, generation: c.generation };
+
+	it('derives the comment subkey', () => {
+		expect(bytesToHex(expand(h(c.nodeKey), 'yondrive/comment/v1'))).toBe(c.commentKey);
+	});
+
+	it('seals and opens a body and an anchor', () => {
+		fixRandom(c.body.nonce, c.anchor.nonce);
+
+		expect(bytesToHex(sealCommentBody(h(c.nodeKey), ref, JSON.parse(c.body.json)))).toBe(
+			c.body.sealed
+		);
+		expect(bytesToHex(sealCommentAnchor(h(c.nodeKey), at, JSON.parse(c.anchor.json)))).toBe(
+			c.anchor.sealed
+		);
+		expect(openCommentBody(h(c.nodeKey), ref, h(c.body.sealed))).toEqual(JSON.parse(c.body.json));
+		expect(openCommentAnchor(h(c.nodeKey), at, h(c.anchor.sealed))).toEqual(
+			JSON.parse(c.anchor.json)
+		);
+	});
+
+	it('binds the ids and the generation', () => {
+		for (const other of [
+			{ ...ref, commentId: c.threadId },
+			{ ...ref, threadId: c.commentId },
+			{ ...ref, nodeId: 'node-2' },
+			{ ...ref, generation: 3 }
+		]) {
+			expect(() => openCommentBody(h(c.nodeKey), other, h(c.body.sealed))).toThrow(SealError);
+		}
+		expect(() =>
+			openCommentAnchor(h(c.nodeKey), { ...at, generation: 1 }, h(c.anchor.sealed))
+		).toThrow(SealError);
+	});
+
+	it('signs the documented messages', () => {
+		const body = { ...ref, authorId: c.authorId, sealed: h(c.body.sealed) };
+		const anchor = { ...at, signerId: c.signerId, sealed: h(c.anchor.sealed) };
+
+		expect(bytesToHex(commentMessage(body))).toBe(c.body.message);
+		expect(bytesToHex(signComment(body, h(c.body.ed25519Private)))).toBe(c.body.signature);
+		expect(bytesToHex(anchorMessage(anchor))).toBe(c.anchor.message);
+		expect(bytesToHex(signAnchor(anchor, h(c.anchor.ed25519Private)))).toBe(c.anchor.signature);
+	});
+
+	it('verifies, and refuses another author, signer or comment', () => {
+		const body = { ...ref, authorId: c.authorId, sealed: h(c.body.sealed) };
+		const anchor = { ...at, signerId: c.signerId, sealed: h(c.anchor.sealed) };
+		const pub = h(c.body.ed25519Public);
+
+		expect(() => verifyComment(body, h(c.body.signature), pub)).not.toThrow();
+		expect(() =>
+			verifyComment({ ...body, authorId: 'user-other' }, h(c.body.signature), pub)
+		).toThrow(SealError);
+		expect(() =>
+			verifyComment({ ...body, commentId: 'comment-3' }, h(c.body.signature), pub)
+		).toThrow(SealError);
+		expect(() => verifyComment(body, h(c.body.signature), h(c.anchor.ed25519Public))).toThrow(
+			SealError
+		);
+		expect(() =>
+			verifyAnchor(anchor, h(c.anchor.signature), h(c.anchor.ed25519Public))
+		).not.toThrow();
+		expect(() =>
+			verifyAnchor({ ...anchor, signerId: c.authorId }, h(c.anchor.signature), pub)
+		).toThrow(SealError);
+	});
+
+	it('is readable JSON with no signature in suite none', () => {
+		const none = sealerFor(SUITE_NONE);
+		const nothing = new Uint8Array(0);
+		const stored = none.sealCommentBody(nothing, ref, JSON.parse(c.body.json));
+
+		expect(new TextDecoder().decode(stored)).toBe(c.body.json);
+		expect(none.openCommentBody(nothing, ref, stored)).toEqual(JSON.parse(c.body.json));
+		const anchor = new TextEncoder().encode(c.anchor.json);
+		expect(none.openCommentAnchor(nothing, at, anchor)).toEqual(JSON.parse(c.anchor.json));
+		const { keys } = none.createUser(nothing, nothing);
+		const signed = { ...ref, authorId: c.authorId, sealed: stored };
+		expect(none.signComment(signed, keys)).toHaveLength(0);
+		expect(() =>
+			none.verifyComment(signed, nothing, { x25519: nothing, ed25519: nothing })
+		).not.toThrow();
 	});
 });

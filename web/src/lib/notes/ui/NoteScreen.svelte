@@ -49,7 +49,12 @@
 	} from '$lib/notes/model';
 	import { nodeHref } from '$lib/notes/parse';
 	import { PictureNotKeptError, PictureUploads } from '$lib/notes/pictures';
-	import { canWrite, isOwner } from '$lib/sharing/roles';
+	import { canComment, canWrite, isOwner } from '$lib/sharing/roles';
+	import type { TextAnchor } from '$lib/comments/anchor';
+	import type { Thread } from '$lib/comments/comments';
+	import { revealComment, selectionAnchor, showComments } from '$lib/docs/comments';
+	import { FileCommentsState } from '$lib/state/comments.svelte';
+	import { sharing } from '$lib/state/sharing.svelte';
 	import { drive } from '$lib/state/drive.svelte';
 	import { notes } from '$lib/state/notes.svelte';
 	import { search } from '$lib/state/search.svelte';
@@ -86,7 +91,10 @@
 	let titleDraft = $state('');
 	let tagDraft = $state<string | null>(null);
 	let listQuery = $state('');
-	let tab = $state<'links' | 'info'>('links');
+	let tab = $state<'links' | 'info' | 'comments'>('links');
+	let comments = $state.raw<FileCommentsState | null>(null);
+	let lostThreads = $state.raw<Set<string>>(new Set());
+	let pickedThread = $state<string | null>(null);
 	let focus = $state(false);
 
 	const narrow = new MediaQuery('max-width: 720px');
@@ -280,7 +288,13 @@
 						e instanceof Error ? e.message : 'That picture could not be added.'
 					),
 				canAddPictures: () => fileFolder !== null,
-				onPictureRefused: () => toasts.push('danger', NO_FOLDER)
+				onPictureRefused: () => toasts.push('danger', NO_FOLDER),
+				onComment: (id) => {
+					panelOpen = true;
+					focus = false;
+					tab = 'comments';
+					pickedThread = id;
+				}
 			});
 			updateWords();
 			presence.start(found.id, canWrite(found));
@@ -327,6 +341,52 @@
 		const e = canEdit;
 		untrack(() => view?.setProps({ editable: () => e }));
 	});
+
+	// The note's comments, read again whenever someone changes them, and their quotes
+	// highlighted as decorations, which leave the note as it is.
+	$effect(() => {
+		const id = fileId;
+		if (phase !== 'ready') return;
+		untrack(() => {
+			if (comments?.nodeId === id) return;
+			comments = new FileCommentsState(
+				id,
+				() => drive.core?.commentDeps ?? null,
+				() => void sharing.markCommentsRead(id)
+			);
+			void comments.load();
+		});
+	});
+	$effect(() => {
+		void node?.commentSeq;
+		untrack(() => void comments?.load());
+	});
+	$effect(() => {
+		const threads = comments?.threads ?? [];
+		const v = view;
+		if (v === null) return;
+		untrack(() => {
+			lostThreads = showComments(
+				v,
+				threads.flatMap((t) =>
+					t.anchor?.kind === 'text' ? [{ id: t.id, anchor: t.anchor, shown: !t.resolved }] : []
+				),
+				pickedThread
+			);
+		});
+	});
+	const draft = $derived.by(() => {
+		void rev;
+		const anchor = view ? selectionAnchor(view.state) : null;
+		return anchor === null ? null : { anchor, label: `“${anchor.quote}”` };
+	});
+	function place(thread: Thread) {
+		const anchor = thread.anchor as TextAnchor | null;
+		if (anchor === null || anchor.kind !== 'text') return null;
+		return lostThreads.has(thread.id)
+			? { label: 'Text no longer found', lost: true }
+			: { label: `“${anchor.quote}”`, lost: false };
+	}
 
 	onDestroy(() => {
 		const s = session;
@@ -664,6 +724,7 @@
 				]
 			: []),
 		...(node && isOwner(node) ? [{ id: 'share', label: 'Share…', icon: 'shared' as const }] : []),
+		{ id: 'comments', label: 'Comments', icon: 'comment' },
 		{ id: 'template', label: 'Save as template', icon: 'template' },
 		{ id: 'history', label: 'Version history', icon: 'history' },
 		{ id: 'print', label: 'Print or save as PDF…', icon: 'print' },
@@ -675,7 +736,12 @@
 		if (id === 'archive' || id === 'unarchive') {
 			await notes.run((core) => core.setMeta(node.id, { archived: id === 'archive' }));
 		} else if (id === 'share') drive.dialog = { kind: 'share', node };
-		else if (id === 'template') await saveAsTemplate();
+		else if (id === 'comments') {
+			panelOpen = true;
+			focus = false;
+			tab = 'comments';
+			if (narrow.current) listOpen = false;
+		} else if (id === 'template') await saveAsTemplate();
 		else if (id === 'history') drive.versionsOf = node;
 		else if (id === 'print') window.print();
 		else if (id === 'trash') {
@@ -695,6 +761,17 @@
 				]
 	);
 	const othersNames = $derived(others.map((o) => o.username).join(', '));
+
+	function toggleComments() {
+		if (panelOpen && !focus && tab === 'comments') {
+			panelOpen = false;
+			return;
+		}
+		panelOpen = true;
+		focus = false;
+		tab = 'comments';
+		if (narrow.current) listOpen = false;
+	}
 
 	function toggleListPane() {
 		listOpen = !listOpen;
@@ -839,6 +916,21 @@
 				{/if}
 				<button
 					type="button"
+					class="comments-btn"
+					class:on={panelOpen && !focus && tab === 'comments'}
+					aria-pressed={panelOpen && !focus && tab === 'comments'}
+					aria-label={narrow.current
+						? `Comments${comments && comments.open.length > 0 ? `, ${comments.open.length}` : ''}`
+						: undefined}
+					onclick={toggleComments}
+					><Icon name="comment" size={17} />
+					{#if !narrow.current}<span>Comments</span>{/if}
+					{#if comments && comments.open.length > 0}<span class="count"
+							>{narrow.current ? comments.open.length : `(${comments.open.length})`}</span
+						>{/if}
+				</button>
+				<button
+					type="button"
 					class="ghost"
 					class:on={focus}
 					aria-label="Focus mode"
@@ -890,7 +982,13 @@
 					<a href={resolve(`/notes/${conflict.original.id}`)} data-sveltekit-reload>Open theirs</a>
 				</Banner>
 			{/if}
-			{#if others.length > 0 && !othersDismissed}
+			{#if others.length > 0 && !canEdit}
+				<!-- Someone who cannot save has no conflict to be warned of: only that it may change. -->
+				<p class="quiet" role="status" data-testid="editing-quiet">
+					{othersNames}
+					{others.length === 1 ? 'is' : 'are'} editing this. What you see may change.
+				</p>
+			{:else if others.length > 0 && !othersDismissed}
 				<div data-testid="editing-warning">
 					<Banner
 						tone="warn"
@@ -1061,16 +1159,41 @@
 				onversions={() => node && (drive.versionsOf = node)}
 				onlinked={() => notes.treeChanged()}
 				onclose={narrow.current ? () => (panelOpen = false) : undefined}
+				comments={comments ? commentsTab : undefined}
 			/>
 		</div>
 	{/if}
 </div>
+
+{#snippet commentsTab()}
+	{#if comments}
+		<!-- Its code comes with the first look at it, not with the editor. -->
+		{#await import('$lib/comments/ui/CommentsPanel.svelte') then { default: CommentsPanel }}
+			<CommentsPanel
+				{comments}
+				canComment={node !== undefined && canComment(node)}
+				canResolve={canEdit}
+				owner={node !== undefined && isOwner(node)}
+				{draft}
+				{place}
+				bind:selected={pickedThread}
+				onselect={(t) => view && revealComment(view, t.id)}
+			/>
+		{/await}
+	{/if}
+{/snippet}
 
 <input bind:this={picker} type="file" hidden data-testid="note-file-input" onchange={picked} />
 
 <NotesDialogs />
 
 <style>
+	.quiet {
+		margin: 0 0 12px;
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+
 	.screen {
 		min-height: 100vh;
 		display: flex;
@@ -1243,6 +1366,54 @@
 		padding: 10px 20px;
 		background: var(--surface-paper);
 		border-bottom: 1px solid var(--divider);
+	}
+
+	.comments-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 36px;
+		height: 36px;
+		padding: 0 10px;
+		border: 0;
+		border-radius: 9px;
+		background: transparent;
+		color: var(--icon);
+		font: inherit;
+		font-size: 14px;
+		cursor: pointer;
+	}
+
+	.comments-btn:hover,
+	.comments-btn.on {
+		background: var(--surface-hover);
+		color: var(--text-strong);
+	}
+
+	.comments-btn:focus-visible {
+		outline: none;
+		box-shadow: var(--focus-ring);
+	}
+
+	.comments-btn .count {
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+
+	@media (max-width: 720px) {
+		/* The buttons wrap rather than run off a phone's screen. */
+		.actions {
+			flex-wrap: wrap;
+			justify-content: flex-end;
+			min-width: 0;
+		}
+
+		.comments-btn {
+			min-width: 44px;
+			height: 44px;
+			padding: 0 8px;
+			justify-content: center;
+		}
 	}
 
 	.ghost {
@@ -1808,6 +1979,16 @@
 
 	.editor :global(.selectedCell) {
 		background: var(--selection);
+	}
+
+	.editor :global(.comment-mark) {
+		background: var(--warn-soft);
+		border-bottom: 2px solid var(--warn-line);
+		cursor: pointer;
+	}
+
+	.editor :global(.comment-mark.current) {
+		border-bottom-color: var(--warn);
 	}
 
 	.editor :global(.ProseMirror-selectednode) {

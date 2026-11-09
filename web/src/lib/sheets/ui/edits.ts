@@ -79,6 +79,12 @@ export class SheetEditor {
 	readonly history: History;
 	#chain: Promise<unknown> = Promise.resolve();
 	#styles: CellStyle[];
+	/**
+	 * Told of each insert or delete of rows or columns, undo and redo included, once
+	 * it has happened: what points at cells, such as comments, moves with them.
+	 */
+	onshift: ((sheet: number, axis: 'rows' | 'cols', at: number, count: number) => void) | null =
+		null;
 
 	constructor(api: Remote<SheetService>, styles: CellStyle[], limit = 100) {
 		this.#api = api;
@@ -139,6 +145,7 @@ export class SheetEditor {
 		let grew = false;
 		for (const op of ops) {
 			const r = await this.#exec(op);
+			if (op.t === 'rows' || op.t === 'cols') this.onshift?.(op.sheet, op.t, op.at, op.count);
 			out.layout ||= LAYOUT.has(op.t);
 			if (r) {
 				out.changed.push(...r.changed);

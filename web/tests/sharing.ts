@@ -37,7 +37,7 @@ export async function shareWith(
 	page: Page,
 	name: string,
 	username: string,
-	role: 'viewer' | 'editor' = 'viewer'
+	role: 'viewer' | 'commenter' | 'editor' = 'viewer'
 ): Promise<void> {
 	await act(page, name, 'Share');
 	const dialog = shareDialog(page, name);

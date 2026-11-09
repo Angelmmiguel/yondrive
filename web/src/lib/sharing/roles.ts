@@ -4,14 +4,18 @@
  * the folder a node lives in, so they take write access to that folder, and a share's
  * top node has none anyone but the owner can see.
  */
-import type { NodeRole } from '$lib/api/types';
+import type { GrantRole, NodeRole } from '$lib/api/types';
 
 export interface RoleFacts {
 	role: NodeRole;
 	parentId: string | null;
 }
 
-export const canWrite = (node: Pick<RoleFacts, 'role'>): boolean => node.role !== 'viewer';
+export const canWrite = (node: Pick<RoleFacts, 'role'>): boolean =>
+	node.role === 'owner' || node.role === 'editor';
+
+/** Writes comments: everyone but a viewer. Resolving them and moving their anchors takes `canWrite`. */
+export const canComment = (node: Pick<RoleFacts, 'role'>): boolean => node.role !== 'viewer';
 
 export const isOwner = (node: Pick<RoleFacts, 'role'>): boolean => node.role === 'owner';
 
@@ -23,3 +27,10 @@ export function canChangePlace(
 	if (!canWrite(node) || node.parentId === null) return false;
 	return parent === undefined ? node.role === 'owner' : canWrite(parent);
 }
+
+/** What a grant lets its holder do, in words: "Can comment". */
+export const ROLE_LABELS: Record<GrantRole, string> = {
+	viewer: 'Can view',
+	commenter: 'Can comment',
+	editor: 'Can edit'
+};

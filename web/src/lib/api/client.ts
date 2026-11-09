@@ -14,6 +14,12 @@ import {
 	type Editing,
 	type AuthMethods,
 	type ChangePage,
+	type Comment,
+	type CommentAnchorInput,
+	type CommentPage,
+	type CreateCommentRequest,
+	type ResolveCommentRequest,
+	type UpdateCommentRequest,
 	type CommitUploadRequest,
 	type CompletePasswordResetRequest,
 	type ConfirmTotpRequest,
@@ -290,6 +296,19 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		deleteSmallBlob: (blobId: string) => empty('DELETE', `/blobs/${id(blobId)}`),
 		listIndexBlobs: (page: PageOptions = {}) =>
 			json<SmallBlobPage>('GET', `/me/index${query({ ...page })}`),
+
+		listComments: (nodeId: string, page: PageOptions = {}) =>
+			json<CommentPage>('GET', `/nodes/${id(nodeId)}/comments${query({ ...page })}`),
+		createComment: (nodeId: string, body: CreateCommentRequest) =>
+			json<Comment>('POST', `/nodes/${id(nodeId)}/comments`, { body }),
+		updateComment: (nodeId: string, commentId: string, body: UpdateCommentRequest) =>
+			json<Comment>('PUT', `/nodes/${id(nodeId)}/comments/${id(commentId)}`, { body }),
+		deleteComment: (nodeId: string, commentId: string) =>
+			empty('DELETE', `/nodes/${id(nodeId)}/comments/${id(commentId)}`),
+		updateCommentAnchor: (nodeId: string, commentId: string, body: CommentAnchorInput) =>
+			json<Comment>('PUT', `/nodes/${id(nodeId)}/comments/${id(commentId)}/anchor`, { body }),
+		resolveComment: (nodeId: string, commentId: string, body: ResolveCommentRequest) =>
+			json<Comment>('PUT', `/nodes/${id(nodeId)}/comments/${id(commentId)}/resolved`, { body }),
 
 		listChanges: (page: PageOptions = {}) =>
 			json<ChangePage>('GET', `/changes${query({ ...page })}`),

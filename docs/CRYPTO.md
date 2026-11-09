@@ -168,6 +168,7 @@ input, or a wrapped value; it is never a cipher key itself.
 | name | `HKDF(node key, "yondrive/name/v1")` | tags the names of this folder's children |
 | content | `HKDF(node key, "yondrive/content/v1")` | derives version keys |
 | previous | `HKDF(node key, "yondrive/node-previous/v1")` | seals the key this one replaced |
+| comment | `HKDF(node key, "yondrive/comment/v1")` | seals the bodies and anchors of a file's comments (section 21) |
 
 **Root node key,** for the top of a user's tree:
 
@@ -211,7 +212,7 @@ message   = fields("yondrive/grant/v1", utf8(node id), utf8(granter id), utf8(gr
 signature = Ed25519-Sign(granter's Ed25519 private key, message)
 ```
 
-`role` is `viewer` or `editor`, and the key generation is the one of the sealed key. Changing
+`role` is `viewer`, `commenter` or `editor`, and the key generation is the one of the sealed key. Changing
 a role or rotating the key signs again. Verification follows section 12. A grantee MUST verify
 the signature with the granter's pinned key (section 15), and MUST check that the granter is
 the node's owner, before using the grant or showing the node as shared with them. The server
@@ -236,7 +237,8 @@ body is applied in one transaction:
 | `grants` | every grant on the node: `grantee_id`, a new grant (section 8) of the new key, and a signature over the new generation |
 | `links` | every live link on the node: `id`, and a new `sealed_key` (section 19) of the new key |
 
-Anything else about the node stays: its versions and their frames are not sealed again.
+Anything else about the node stays: its versions and their frames are not sealed again, and
+neither are its comments.
 
 **Reading older versions.** A version records the `key_generation` it was sealed under, and
 section 11 uses the node key of that generation. The API gives a version its `key_chain`: the
@@ -386,6 +388,7 @@ The same operations with no keys:
 | Operation | Result |
 | --- | --- |
 | Master key, node key, link key, request key pair, identity keys, wraps, grants, signatures, previous keys, sealed link keys, sealed request keys, fingerprints | empty byte strings |
+| Comment body, comment anchor | `utf8(json)`, as metadata |
 | Pins | none: there is nothing to pin |
 | Link password | section 19 |
 | Metadata | `utf8(json)` |
@@ -457,6 +460,7 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/link-owner/v1` | HKDF info, plain |
 | `yondrive/pins/v1` | HKDF info, plain |
 | `yondrive/request-owner/v1` | HKDF info, plain |
+| `yondrive/comment/v1` | HKDF info, plain |
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
 | `yondrive/request/key/v1` | HKDF info, fields |
@@ -474,6 +478,8 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/link/owner/v1` | AAD |
 | `yondrive/request/owner/v1` | AAD |
 | `yondrive/request/node/v1` | AAD |
+| `yondrive/comment/body/v1` | AAD |
+| `yondrive/comment/anchor/v1` | AAD |
 | `yondrive/pins/seal/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
@@ -483,6 +489,8 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/name/none/v1` | hash input |
 | `yondrive/version/v1` | signed message |
 | `yondrive/grant/v1` | signed message |
+| `yondrive/comment/signed/v1` | signed message |
+| `yondrive/comment/anchor/signed/v1` | signed message |
 | `yondrive/fingerprint/v1` | hash input |
 | `yondrive/safety-number/v1` | hash input |
 
@@ -640,3 +648,58 @@ owner copy binds the folder and opens for no other. It can withhold or delete wh
 **Suite `none`.** There is no key pair: `R`, `r`, the owner copy and the sealed key are empty, the
 URL has no fragment, and a sender compares an empty key with an empty one. Files still wait as
 incoming items until the owner's client adopts them, so both modes keep one shape.
+
+## 21. Comments
+
+A comment is a record beside its file, never in it: the file's versions do not change for one. A
+thread is its first comment, whose thread id is its own id, and the replies that name it. Ids are
+chosen by the client as a node's are. Each body records the key generation of the node key it is
+sealed under, as a version does, and the comment subkey of that key seals it:
+
+```
+comment key = HKDF(node key, "yondrive/comment/v1")
+aad         = fields("yondrive/comment/body/v1", utf8(node id), utf8(thread id), utf8(comment id), u32(generation))
+sealed body = Seal(comment key, utf8(json), aad)
+message     = fields("yondrive/comment/signed/v1", utf8(node id), utf8(thread id), utf8(comment id),
+                     utf8(author id), u32(generation), sealed body)
+signature   = Ed25519-Sign(author's Ed25519 private key, message)
+```
+
+The body is `{"text": …}`, at most 2,000 characters, which a client MUST show as plain text.
+
+The first comment of a thread may have an anchor, sealed apart and signed by whoever placed it:
+its author when the thread starts, and then any editor who moves it.
+
+```
+aad           = fields("yondrive/comment/anchor/v1", utf8(node id), utf8(thread id), u32(generation))
+sealed anchor = Seal(comment key, utf8(json), aad)
+message       = fields("yondrive/comment/anchor/signed/v1", utf8(node id), utf8(thread id),
+                       utf8(signer id), u32(generation), sealed anchor)
+```
+
+An anchor is `{"kind":"text","quote":…,"before":…,"after":…,"block":…}`: the quoted text, at most
+500 characters, up to 32 characters either side of it, the document's text blocks joined by `\n`,
+and the index of its block. Or `{"kind":"cell","sheet":…,"row":…,"col":…}`, rows and columns from
+0, with `"lost":true` and `"gone":{"axis":"rows"|"cols","at":…,"count":…}` once the cell's row or
+column was deleted; inserting the same rows or columns back at the same place, as undo does, restores it. A client finds a text anchor by
+taking, of the places its quote appears, the one whose surroundings share the most characters with
+`before` and `after`, and of those the nearest to its block. A client MAY weigh only a bounded number
+of places either side of the anchor's block, as this one weighs 64. A quote that appears nowhere is no
+longer found, and the thread says so. An editor who inserts or deletes rows or columns, or renames
+a sheet, moves the cell anchors with them and signs each one again when the file is saved.
+
+**Reading.** A client MUST verify a body's signature with the author's pinned key (section 15)
+before it opens the body, and check that the author is the owner or holds a `commenter` or `editor`
+grant on the node or above it, from the list of section 12. A comment whose signature does not check
+is not shown; one whose author is on no such list is shown with a warning, as a version is. It MUST
+believe an anchor only from the thread's author while they may comment, or from the owner or an
+editor, and otherwise treat the thread as having none. The listing gives a key chain down to the
+oldest generation on the page, opened as in section 8, so a rotation covers comments: what comes
+after it is sealed under the new key, and a key opens every older one.
+
+**Writing.** A client MUST seal under the node's current generation and send it; the server answers
+`key_generation_conflict` once it has moved on, and the client seals again. Editing a comment seals
+and signs a new body under the current generation. The resolved state is the server's, and unsigned.
+
+**Suite `none`.** The body and the anchor are `utf8(json)` and the signatures are empty, as with
+metadata. Only the list of who may comment says who wrote what.

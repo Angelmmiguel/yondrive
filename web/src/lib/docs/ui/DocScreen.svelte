@@ -39,7 +39,12 @@
 	} from '$lib/formats/document';
 	import { safeHref } from '$lib/formats/model';
 	import { countWords } from '../words';
-	import { canWrite, isOwner } from '$lib/sharing/roles';
+	import { canComment, canWrite, isOwner } from '$lib/sharing/roles';
+	import type { TextAnchor } from '$lib/comments/anchor';
+	import type { Thread } from '$lib/comments/comments';
+	import { FileCommentsState } from '$lib/state/comments.svelte';
+	import { sharing } from '$lib/state/sharing.svelte';
+	import { revealComment, selectionAnchor, showComments } from '../comments';
 	import { drive } from '$lib/state/drive.svelte';
 	import { session as account } from '$lib/state/session.svelte';
 	import { theme } from '$lib/state/theme.svelte';
@@ -83,7 +88,7 @@
 	/** A phone: the panels start closed and open over the page, one at a time. */
 	const narrow = new MediaQuery('max-width: 720px');
 	let outlineOpen = $state(!narrow.current);
-	let panel = $state<'details' | 'versions' | null>(narrow.current ? null : 'details');
+	let panel = $state<'details' | 'versions' | 'comments' | null>(narrow.current ? null : 'details');
 	// Narrowed to a phone's width, open panels would cover the page: they close.
 	$effect(() => {
 		if (narrow.current)
@@ -114,6 +119,11 @@
 
 	const node = $derived(drive.node(fileId));
 	const canEdit = $derived(node !== undefined && canWrite(node));
+	const mayComment = $derived(node !== undefined && canComment(node));
+	let comments = $state.raw<FileCommentsState | null>(null);
+	/** Threads whose quote is no longer in the text. */
+	let lostThreads = $state.raw<Set<string>>(new Set());
+	let pickedThread = $state<string | null>(null);
 	const editing = $derived(canEdit && mode === 'edit');
 	const caps = $derived(CAPS[saveAs]);
 
@@ -216,7 +226,11 @@
 						e instanceof Error ? e.message : 'That picture could not be added.'
 					),
 				onSave: () => void docSession?.flush(),
-				onFind: () => (findOpen = true)
+				onFind: () => (findOpen = true),
+				onComment: (id) => {
+					panel = 'comments';
+					pickedThread = id;
+				}
 			});
 			updateWords();
 			// Ready to type, as the sheet editor is: from the keyboard nothing else would get there first.
@@ -259,6 +273,60 @@
 	$effect(() => {
 		if (status === 'saved') untrack(() => void loadVersions());
 	});
+
+	// The comments of the file open, read again whenever someone changes them.
+	$effect(() => {
+		const id = fileId;
+		if (phase !== 'ready') return;
+		untrack(() => {
+			if (comments?.nodeId === id) return;
+			comments = new FileCommentsState(
+				id,
+				() => drive.core?.commentDeps ?? null,
+				() => void sharing.markCommentsRead(id)
+			);
+			void comments.load();
+		});
+	});
+	$effect(() => {
+		void node?.commentSeq;
+		untrack(() => void comments?.load());
+	});
+	// Their quotes, highlighted in the text: decorations, so the document stays as it is.
+	$effect(() => {
+		const threads = comments?.threads ?? [];
+		const v = view;
+		if (v === null) return;
+		untrack(() => {
+			lostThreads = showComments(
+				v,
+				threads.flatMap((t) =>
+					t.anchor?.kind === 'text' ? [{ id: t.id, anchor: t.anchor, shown: !t.resolved }] : []
+				),
+				pickedThread
+			);
+		});
+	});
+
+	/** The selection, as what a new comment would be about. */
+	const draft = $derived.by(() => {
+		void rev;
+		const anchor = view ? selectionAnchor(view.state) : null;
+		return anchor === null ? null : { anchor, label: `“${anchor.quote}”` };
+	});
+
+	function place(thread: Thread) {
+		const anchor = thread.anchor as TextAnchor | null;
+		if (anchor === null || anchor.kind !== 'text') return null;
+		return lostThreads.has(thread.id)
+			? { label: 'Text no longer found', lost: true }
+			: { label: `“${anchor.quote}”`, lost: false };
+	}
+
+	function openComments() {
+		panel = 'comments';
+		if (narrow.current) outlineOpen = false;
+	}
 
 	function teardown() {
 		view?.destroy();
@@ -494,17 +562,37 @@
 				]
 			: []),
 		...(node && isOwner(node) ? [{ id: 'share', label: 'Share…', icon: 'shared' as const }] : []),
+		{ id: 'comments', label: 'Comments', icon: 'comment' as const },
 		...downloads.map((d) => ({ ...d, id: `download:${d.id}` })),
 		{ id: 'theme', label: dark ? 'Light theme' : 'Dark theme', icon: dark ? 'sun' : 'moon' }
 	]);
 
 	function chooseMore(id: string) {
-		if (id === 'mode') mode = mode === 'edit' ? 'view' : 'edit';
+		if (id === 'comments') openComments();
+		else if (id === 'mode') mode = mode === 'edit' ? 'view' : 'edit';
 		else if (id === 'share' && node) drive.dialog = { kind: 'share', node };
 		else if (id === 'theme') theme.choose(dark ? 'light' : 'dark');
 		else if (id.startsWith('download:')) void download(id.slice('download:'.length));
 	}
 </script>
+
+{#snippet commentsTab()}
+	{#if comments}
+		<!-- Its code comes with the first look at it, not with the editor. -->
+		{#await import('$lib/comments/ui/CommentsPanel.svelte') then { default: CommentsPanel }}
+			<CommentsPanel
+				{comments}
+				canComment={mayComment}
+				canResolve={canEdit}
+				owner={node !== undefined && isOwner(node)}
+				{draft}
+				{place}
+				bind:selected={pickedThread}
+				onselect={(t) => view && revealComment(view, t.id)}
+			/>
+		{/await}
+	{/if}
+{/snippet}
 
 <svelte:window onbeforeunload={beforeUnload} />
 <svelte:head><title>{fileName || 'Document'} · YonDrive</title></svelte:head>
@@ -544,6 +632,15 @@
 				</Menu>
 			{:else}
 				<div class="actions">
+					<Button
+						variant="ghost"
+						icon="comment"
+						aria-pressed={panel === 'comments'}
+						onclick={() => (panel === 'comments' ? (panel = null) : openComments())}
+						>Comments{comments && comments.open.length > 0
+							? ` (${comments.open.length})`
+							: ''}</Button
+					>
 					{#if canEdit}
 						<SegmentedControl
 							label="Mode"
@@ -665,7 +762,13 @@
 					</Banner>
 				</div>
 			{/if}
-			{#if others.length > 0 && !othersDismissed}
+			{#if others.length > 0 && !canEdit}
+				<!-- Someone who cannot save has no conflict to be warned of: only that it may change. -->
+				<p class="quiet" role="status" data-testid="editing-quiet">
+					{othersNames}
+					{others.length === 1 ? 'is' : 'are'} editing this. What you see may change.
+				</p>
+			{:else if others.length > 0 && !othersDismissed}
 				<div class="note" data-testid="editing-warning">
 					<Banner
 						tone="warn"
@@ -713,6 +816,7 @@
 					onconvert={(f) => (convertTo = f as SaveFormat)}
 					onrestore={(v) => void restore(v)}
 					ondownload={(v) => node && void drive.download(node, v.id)}
+					comments={comments ? commentsTab : undefined}
 				/>
 			</div>
 		{/if}
@@ -797,6 +901,12 @@
 </Dialog>
 
 <style>
+	.quiet {
+		margin: 0 0 12px;
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+
 	.screen {
 		min-height: 100vh;
 		display: flex;
@@ -1375,6 +1485,16 @@
 
 	.paper :global(.ProseMirror-selectednode) {
 		outline: 2px solid var(--accent);
+	}
+
+	.paper :global(.comment-mark) {
+		background: var(--warn-soft);
+		border-bottom: 2px solid var(--warn-line);
+		cursor: pointer;
+	}
+
+	.paper :global(.comment-mark.current) {
+		border-bottom-color: var(--warn);
 	}
 
 	.paper :global(.find-hit) {

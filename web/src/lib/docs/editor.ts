@@ -10,6 +10,7 @@ import { EditorView } from 'prosemirror-view';
 import type { Caps } from '$lib/formats/document';
 import type { Marks } from '$lib/formats/model';
 import { backspaceList, enter, insertBreak, shiftLevel, toggleMark } from './commands';
+import { commentMarks } from './comments';
 import type { ImageStore } from './images';
 import { find, imageView, lists, lockedGuard, paste } from './plugins';
 import { schema } from './schema';
@@ -25,6 +26,8 @@ export interface EditorOptions {
 	onImageFailed: (e: unknown) => void;
 	onSave: () => void;
 	onFind: () => void;
+	/** A click in a commented range, with its thread. */
+	onComment?: (threadId: string) => void;
 }
 
 export function createState(doc: PMNode, o: Omit<EditorOptions, 'doc' | 'onUpdate'>): EditorState {
@@ -66,6 +69,7 @@ export function createState(doc: PMNode, o: Omit<EditorOptions, 'doc' | 'onUpdat
 			tableEditing(),
 			lists(o.editable),
 			find(),
+			commentMarks((id) => o.onComment?.(id)),
 			paste(o.caps, o.store, o.onImageFailed)
 		]
 	});

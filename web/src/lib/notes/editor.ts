@@ -343,6 +343,8 @@ export interface NoteEditorOptions {
 	kindOf: (id: string) => LinkKind;
 	readImage: (id: string) => Promise<string | null>;
 	onImageFailed: (e: unknown) => void;
+	/** A click in a commented range, with its thread. */
+	onComment?: (threadId: string) => void;
 	/** Whether the note has a folder to keep new pictures in. */
 	canAddPictures: () => boolean;
 	/** A picture was pasted or dropped where it cannot be kept. */
@@ -357,7 +359,8 @@ export function createNoteEditor(mount: HTMLElement, o: NoteEditorOptions): Edit
 		onBlocked: () => {},
 		onImageFailed: o.onImageFailed,
 		onSave: o.onSave,
-		onFind: () => {}
+		onFind: () => {},
+		onComment: o.onComment
 	});
 	const state = base.reconfigure({
 		plugins: [

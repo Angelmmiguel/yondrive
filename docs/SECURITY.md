@@ -15,7 +15,7 @@ encryption, none of the confidentiality claims below apply: see
 | An honest but curious server | No. It sees the metadata listed below. |
 | A server that turns hostile while serving the same app | No, within the limits below. |
 | A server that replaces the app | **Yes, from the next unlock.** See below. |
-| Someone with a grant | Yes, for what was shared. That is the point. |
+| Someone with a grant | Yes, for what was shared. That is the point. A commenter reads as a viewer does and writes comments, and changes no file. |
 | Someone with a public link | Yes, for what it covers: the current version of each file and no history. |
 | Someone with a public link's id but not its key | No. Without a password on the link, they can fetch ciphertext within its limits. With one, they get nothing until they have it. |
 | Someone with a file request | No. They can send files into its folder, within its limits, and read nothing there, what they sent included. |
@@ -47,7 +47,13 @@ by id. The notes index (links, tags, tasks and text, for backlinks and mentions)
 the server: it is kept in IndexedDB on the device, an entry per note, each sealed under the
 search index's key and bound to the index and the note, and forgotten on signing out.
 
-It cannot see names, types, tags, dates inside metadata, or contents.
+Of comments it sees who commented on which file, when, how often and how much, and which comment
+replies to which, who resolved a thread and who moved an anchor: the same kind of metadata as a
+version's. It keeps, per user and file, how many new comments by others they have not seen, with the
+newest one's id and author, for the notification. The text of a comment and what it points at, the
+quoted words or the cell, are sealed.
+
+It cannot see names, types, tags, dates inside metadata, contents or the text of comments.
 
 **Held in plaintext, in both modes:** usernames, email addresses, the subject of each identity at a
 provider, the email address an invite was made for, and the names given to device tokens. The
@@ -57,9 +63,9 @@ In `none` mode the search index
 segments are stored as plaintext too, like everything else there.
 
 **What people a node is shared with see of each other.** The owner sees every grant on a node and
-the folders above it. Anyone else sees their own grants and the usernames of the editors there,
-since a version's signer has to be someone with edit rights for their client to check it, but not
-who else may only read.
+the folders above it. Anyone else sees their own grants and the usernames of the editors and the
+commenters there, since a version's signer has to be someone with edit rights, and a comment's
+someone who may comment, for their client to check it, but not who else may only read.
 
 ## Limits
 
@@ -214,9 +220,24 @@ deleted and made again from the tree.
   owner it comes with the signed grants, which their client checks with their own key, so a server
   cannot name an editor to the owner: to them a row with no signature is no grant, what its signer
   wrote opens with the warning below, and the row is marked as not signed by them. Anyone else has only the list, and a hostile server can name a
-  viewer as an editor, or a user it controls. A version whose signer is on no such list opens with a
+  viewer as an editor or a commenter, or a user it controls. A version whose signer is on no such list opens with a
   warning rather than failing: there is no record of what someone could do when they wrote it, and
   refusing would make every file a former editor uploaded unreadable, to everyone, for good.
+- **Comment rights, and a comment's history.** A comment is signed by its author over the file, the
+  thread, the comment, the key generation and the sealed body, and a client checks it against the
+  author's pinned key and that the author may comment, from the list above, with the same limits and
+  the same warning for an author who may no longer. One whose signature does not check, or that
+  claims another author, file or thread, is not shown, and the panel counts it. An anchor is believed
+  from the thread's author, or from someone who may edit; anything else leaves the thread about the
+  whole file, which it says. A server can withhold comments, serve the text of a comment as it was
+  before an edit, serve an older anchor of the same thread and generation, put comments and replies
+  in another order, give them other times, as `created_at` and `edited_at` are its own and not
+  signed, flip a thread between resolved and open, as that flag is not signed either, and keep a
+  comment its author or the owner deleted.
+- **Deleting a thread.** The first comment of a thread carries its replies with it. Its author may
+  delete it only while nobody else has replied, and the file's owner may delete any thread. Deleting a
+  user deletes their comments, and with the first comment of a thread they started, everyone's replies
+  to it.
 - **Key commitment.** XChaCha20-Poly1305 does not commit to a key: someone who knows two keys
   can make one ciphertext that opens under both. Within a signed version, the content hash
   ties the signer to one ciphertext. A signer can still make it open differently for readers
@@ -329,7 +350,7 @@ no key, from a server that has always been in `none` mode, sends files as that m
 
 ## No-encryption mode
 
-Files are stored as they are, and metadata as readable JSON. Anyone with the server or its disks
+Files are stored as they are, and metadata and comments as readable JSON. Anyone with the server or its disks
 reads everything. There are no keys, recovery keys, pinning or signatures, and an administrator
 can reset a password. The per-frame SHA-256 detects disk corruption, and is not protection against
 anyone who can write to the disk. Use disk encryption such as LUKS or ZFS native encryption against
@@ -382,6 +403,15 @@ is parsed as hostile input, on the device and never on the server.
 **Reminders** are given by the open app, on a timer: the server cannot read a reminder's time
 in end-to-end mode, and nothing is sent in either mode. Which reminders a device has given is
 kept in `localStorage` as note ids and times, nothing more.
+
+**Comments are someone else's text.** A comment, its quote and its sheet name come from other users
+through the server, and are drawn as plain text, never as markup. Highlights in a document are
+decorations of the editor, never marks in it, and a comment never changes a file: a `.docx` or `.xlsx`
+keeps its exact bytes, and comments already inside a file stay there as they were. A body is at most
+16 KiB sealed, an anchor 4 KiB, and a file takes at most 2,000 comments; the document is read once to
+place every quote, and each quote is weighed at a bounded number of places however often it appears,
+so a commenter cannot make a file slow to open. Comments do not count against anyone's quota. Public
+links and file requests have no way to reach comments.
 
 **Who is editing.** The editing heartbeat tells the server which user has which node open in an
 editor, and when. Anyone who can read the node sees the usernames of the others editing it.

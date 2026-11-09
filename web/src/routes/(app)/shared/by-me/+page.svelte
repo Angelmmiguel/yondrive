@@ -5,6 +5,7 @@
 	import { isApiError, type Grant, type Link } from '$lib/api/types';
 	import { describeDriveError } from '$lib/drive/errors';
 	import { linkStatus } from '$lib/sharing/links';
+	import { ROLE_LABELS } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { incoming } from '$lib/state/incoming.svelte';
 	import { session } from '$lib/state/session.svelte';
@@ -109,7 +110,7 @@
 					<span class="main">
 						<span class="title">{nameOf(grant.node_id)}</span>
 						<span class="sub">
-							{grant.grantee_username} · {grant.role === 'editor' ? 'can edit' : 'can view'} · since
+							{grant.grantee_username} · {ROLE_LABELS[grant.role].toLowerCase()} · since
 							{formatDate(grant.created_at)}
 						</span>
 					</span>

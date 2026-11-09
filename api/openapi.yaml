@@ -38,6 +38,10 @@ tags:
     description: The tree of opaque nodes, its versions, uploads, downloads and journal.
   - name: sharing
     description: Grants to other users, key rotation, and the notifications they make.
+  - name: comments
+    description: |
+      Threads on a file, beside it and never in it. Bodies and anchors are sealed
+      under the file's key and signed by whoever wrote them.
   - name: links
     description: Public links and file requests, as their owner sees them.
   - name: requests
@@ -1296,6 +1300,157 @@ paths:
                 $ref: "#/components/schemas/Editing"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/comments:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+    get:
+      operationId: listComments
+      tags: [comments]
+      summary: List a file's comments, oldest first
+      description: |
+        Every comment and reply on the file, thread roots and replies alike, for anyone
+        who can read it. The bodies and anchors are sealed under the node's key of the
+        generation each records, and `key_chain` reaches the oldest of them on the page
+        (CRYPTO.md, section 21). Public links and file requests have no route here.
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: The `next_cursor` of the previous page.
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentPage"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      operationId: createComment
+      tags: [comments]
+      summary: Start a thread, or reply to one
+      description: |
+        Needs the `commenter` role or more. Without `thread_id` the comment starts a
+        thread, which may carry an anchor; with it, it replies to that thread's first
+        comment. The id is the client's, since it is sealed into the body. Answers
+        `invalid_comment` when a sealed field is missing or the wrong size for the mode,
+        `comment_too_large` (413) when the body or the anchor is over its limit,
+        `comment_limit_reached` (409) when the file has all the comments it takes,
+        `key_generation_conflict` (412) when the node's key has moved on, `not_a_file`
+        on a folder, and `node_trashed` when it is in the trash. Its readers who did not
+        write it are notified, with ids only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentRequest"
+      responses:
+        "201":
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/comments/{comment_id}:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/CommentID"
+    put:
+      operationId: updateComment
+      tags: [comments]
+      summary: Replace the body of the caller's own comment
+      description: |
+        The author alone, while they still hold the `commenter` role or more. The body
+        is sealed and signed again under the node's current generation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCommentRequest"
+      responses:
+        "200":
+          description: The comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: deleteComment
+      tags: [comments]
+      summary: Delete a comment
+      description: |
+        Its author, while they can still comment, or the file's owner, who may delete
+        any. Deleting the first comment of a thread deletes the thread with its replies,
+        so its author may delete it only while nobody else has replied
+        (`comment_has_replies`); the owner may delete any thread.
+      responses:
+        "204":
+          description: Gone.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/comments/{comment_id}/anchor:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/CommentID"
+    put:
+      operationId: updateCommentAnchor
+      tags: [comments]
+      summary: Move a thread's anchor
+      description: |
+        For an editor or the owner, whose edit moved what the thread is about, such as
+        rows inserted above a commented cell. The anchor is sealed and signed by the
+        caller, who becomes its `signer_id`. Only the first comment of a thread has an
+        anchor; anything else answers `invalid_comment`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentAnchorInput"
+      responses:
+        "200":
+          description: The thread's first comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/nodes/{id}/comments/{comment_id}/resolved:
+    parameters:
+      - $ref: "#/components/parameters/ID"
+      - $ref: "#/components/parameters/CommentID"
+    put:
+      operationId: resolveComment
+      tags: [comments]
+      summary: Resolve a thread, or reopen it
+      description: |
+        For an editor or the owner, on the first comment of a thread. The flag is the
+        server's and is not signed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveCommentRequest"
+      responses:
+        "200":
+          description: The thread's first comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/uploads:
     get:
       operationId: listUploads
@@ -1715,9 +1870,11 @@ paths:
       description: |
         The grants on the node and on the folders above it, nearest first, for anyone
         who can read the node: a client verifies a version's signature against an
-        author who holds edit rights, and they are the owner and the editors here.
+        author who holds edit rights, and they are the owner and the editors here, and
+        a comment's against an author who may comment, which the commenters may too.
         The owner gets every grant, with its sealed key and signature. Anyone else
-        gets their own grants and the editors', and not who else may only read.
+        gets their own grants, the editors' and the commenters', and not who else may
+        only read.
       responses:
         "200":
           description: The list.
@@ -1789,7 +1946,7 @@ paths:
     get:
       operationId: listNotifications
       tags: [sharing]
-      summary: List what has been shared with the signed-in user and not marked as read
+      summary: List what has been shared with the signed-in user, and new comments, not marked as read
       responses:
         "200":
           description: The list.
@@ -2465,6 +2622,12 @@ components:
             - `request_file_too_large`: the file is larger than the request takes (413)
             - `request_files_reached`: the request has taken all the files it takes (409)
             - `request_bytes_reached`: the file does not fit in what the request has left (413)
+            - `invalid_comment`: a sealed field of a comment is missing or the wrong size for
+              the mode, or a reply, an anchor or a resolve names anything but a thread's first comment
+            - `comment_too_large`: a comment's body or anchor is over its limit (413)
+            - `comment_limit_reached`: the file has all the comments it takes (409)
+            - `comment_has_replies`: others have replied to this thread, and only the
+              file's owner may delete it with their replies (409)
           examples: [not_found]
     KDF:
       type: object
@@ -3215,9 +3378,12 @@ components:
         of the grants they hold on it and above it. A `viewer` reads. An `editor`
         also creates, renames, moves within the shared subtree, uploads versions and
         trashes, but not on the node a grant is on unless something above it is
-        shared too, since those change the folder it lives in. Only an `owner`
-        shares, rotates, restores, purges or deletes versions.
-      enum: [owner, editor, viewer]
+        shared too, since those change the folder it lives in. A `commenter` reads
+        and comments, and changes nothing else. Every role reads comments; an
+        `editor` also resolves threads and moves their anchors. Only an `owner`
+        shares, rotates, restores, purges, deletes versions or deletes other
+        people's comments.
+      enum: [owner, editor, commenter, viewer]
     Node:
       type: object
       description: |
@@ -3256,6 +3422,12 @@ components:
           description: |
             A rotation removes it. One written by a client that had not yet seen a
             rotation does not open: treat it as missing, and make another.
+        comment_seq:
+          type: integer
+          format: int64
+          description: |
+            How many times the file's comments have changed, 0 before the first. A
+            client that keeps anything made from them reads them again when it moves.
         key_generation:
           type: integer
           format: int64
@@ -3522,6 +3694,158 @@ components:
           type: string
           format: date-time
           description: When their current run of heartbeats began.
+    CommentAnchor:
+      type: object
+      description: |
+        Where a thread points, sealed and signed by `signer_id`: its author when the
+        thread starts, and then whichever editor last moved it (CRYPTO.md, section 21).
+      required: [key_generation, sealed_anchor, signature, signer_id, updated_at]
+      properties:
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key it is sealed under.
+        sealed_anchor:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+          description: Empty in `none` mode.
+        signer_id:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    Comment:
+      type: object
+      description: |
+        A comment on a file, kept beside it: the file's bytes never change for one. The
+        server cannot read `sealed_body` or the anchor; in `none` mode they hold readable
+        JSON. A client MUST verify the signature against the author's pinned key, and
+        check that the author may comment on the node, before showing the comment as
+        theirs (CRYPTO.md, section 21).
+      required: [id, node_id, thread_id, author_id, author_username, key_generation, sealed_body, signature, created_at, resolved]
+      properties:
+        id:
+          type: string
+        node_id:
+          type: string
+        thread_id:
+          type: string
+          description: The first comment of the thread; its own id on that one.
+        author_id:
+          type: string
+        author_username:
+          type: string
+        key_generation:
+          type: integer
+          format: int64
+          description: The generation of the node's key the body is sealed under.
+        sealed_body:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+          description: The author's, over the body. Empty in `none` mode.
+        anchor:
+          $ref: "#/components/schemas/CommentAnchor"
+        created_at:
+          type: string
+          format: date-time
+        edited_at:
+          type: string
+          format: date-time
+          description: When the body was last replaced.
+        resolved:
+          type: boolean
+          description: On the first comment of a thread, whether the thread is resolved.
+        resolved_by:
+          type: string
+        resolved_at:
+          type: string
+          format: date-time
+    CommentPage:
+      type: object
+      required: [comments]
+      properties:
+        comments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Comment"
+        key_chain:
+          type: array
+          description: |
+            From the node's current key to the oldest generation that a comment or an
+            anchor on the page is sealed under, newest link first. Absent when that is
+            the current key, and always in `none` mode.
+          items:
+            $ref: "#/components/schemas/KeyLink"
+        next_cursor:
+          type: string
+          description: Present if there may be more.
+    CommentAnchorInput:
+      type: object
+      required: [key_generation, sealed_anchor, signature]
+      properties:
+        key_generation:
+          type: integer
+          format: int64
+          description: The node's current generation, which it is sealed under.
+        sealed_anchor:
+          type: string
+          format: byte
+          description: At most 4 KiB.
+        signature:
+          type: string
+          format: byte
+          description: The caller's Ed25519 signature, 64 bytes. Empty in `none` mode.
+    CreateCommentRequest:
+      type: object
+      required: [id, key_generation, sealed_body, signature]
+      properties:
+        id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Chosen by the client.
+        thread_id:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: The first comment of the thread this replies to. Absent starts a thread.
+        key_generation:
+          type: integer
+          format: int64
+          description: The node's current generation, which the body is sealed under.
+        sealed_body:
+          type: string
+          format: byte
+          description: At most 16 KiB.
+        signature:
+          type: string
+          format: byte
+          description: The author's Ed25519 signature, 64 bytes. Empty in `none` mode.
+        anchor:
+          $ref: "#/components/schemas/CommentAnchorInput"
+    UpdateCommentRequest:
+      type: object
+      required: [key_generation, sealed_body, signature]
+      properties:
+        key_generation:
+          type: integer
+          format: int64
+        sealed_body:
+          type: string
+          format: byte
+        signature:
+          type: string
+          format: byte
+    ResolveCommentRequest:
+      type: object
+      required: [resolved]
+      properties:
+        resolved:
+          type: boolean
     CreateUploadRequest:
       type: object
       required: [node_id, version_id, suite, frame_count, frame_size, stored_size]
@@ -3709,7 +4033,8 @@ components:
         its children, so read them again. `revoked`: the caller lost a way of reaching
         this node; read it, and if the answer is `not_found` drop it and all under it.
         Trashing a folder also appears as `trashed` on each grant under it.
-      enum: [created, updated, moved, trashed, restored, purged, removed, version, version_deleted, thumbnail, granted, role_changed, revoked, rotated]
+        `commented`: its comments changed, and its `comment_seq` with them.
+      enum: [created, updated, moved, trashed, restored, purged, removed, version, version_deleted, thumbnail, granted, role_changed, revoked, rotated, commented]
     Change:
       type: object
       required: [seq, node_id, op, at]
@@ -3737,7 +4062,7 @@ components:
           description: Where to read from next, also when this page is empty.
     GrantRole:
       type: string
-      enum: [viewer, editor]
+      enum: [viewer, commenter, editor]
     Grant:
       type: object
       description: |
@@ -3889,9 +4214,31 @@ components:
         created_at:
           type: string
           format: date-time
+    CommentNotification:
+      type: object
+      description: |
+        New comments by someone else on a file the user can read, since they last
+        marked it as read. Ids only, as the comments are sealed.
+      required: [node_id, comment_id, author_id, count, created_at]
+      properties:
+        node_id:
+          type: string
+        comment_id:
+          type: string
+          description: The newest of them.
+        author_id:
+          type: string
+          description: Who wrote the newest.
+        count:
+          type: integer
+          description: How many there have been.
+        created_at:
+          type: string
+          format: date-time
+          description: When the newest was written.
     NotificationList:
       type: object
-      required: [notifications, has_more]
+      required: [notifications, has_more, comments]
       properties:
         notifications:
           type: array
@@ -3900,12 +4247,29 @@ components:
             $ref: "#/components/schemas/Notification"
         has_more:
           type: boolean
+        comments:
+          type: array
+          description: |
+            One entry per file, the newest first, at most 50. Files the user cannot
+            read now are left out.
+          items:
+            $ref: "#/components/schemas/CommentNotification"
     MarkNotificationsReadRequest:
       type: object
+      description: |
+        With neither list, marks everything. With either, only what it names: a body
+        with `grant_ids` alone leaves the comment notices as they are.
       properties:
         grant_ids:
           type: array
-          description: Which to mark. Absent marks all of them.
+          description: Which grants to mark.
+          maxItems: 1000
+          items:
+            type: string
+            pattern: "^[0-9a-f]{32}$"
+        node_ids:
+          type: array
+          description: The files whose comment notices to mark.
           maxItems: 1000
           items:
             type: string
@@ -4627,6 +4991,14 @@ components:
       schema:
         type: string
       description: A record id, 32 lowercase hex characters. Anything else answers `invalid_id`.
+    CommentID:
+      name: comment_id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+      description: A comment id.
     VersionID:
       name: version_id
       in: path

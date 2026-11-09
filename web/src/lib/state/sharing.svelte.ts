@@ -3,7 +3,7 @@
  * stops everything when a contact's keys change. It wraps the `Sharing` of the drive
  * of this session, which is attached and detached with it.
  */
-import type { Grant, Link, Node, Notification } from '$lib/api/types';
+import type { CommentNotification, Grant, Link, Node, Notification } from '$lib/api/types';
 import { ContactKeysChangedError } from '$lib/sharing/contacts';
 import type { RotationProgress } from '$lib/sharing/rotation';
 import type { SharedEntry, Sharing } from '$lib/sharing/sharing';
@@ -14,6 +14,8 @@ export class SharingState {
 	made = $state.raw<readonly { grant: Grant; node: Node }[]>([]);
 	links = $state.raw<readonly { link: Link; node: Node }[]>([]);
 	unread = $state.raw<Notification[]>([]);
+	/** Files with comments by others this user has not seen. */
+	commented = $state.raw<CommentNotification[]>([]);
 	/** A contact whose keys are not the pinned ones. Blocks the app until someone decides. */
 	changed = $state.raw<ContactKeysChangedError | null>(null);
 	/** Whose safety number is on screen. */
@@ -37,6 +39,7 @@ export class SharingState {
 		this.made = [];
 		this.links = [];
 		this.unread = [];
+		this.commented = [];
 		this.changed = null;
 		this.comparing = null;
 		this.rotation = null;
@@ -57,9 +60,10 @@ export class SharingState {
 		try {
 			await core.refreshShared();
 			await core.refreshMade();
-			const { list } = await core.notifications();
+			const { list, comments } = await core.notifications();
 			if (this.core !== core) return;
 			this.unread = list;
+			this.commented = comments;
 		} catch (e) {
 			this.warn(e);
 		}
@@ -83,9 +87,17 @@ export class SharingState {
 	}
 
 	async markAllRead(): Promise<void> {
-		if (this.core === null || this.unread.length === 0) return;
+		if (this.core === null || (this.unread.length === 0 && this.commented.length === 0)) return;
 		this.unread = [];
+		this.commented = [];
 		await this.core.markRead().catch(() => {});
+	}
+
+	/** The comments on a file have been seen, where they show. */
+	async markCommentsRead(nodeId: string): Promise<void> {
+		if (this.core === null || !this.commented.some((one) => one.node_id === nodeId)) return;
+		this.commented = this.commented.filter((one) => one.node_id !== nodeId);
+		await this.core.markCommentsRead([nodeId]).catch(() => {});
 	}
 
 	async markRead(grantId: string): Promise<void> {

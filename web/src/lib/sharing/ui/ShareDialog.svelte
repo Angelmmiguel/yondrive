@@ -27,6 +27,7 @@
 	import { sharing } from '$lib/state/sharing.svelte';
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { linkStatus, type LinkStatus } from '../links';
+	import { ROLE_LABELS } from '../roles';
 	import { unrekeyedText } from '../rotation';
 	import type { Person } from '../sharing';
 	import RequestPane from './RequestPane.svelte';
@@ -38,10 +39,10 @@
 	let { node }: Props = $props();
 
 	const encrypted = $derived(session.sealer?.encrypted ?? true);
-	const ROLES = [
-		{ value: 'viewer', label: 'Can view' },
-		{ value: 'editor', label: 'Can edit' }
-	];
+	const ROLES = (['viewer', 'commenter', 'editor'] as const).map((value) => ({
+		value,
+		label: ROLE_LABELS[value]
+	}));
 	const STATUS: Record<LinkStatus, { label: string; tone: 'ok' | 'danger' | 'grey' }> = {
 		live: { label: 'Live', tone: 'ok' },
 		revoked: { label: 'Revoked', tone: 'danger' },
@@ -319,8 +320,7 @@
 								<Avatar name={person.access.username} size={30} />
 								<span class="name">{person.access.username}</span>
 								<Tag tone="grey">
-									{person.access.role === 'editor' ? 'Can edit' : 'Can view'}, through a folder
-									above
+									{ROLE_LABELS[person.access.role]}, through a folder above
 								</Tag>
 							</li>
 						{/each}

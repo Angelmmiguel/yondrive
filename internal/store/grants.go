@@ -11,8 +11,9 @@ import (
 
 // Roles a grant can give.
 const (
-	RoleViewer = "viewer"
-	RoleEditor = "editor"
+	RoleViewer    = "viewer"
+	RoleCommenter = "commenter"
+	RoleEditor    = "editor"
 )
 
 // Errors of sharing. Callers match them with errors.Is.

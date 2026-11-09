@@ -27,6 +27,8 @@ type permission int
 
 const (
 	permRead permission = iota
+	// permComment writes comments, and nothing else.
+	permComment
 	permWrite
 	permOwn
 )
@@ -37,6 +39,7 @@ type role int
 const (
 	roleNone role = iota
 	roleViewer
+	roleCommenter
 	roleEditor
 	roleOwner
 )
@@ -45,6 +48,8 @@ func (r role) allows(need permission) bool {
 	switch need {
 	case permRead:
 		return r >= roleViewer
+	case permComment:
+		return r >= roleCommenter
 	case permWrite:
 		return r >= roleEditor
 	default:
@@ -57,6 +62,8 @@ func grantRole(g string) role {
 	switch g {
 	case store.RoleEditor:
 		return roleEditor
+	case store.RoleCommenter:
+		return roleCommenter
 	case store.RoleViewer:
 		return roleViewer
 	}
@@ -70,6 +77,8 @@ func (r role) view() *oapi.NodeRole {
 		out = oapi.NodeRoleOwner
 	case roleEditor:
 		out = oapi.NodeRoleEditor
+	case roleCommenter:
+		out = oapi.NodeRoleCommenter
 	case roleViewer:
 		out = oapi.NodeRoleViewer
 	default:
@@ -174,6 +183,9 @@ func driveError(err error) error {
 		{store.ErrVersionConflict, http.StatusPreconditionFailed, codeVersionConflict},
 		{store.ErrVersionCurrent, http.StatusConflict, codeVersionCurrent},
 		{store.ErrQuotaExceeded, http.StatusRequestEntityTooLarge, codeQuotaExceeded},
+		{store.ErrCommentLimit, http.StatusConflict, codeCommentLimitReached},
+		{store.ErrNotThread, http.StatusBadRequest, codeInvalidComment},
+		{store.ErrHasReplies, http.StatusConflict, codeCommentHasReplies},
 		{store.ErrUploadIncomplete, http.StatusConflict, codeUploadIncomplete},
 		{store.ErrTooManyUploads, http.StatusConflict, codeTooManyUploads},
 		{store.ErrFrameConflict, http.StatusConflict, codeFrameConflict},
@@ -243,6 +255,7 @@ func nodeView(n store.Node, self, parent role) oapi.Node {
 		CurrentVersion: optional(n.CurrentVersion),
 		ThumbBlobId:    optional(n.ThumbBlobID),
 		KeyGeneration:  &generation,
+		CommentSeq:     &n.CommentSeq,
 		Role:           self.view(),
 		TrashedAt:      optionalTime(n.TrashedAt),
 		PurgedAt:       optionalTime(n.PurgedAt),

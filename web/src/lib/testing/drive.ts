@@ -8,6 +8,7 @@ import {
 	ApiError,
 	type Change,
 	type ChangeOp,
+	type Comment,
 	type ErrorCode,
 	type Grant,
 	type GrantRole,
@@ -80,7 +81,9 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		/** A public key a hostile server names for a request, in place of its own. */
 		requestKey: null as string | null,
 		/** Takes no session token any more, as after the server has forgotten them. */
-		forgetSessions: false
+		forgetSessions: false,
+		/** Rewrites a comment on its way out. */
+		tamperComment: null as ((comment: Comment) => Comment) | null
 	};
 	const users = new Map<string, FakeUser>();
 	const grants = new Map<string, Grant & { read?: boolean }>();
@@ -100,6 +103,8 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 	>();
 	const incoming = new Map<string, IncomingItem>();
 	const history = new Map<string, KeyLink[]>();
+	const comments = new Map<string, Comment>();
+	let commentSeq = 0;
 	let grantSeq = 0;
 	let requestSeq = 0;
 
@@ -121,11 +126,12 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 	function roleOf(node: Node, actor = state.actor): NodeRole | null {
 		if (node.owner_id === actor) return 'owner';
 		if (trashedAbove(node)) return null;
+		const rank: Record<string, number> = { viewer: 1, commenter: 2, editor: 3 };
 		let role: NodeRole | null = null;
 		for (const at of lineage(node)) {
 			for (const grant of grants.values()) {
 				if (grant.node_id === at.id && grant.grantee_id === actor) {
-					if (grant.role === 'editor' || role === null) role = grant.role;
+					if (role === null || rank[grant.role] > rank[role]) role = grant.role;
 				}
 			}
 		}
@@ -146,19 +152,35 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		return out;
 	}
 
-	function needRole(id: string, wanted: 'read' | 'write' | 'own'): Node {
+	function needRole(id: string, wanted: 'read' | 'comment' | 'write' | 'own'): Node {
 		const node = need(id);
 		const role = roleOf(node);
 		if (role === null) throw fail(404, 'not_found');
 		if (wanted === 'own' && role !== 'owner') throw fail(403, 'forbidden');
-		if (wanted === 'write' && role === 'viewer') throw fail(403, 'forbidden');
+		if (wanted === 'write' && (role === 'viewer' || role === 'commenter')) {
+			throw fail(403, 'forbidden');
+		}
+		if (wanted === 'comment' && role === 'viewer') throw fail(403, 'forbidden');
 		return node;
 	}
 
 	function needParentWrite(node: Node) {
 		const parent = node.parent_id === undefined ? undefined : nodes.get(node.parent_id);
 		const role = parent === undefined ? null : roleOf(parent);
-		if (role === null || role === 'viewer') throw fail(403, 'forbidden');
+		if (role === null || role === 'viewer' || role === 'commenter') throw fail(403, 'forbidden');
+	}
+
+	/** A comment on a file this user may act on as `wanted` says. */
+	function needComment(nodeId: string, id: string, wanted: 'read' | 'comment' | 'write') {
+		const node = needRole(nodeId, wanted);
+		const comment = comments.get(id);
+		if (comment === undefined || comment.node_id !== nodeId) throw fail(404, 'not_found');
+		return { node, comment };
+	}
+
+	function commented(node: Node) {
+		node.comment_seq = (node.comment_seq ?? 0) + 1;
+		journal(node.id, 'commented');
 	}
 
 	function checkGeneration(node: Node, given: number | undefined) {
@@ -182,8 +204,8 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 			access: lineage(at).flatMap((node, depth) =>
 				[...grants.values()]
 					.filter((grant) => grant.node_id === node.id)
-					// Anyone but the owner sees their own grants and the editors'.
-					.filter((grant) => owner || grant.grantee_id === asking || grant.role === 'editor')
+					// Anyone but the owner sees their own grants, and those of who may write.
+					.filter((grant) => owner || grant.grantee_id === asking || grant.role !== 'viewer')
 					.map((grant) => ({
 						user_id: grant.grantee_id,
 						username: grant.grantee_username,
@@ -729,6 +751,104 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 				next_cursor: next
 			};
 		},
+		listComments: async (id, { cursor, limit = 200 } = {}) => {
+			const node = needRole(id, 'read');
+			const all = [...comments.values()].filter((c) => c.node_id === id);
+			const from = cursor === undefined ? 0 : Number(cursor);
+			const chunk = all.slice(from, from + limit);
+			const oldest = Math.min(
+				node.key_generation ?? 1,
+				...chunk.flatMap((c) => [c.key_generation, c.anchor?.key_generation ?? Infinity])
+			);
+			return {
+				comments: chunk.map((c) => (state.tamperComment ? state.tamperComment(c) : c)),
+				key_chain: keyChainFor(id, oldest),
+				next_cursor: from + limit < all.length ? String(from + limit) : undefined
+			};
+		},
+		createComment: async (id, body) => {
+			const node = needRole(id, 'comment');
+			if (node.kind !== 'file') throw fail(409, 'not_a_file');
+			checkGeneration(node, body.key_generation);
+			if (body.anchor) checkGeneration(node, body.anchor.key_generation);
+			if (comments.has(body.id)) throw fail(409, 'id_taken');
+			const threadId = body.thread_id ?? body.id;
+			if (threadId !== body.id) {
+				const first = comments.get(threadId);
+				if (first === undefined || first.node_id !== id) throw fail(404, 'not_found');
+				if (first.thread_id !== first.id || body.anchor) throw fail(400, 'invalid_comment');
+			}
+			const at = clock();
+			const comment: Comment = {
+				id: body.id,
+				node_id: id,
+				thread_id: threadId,
+				author_id: state.actor,
+				author_username: users.get(state.actor)?.username ?? 'owner',
+				key_generation: body.key_generation,
+				sealed_body: body.sealed_body,
+				signature: body.signature,
+				anchor: body.anchor && {
+					...body.anchor,
+					signer_id: state.actor,
+					updated_at: at
+				},
+				created_at: at,
+				resolved: false,
+				seq: ++commentSeq
+			} as Comment;
+			comments.set(comment.id, comment);
+			commented(node);
+			return comment;
+		},
+		updateComment: async (id, commentId, body) => {
+			const { node, comment } = needComment(id, commentId, 'comment');
+			if (comment.author_id !== state.actor) throw fail(403, 'forbidden');
+			checkGeneration(node, body.key_generation);
+			const updated = { ...comment, ...body, edited_at: clock() };
+			comments.set(commentId, updated);
+			commented(node);
+			return updated;
+		},
+		deleteComment: async (id, commentId) => {
+			const { node, comment } = needComment(id, commentId, 'read');
+			const role = roleOf(node);
+			const mine = comment.author_id === state.actor && role !== 'viewer';
+			if (!mine && role !== 'owner') throw fail(403, 'forbidden');
+			const answered = [...comments.values()].some(
+				(c) => c.thread_id === commentId && c.id !== commentId && c.author_id !== state.actor
+			);
+			if (role !== 'owner' && answered) throw fail(409, 'comment_has_replies');
+			for (const c of [...comments.values()]) {
+				if (c.id === commentId || c.thread_id === commentId) comments.delete(c.id);
+			}
+			commented(node);
+		},
+		updateCommentAnchor: async (id, commentId, body) => {
+			const { node, comment } = needComment(id, commentId, 'write');
+			if (comment.thread_id !== comment.id) throw fail(400, 'invalid_comment');
+			checkGeneration(node, body.key_generation);
+			const updated = {
+				...comment,
+				anchor: { ...body, signer_id: state.actor, updated_at: clock() }
+			};
+			comments.set(commentId, updated);
+			commented(node);
+			return updated;
+		},
+		resolveComment: async (id, commentId, body) => {
+			const { node, comment } = needComment(id, commentId, 'write');
+			if (comment.thread_id !== comment.id) throw fail(400, 'invalid_comment');
+			const updated = {
+				...comment,
+				resolved: body.resolved,
+				resolved_by: body.resolved ? state.actor : undefined
+			};
+			comments.set(commentId, updated);
+			commented(node);
+			return updated;
+		},
+
 		listChanges: async ({ cursor, limit = 200 } = {}) => {
 			const from = cursor === undefined ? 0 : Number(cursor);
 			const chunk = changes.slice(from, from + limit);
@@ -824,7 +944,8 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 					granter_id: g.granter_id,
 					created_at: g.created_at
 				})),
-			has_more: false
+			has_more: false,
+			comments: []
 		}),
 		markNotificationsRead: async (body) => {
 			for (const grant of grants.values()) {
@@ -1240,6 +1361,7 @@ export function fakeDriveServer(suite: Suite, options: { quota?: number } = {}) 
 		grants,
 		links,
 		incoming,
+		comments,
 		requestUploads,
 		/** The same server, with every call made as this user. */
 		as(userId: string): Api {

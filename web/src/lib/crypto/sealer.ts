@@ -32,6 +32,20 @@ import {
 } from './keys';
 import { signGrant, verifyGrant, type GrantFields } from './grant';
 import {
+	openCommentAnchor,
+	openCommentBody,
+	sealCommentAnchor,
+	sealCommentBody,
+	signAnchor,
+	signComment,
+	verifyAnchor,
+	verifyComment,
+	type AnchorFields,
+	type AnchorRef,
+	type CommentFields,
+	type CommentRef
+} from './comment';
+import {
 	decodeRequestFragment,
 	encodeRequestFragment,
 	generateRequestKeys,
@@ -92,7 +106,7 @@ import {
 	sealThumbnail
 } from './small-blob';
 
-export type { GrantFields };
+export type { AnchorFields, AnchorRef, CommentFields, CommentRef, GrantFields };
 
 export const SUITE_E2E = 'xchacha20poly1305-v1';
 export const SUITE_NONE = 'none';
@@ -263,6 +277,19 @@ export interface Sealer {
 	/** Throws `SealError('signature')` unless the author's key signed this manifest. */
 	verifyVersion(manifest: VersionManifest, signature: Uint8Array, author: PublicKeys): void;
 
+	/** A comment's body, a JSON value, sealed under the node key of `ref.generation`. */
+	sealCommentBody(nodeKey: Uint8Array, ref: CommentRef, value: unknown): Bytes;
+	openCommentBody(nodeKey: Uint8Array, ref: CommentRef, sealed: Uint8Array): unknown;
+	/** A thread's anchor, sealed apart from its body. */
+	sealCommentAnchor(nodeKey: Uint8Array, ref: AnchorRef, value: unknown): Bytes;
+	openCommentAnchor(nodeKey: Uint8Array, ref: AnchorRef, sealed: Uint8Array): unknown;
+	signComment(fields: CommentFields, keys: UserKeys): Bytes;
+	/** Throws `SealError('signature')` unless the author's key signed this body. */
+	verifyComment(fields: CommentFields, signature: Uint8Array, author: PublicKeys): void;
+	signAnchor(fields: AnchorFields, keys: UserKeys): Bytes;
+	/** Throws `SealError('signature')` unless the signer's key signed this anchor. */
+	verifyAnchor(fields: AnchorFields, signature: Uint8Array, signer: PublicKeys): void;
+
 	sealThumbnail(nodeKey: Uint8Array, nodeId: string, blobId: string, image: Uint8Array): Bytes;
 	openThumbnail(nodeKey: Uint8Array, nodeId: string, blobId: string, stored: Uint8Array): Bytes;
 	sealIndexSegment(masterKey: Uint8Array, blobId: string, segment: Uint8Array): Bytes;
@@ -379,6 +406,15 @@ const e2eSealer: Sealer = {
 	verifyVersion: (manifest, signature, author) =>
 		verifyVersion(manifest, signature, author.ed25519),
 
+	sealCommentBody,
+	openCommentBody,
+	sealCommentAnchor,
+	openCommentAnchor,
+	signComment: (fields, keys) => signComment(fields, keys.identity.ed25519.privateKey),
+	verifyComment: (fields, signature, author) => verifyComment(fields, signature, author.ed25519),
+	signAnchor: (fields, keys) => signAnchor(fields, keys.identity.ed25519.privateKey),
+	verifyAnchor: (fields, signature, signer) => verifyAnchor(fields, signature, signer.ed25519),
+
 	sealThumbnail,
 	openThumbnail,
 	sealIndexSegment,
@@ -494,6 +530,15 @@ const noneSealer: Sealer = {
 	openVersionKey: (_versionKey, ref) => noneCipher(ref),
 	signVersion: empty,
 	verifyVersion: () => {},
+
+	sealCommentBody: (_nodeKey, _ref, value) => encodeMetadata(value),
+	openCommentBody: (_nodeKey, _ref, sealed) => decodeMetadata(sealed),
+	sealCommentAnchor: (_nodeKey, _ref, value) => encodeMetadata(value),
+	openCommentAnchor: (_nodeKey, _ref, sealed) => decodeMetadata(sealed),
+	signComment: empty,
+	verifyComment: () => {},
+	signAnchor: empty,
+	verifyAnchor: () => {},
 
 	sealThumbnail: (_nodeKey, _nodeId, _blobId, image) => image.slice() as Bytes,
 	openThumbnail: (_nodeKey, _nodeId, _blobId, stored) => stored.slice() as Bytes,

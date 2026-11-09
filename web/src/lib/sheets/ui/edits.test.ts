@@ -185,3 +185,24 @@ describe('the undo snapshot of typed cells', () => {
 		expect(await text(50, 5)).toBe('');
 	});
 });
+
+describe('what moves with rows and columns', () => {
+	it('hears of inserts and deletes, undo and redo included', async () => {
+		const { sheet, ed } = await open('1\n2\n3\n');
+		const heard: [string, number, number][] = [];
+		ed.onshift = (s, axis, at, count) => {
+			expect(s).toBe(sheet);
+			heard.push([axis, at, count]);
+		};
+		await ed.insert(sheet, 'rows', 0, 2);
+		await ed.remove(sheet, 'cols', 1, 1);
+		await ed.undo();
+		await ed.redo();
+		expect(heard).toEqual([
+			['rows', 0, 2],
+			['cols', 1, -1],
+			['cols', 1, 1],
+			['cols', 1, -1]
+		]);
+	});
+});

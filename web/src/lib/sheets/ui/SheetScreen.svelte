@@ -8,7 +8,7 @@
 	import { replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { onDestroy, tick, untrack } from 'svelte';
-	import { MediaQuery } from 'svelte/reactivity';
+	import { MediaQuery, SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { api } from '$lib/api/client';
 	import type { Editor } from '$lib/api/types';
 	import { formatBytes, formatWhen } from '$lib/app/format';
@@ -45,7 +45,11 @@
 	} from '$lib/formats/spreadsheet';
 	import type { CellStyle, HAlign } from '$lib/formats/workbook';
 	import { DEFAULT_STYLE } from '$lib/formats/workbook';
-	import { canWrite, isOwner } from '$lib/sharing/roles';
+	import { canComment, canWrite, isOwner } from '$lib/sharing/roles';
+	import { cellName, shiftCell, type CellAnchor } from '$lib/comments/anchor';
+	import type { Thread } from '$lib/comments/comments';
+	import { FileCommentsState } from '$lib/state/comments.svelte';
+	import { sharing } from '$lib/state/sharing.svelte';
 	import { drive } from '$lib/state/drive.svelte';
 	import { session as account } from '$lib/state/session.svelte';
 	import { theme } from '$lib/state/theme.svelte';
@@ -98,7 +102,7 @@
 	let zoom = $state(100);
 	/** A phone: the panel starts closed and opens over the grid. */
 	const narrow = new MediaQuery('max-width: 720px');
-	let panel = $state<'details' | 'versions' | null>(narrow.current ? null : 'details');
+	let panel = $state<'details' | 'versions' | 'comments' | null>(narrow.current ? null : 'details');
 	// Narrowed to a phone's width, an open panel would cover the grid: it closes.
 	$effect(() => {
 		if (narrow.current) untrack(() => (panel = null));
@@ -141,6 +145,12 @@
 	let fixedWarning = $state.raw<(() => void) | null>(null);
 	let mergeWarning = $state.raw<Area | null>(null);
 	let converting = $state<{ to: SheetSaveFormat; lost: string[] } | null>(null);
+
+	// Comments: the file's threads, and where this editor's inserts and deletes have
+	// moved their cells, which goes to the server with the next save.
+	let comments = $state.raw<FileCommentsState | null>(null);
+	const moved = new SvelteMap<string, CellAnchor>();
+	let pickedThread = $state<string | null>(null);
 
 	let client: Sheets | null = null;
 	let stopping = false;
@@ -208,7 +218,9 @@
 			fileSession?.discard();
 			caches.reset();
 			const ed = new SheetEditor(c.api, loaded.styles);
+			ed.onshift = shiftAnchors;
 			editor = ed;
+			moved.clear();
 			format = f;
 			saveAs = sheetSaveFormatOf(f);
 			fileName = found.name;
@@ -294,6 +306,115 @@
 	$effect(() => {
 		if (status === 'saved') untrack(() => void loadVersions());
 	});
+
+	$effect(() => {
+		const id = fileId;
+		if (phase !== 'ready') return;
+		untrack(() => {
+			if (comments?.nodeId === id) return;
+			comments = new FileCommentsState(
+				id,
+				() => drive.core?.commentDeps ?? null,
+				() => void sharing.markCommentsRead(id)
+			);
+			void comments.load();
+		});
+	});
+	$effect(() => {
+		void node?.commentSeq;
+		untrack(() => void comments?.load());
+	});
+	// Once the file is saved with rows or columns moved, so are the anchors, signed here.
+	$effect(() => {
+		if (status !== 'saved') return;
+		untrack(() => {
+			if (moved.size === 0 || !comments || !canEdit) return;
+			const moves = [...moved].map(([threadId, anchor]) => ({ threadId, anchor }));
+			moved.clear();
+			// What did not go waits for the next save, unless a newer move has taken its place.
+			void comments.moveAnchors(moves).then((failed) => {
+				for (const { threadId, anchor } of failed) {
+					if (!moved.has(threadId) && anchor.kind === 'cell') moved.set(threadId, anchor);
+				}
+			});
+		});
+	});
+
+	/** Where a thread's cell is now, with what this editor has moved and not yet saved. */
+	function cellOf(thread: Thread): CellAnchor | null {
+		const anchor = moved.get(thread.id) ?? thread.anchor;
+		return anchor?.kind === 'cell' ? anchor : null;
+	}
+
+	function shiftAnchors(sheet: number, axis: 'rows' | 'cols', at: number, count: number) {
+		const name = sheets.find((s) => s.id === sheet)?.name;
+		if (name === undefined || !comments) return;
+		for (const t of comments.threads) {
+			const cell = cellOf(t);
+			const shifted = cell && shiftCell(cell, name, axis, at, count);
+			if (shifted) moved.set(t.id, shifted);
+		}
+	}
+
+	/** The cells of the sheet shown that have an open thread, as `row:col`. */
+	const commented = $derived.by(() => {
+		const out = new SvelteSet<string>();
+		const name = meta?.name;
+		for (const t of comments?.open ?? []) {
+			const cell = cellOf(t);
+			if (cell && !cell.lost && cell.sheet === name) out.add(`${cell.row}:${cell.col}`);
+		}
+		return out;
+	});
+
+	// Picking a commented cell picks its thread.
+	$effect(() => {
+		const { row, col } = sel.active;
+		const name = meta?.name;
+		untrack(() => {
+			const t = comments?.open.find((t) => {
+				const cell = cellOf(t);
+				return cell?.sheet === name && cell.row === row && cell.col === col && !cell.lost;
+			});
+			if (t) pickedThread = t.id;
+		});
+	});
+
+	const commentDraft = $derived(
+		meta
+			? {
+					anchor: {
+						kind: 'cell' as const,
+						sheet: meta.name,
+						row: sel.active.row,
+						col: sel.active.col
+					},
+					label: `Cell ${cellName(sel.active.row, sel.active.col)}${sheets.length > 1 ? ` on ${meta.name}` : ''}`
+				}
+			: null
+	);
+
+	function place(thread: Thread) {
+		const cell = cellOf(thread);
+		if (cell === null) return null;
+		if (cell.lost || !sheets.some((s) => s.name === cell.sheet)) {
+			return { label: 'Cell no longer there', lost: true };
+		}
+		const on = sheets.length > 1 ? ` on ${cell.sheet}` : '';
+		return { label: `Cell ${cellName(cell.row, cell.col)}${on}`, lost: false };
+	}
+
+	async function goToComment(thread: Thread) {
+		const cell = cellOf(thread);
+		const target = cell && sheets.find((s) => s.name === cell.sheet);
+		if (!cell || !target || cell.lost) return;
+		await pick(target.id);
+		sel = single({ row: cell.row, col: cell.col });
+	}
+
+	function openComments() {
+		panel = 'comments';
+	}
 
 	$effect(() => {
 		if (drive.status !== 'ready') return;
@@ -764,8 +885,16 @@
 		const ed = editor;
 		if (!r || !ed || !client) return;
 		try {
+			const was = sheets.find((s) => s.id === r.id)?.name;
 			await ed.untracked((a) => a.renameSheet(r.id, r.name));
 			sheets = await client.api.sheets();
+			const now = sheets.find((s) => s.id === r.id)?.name;
+			if (was !== undefined && now !== undefined && was !== now && comments) {
+				for (const t of comments.threads) {
+					const cell = cellOf(t);
+					if (cell?.sheet === was) moved.set(t.id, { ...cell, sheet: now });
+				}
+			}
 			fileSession?.changed();
 			renaming = null;
 			rev++;
@@ -1054,6 +1183,7 @@
 		...(narrow.current && node && isOwner(node)
 			? [{ id: 'share', label: 'Share…', icon: 'shared' as const }]
 			: []),
+		...(narrow.current ? [{ id: 'comments', label: 'Comments', icon: 'comment' as const }] : []),
 		...(narrow.current ? downloads.map((d) => ({ ...d, id: `download:${d.id}` })) : []),
 		...(narrow.current
 			? [
@@ -1067,7 +1197,8 @@
 	]);
 
 	function chooseMore(id: string) {
-		if (id === 'mode') mode = mode === 'edit' ? 'view' : 'edit';
+		if (id === 'comments') openComments();
+		else if (id === 'mode') mode = mode === 'edit' ? 'view' : 'edit';
 		else if (id === 'share' && node) drive.dialog = { kind: 'share', node };
 		else if (id === 'theme') theme.choose(dark ? 'light' : 'dark');
 		else if (id.startsWith('download:')) void download(id.slice('download:'.length));
@@ -1097,6 +1228,24 @@
 			: ''
 	);
 </script>
+
+{#snippet commentsTab()}
+	{#if comments}
+		<!-- Its code comes with the first look at it, not with the editor. -->
+		{#await import('$lib/comments/ui/CommentsPanel.svelte') then { default: CommentsPanel }}
+			<CommentsPanel
+				{comments}
+				canComment={node !== undefined && canComment(node)}
+				canResolve={canEdit}
+				owner={node !== undefined && isOwner(node)}
+				draft={commentDraft}
+				{place}
+				bind:selected={pickedThread}
+				onselect={(t) => void goToComment(t)}
+			/>
+		{/await}
+	{/if}
+{/snippet}
 
 <svelte:window onbeforeunload={beforeUnload} />
 <svelte:head><title>{fileName || 'Spreadsheet'} · YonDrive</title></svelte:head>
@@ -1161,6 +1310,15 @@
 				</Menu>
 			{:else}
 				<div class="actions">
+					<Button
+						variant="ghost"
+						icon="comment"
+						aria-pressed={panel === 'comments'}
+						onclick={() => (panel === 'comments' ? (panel = null) : openComments())}
+						>Comments{comments && comments.open.length > 0
+							? ` (${comments.open.length})`
+							: ''}</Button
+					>
 					{#if canEdit}
 						<SegmentedControl
 							label="Mode"
@@ -1321,7 +1479,13 @@
 					</Banner>
 				</div>
 			{/if}
-			{#if others.length > 0 && !othersDismissed}
+			{#if others.length > 0 && !canEdit}
+				<!-- Someone who cannot save has no conflict to be warned of: only that it may change. -->
+				<p class="quiet" role="status" data-testid="editing-quiet">
+					{othersNames}
+					{others.length === 1 ? 'is' : 'are'} editing this. What you see may change.
+				</p>
+			{:else if others.length > 0 && !othersDismissed}
 				<div class="note" data-testid="editing-warning">
 					<Banner
 						tone="warn"
@@ -1365,6 +1529,7 @@
 							{zoom}
 							hiddenRows={hidden}
 							filtered={filterCols}
+							{commented}
 							{onedit}
 							onclear={(a) => void apply((ed) => ed.clear(current, a))}
 							{onpaste}
@@ -1414,6 +1579,7 @@
 					onconvert={(f) => void askConvert(f)}
 					onrestore={(v) => void restore(v)}
 					ondownload={(v) => node && void drive.download(node, v.id)}
+					comments={comments ? commentsTab : undefined}
 				/>
 			</div>
 		{/if}
@@ -1660,6 +1826,12 @@
 </Dialog>
 
 <style>
+	.quiet {
+		margin: 0 0 12px;
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+
 	.screen {
 		height: 100vh;
 		height: 100dvh;

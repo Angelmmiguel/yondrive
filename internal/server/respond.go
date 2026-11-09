@@ -121,6 +121,10 @@ const (
 	codeRequestFileTooLarge   = "request_file_too_large"
 	codeRequestFilesReached   = "request_files_reached"
 	codeRequestBytesReached   = "request_bytes_reached"
+	codeInvalidComment        = "invalid_comment"
+	codeCommentTooLarge       = "comment_too_large"
+	codeCommentLimitReached   = "comment_limit_reached"
+	codeCommentHasReplies     = "comment_has_replies"
 )
 
 type errorBody struct {

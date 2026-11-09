@@ -7,18 +7,25 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { Icon, Menu, type MenuItem } from '$lib/components';
+	import { editorFor } from '$lib/drive/editors';
 	import { drive } from '$lib/state/drive.svelte';
 	import { incoming } from '$lib/state/incoming.svelte';
 	import { notes } from '$lib/state/notes.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
 
 	const unread = $derived(sharing.unread);
+	const commented = $derived(sharing.commented);
 	const alerts = $derived(notes.alerts);
 	const arrived = $derived(incoming.adopted);
 	const stuck = $derived(incoming.waiting.length);
 	const count = $derived(
-		unread.length + alerts.length + (arrived > 0 ? 1 : 0) + (stuck > 0 ? 1 : 0)
+		unread.length + commented.length + alerts.length + (arrived > 0 ? 1 : 0) + (stuck > 0 ? 1 : 0)
 	);
+
+	function commentsLabel(nodeId: string, count: number): string {
+		const name = drive.node(nodeId)?.name ?? 'a file';
+		return count === 1 ? `A new comment on ${name}` : `${count} new comments on ${name}`;
+	}
 
 	function labelOf(nodeId: string, granterId: string): string {
 		const entry = sharing.entryOf(nodeId);
@@ -66,14 +73,33 @@
 			label: labelOf(one.node_id, one.granter_id),
 			icon: 'shared' as const
 		})),
+		...commented.map((one) => ({
+			id: `comments:${one.node_id}`,
+			label: commentsLabel(one.node_id, one.count),
+			icon: 'comment' as const
+		})),
 		...(count === 0 ? [{ id: 'none', label: 'Nothing new', disabled: true }] : []),
 		{ id: 'all', label: 'See all that is shared with you' }
 	]);
+
+	/** A file with new comments, where they show: its editor if it has one, else the viewer. */
+	async function openCommented(nodeId: string) {
+		const node = drive.node(nodeId) ?? (await drive.core?.tree.resolve(nodeId).catch(() => null));
+		if (!node) return void goto(resolve('/shared'));
+		if (editorFor(node.name) !== null) drive.edit(node);
+		else drive.open(node);
+	}
 
 	function choose(id: string) {
 		if (id.startsWith('incoming')) {
 			incoming.seen();
 			void goto(resolve('/shared/by-me'));
+			return;
+		}
+		if (id.startsWith('comments:')) {
+			const nodeId = id.slice('comments:'.length);
+			void sharing.markCommentsRead(nodeId);
+			void openCommented(nodeId);
 			return;
 		}
 		if (id.startsWith('reminder:')) {

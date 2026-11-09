@@ -3,6 +3,7 @@
   saved in, or its versions. Documents and spreadsheets each give their formats.
 -->
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import { Button, Icon, Tabs, Tag } from '$lib/components';
 	import type { VersionEntry } from '$lib/drive/versions';
@@ -10,7 +11,7 @@
 	interface Props {
 		/** The panel's accessible name. */
 		label: string;
-		tab: 'details' | 'versions';
+		tab: 'details' | 'versions' | 'comments';
 		details: { k: string; v: string }[];
 		/** The format the file came in, marked as the original. */
 		format: string;
@@ -26,6 +27,8 @@
 		ondownload: (v: VersionEntry) => void;
 		/** Given when the panel lies over the page, as on a phone: a button closes it. */
 		onclose?: () => void;
+		/** The file's comments, in a tab of their own. */
+		comments?: Snippet;
 	}
 
 	let {
@@ -42,7 +45,8 @@
 		onconvert,
 		onrestore,
 		ondownload,
-		onclose
+		onclose,
+		comments
 	}: Props = $props();
 	const uid = $props.id();
 </script>
@@ -57,12 +61,15 @@
 		label="Panel"
 		tabs={[
 			{ id: 'details', label: 'Details' },
-			{ id: 'versions', label: 'Versions' }
+			{ id: 'versions', label: 'Versions' },
+			...(comments ? [{ id: 'comments', label: 'Comments' }] : [])
 		]}
 		bind:value={tab}
 	>
 		{#snippet children(id)}
-			{#if id === 'details'}
+			{#if id === 'comments'}
+				{@render comments?.()}
+			{:else if id === 'details'}
 				<div class="details">
 					<dl>
 						{#each details as d (d.k)}

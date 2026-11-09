@@ -31,6 +31,30 @@ tag whose section is missing or still marked unreleased
   the grace period.
 - The sender may add a name and a message, sealed with each file. The page
   clears its list once everything is sent, and keeps nothing on the device.
+- A new role, commenter, between viewer and editor: reads, comments, and edits
+  nothing. The share dialog offers it as "Can comment".
+
+### Comments
+
+- Comments on documents, notes and spreadsheets, in a Comments tab beside the
+  editor, and on any file in the viewer. A thread is about a passage of text, a
+  cell, or the whole file, and has replies; editors and the owner resolve and
+  reopen threads, authors edit and delete their own (a thread only until
+  someone else replies), and the owner deletes any.
+- Passages are highlighted in the text and commented cells get a corner mark,
+  without touching the file: a `.docx` or `.xlsx` saved later keeps its exact
+  bytes, and comments already inside a file stay there. A passage is found
+  again after the text around it changes, or the thread says the text is no
+  longer found; an editor who inserts or deletes rows or columns moves the
+  cells' threads with them.
+- A comment is kept beside its file, sealed under the file's key with the key
+  generation it was written under, so revoking someone and replacing keys
+  covers comments, and signed by its author. A comment whose signature does
+  not match who the server says wrote it is not shown. The format is section
+  21 of [docs/CRYPTO.md](docs/CRYPTO.md), with test vectors.
+- New comments by others show in the notifications, one entry per file, and
+  their words are found by search on the device. Public links and file
+  requests do not show comments. Mentions are not part of this release.
 
 ### Server
 
@@ -41,6 +65,17 @@ tag whose section is missing or still marked unreleased
   `request_bytes_reached`. The server chooses the ids of what is sent. On
   `Link`, `kind` and `uploads_in_progress` are new and `role` is absent on a
   request.
+- Schema version 9: grants take the role `commenter`, nodes count changes to
+  their comments in `comment_seq`, and new `comments` and `comment_notices`
+  tables hold comments and who has not seen them. Upgrading migrates in place.
+- New routes under `/api/v1/nodes/{id}/comments`, the journal op `commented`,
+  `comments` in the notifications and `node_ids` to mark them read, and the
+  codes `invalid_comment`, `comment_too_large` (16 KiB of sealed body, 4 KiB of
+  anchor), `comment_limit_reached` (2,000 per file) and `comment_has_replies`
+  (the author of a thread others have answered cannot delete it; the owner
+  can). Comments do not count
+  against quota. Non-owners see the commenters on a node as well as the
+  editors, as a client checks a comment's author against them.
 
 ## [1.0.0] - 2026-11-07
 

@@ -41,6 +41,8 @@ export interface SearchDeps {
 	read: (id: string, doc: FileFacts) => Promise<Blob | null>;
 	/** A node's doc as it is now, or undefined if it is not a searchable one. */
 	docOf: (id: string) => IndexDoc | undefined;
+	/** The words of a file's comments, indexed with its text. */
+	comments?: (id: string) => Promise<string>;
 	onstatus?: (status: SearchStatus) => void;
 	/** How long changes gather before a reconcile, and before they are stored. */
 	reconcileMs?: number;
@@ -197,9 +199,10 @@ export class SearchService {
 					batch.map(([id, job]) =>
 						this.#reading.run(async () => {
 							try {
-								const blob = await read(id, job.facts);
+								// A file that only has comments to say for itself is not read.
+								const blob = extractorFor(job.facts) === null ? null : await read(id, job.facts);
 								const text = blob === null ? '' : await extractText(job.facts, blob);
-								await index.setText(id, job.version, text);
+								await index.setText(id, job.version, await this.#withComments(id, text));
 							} catch (e) {
 								// The connection may come back. Anything else will fail the same way each
 								// time, so this version counts as done, with no text.
@@ -234,12 +237,20 @@ export class SearchService {
 		try {
 			await index.upsert([doc]);
 			const text = extractorFor(doc) === null ? '' : await extractText(doc, blob);
-			await index.setText(id, doc.version, text);
+			await index.setText(id, doc.version, await this.#withComments(id, text));
 			this.#scheduleFlush();
 		} catch {
 			// The next reconcile finds the text missing, and reads it back.
 		}
 		this.treeChanged();
+	}
+
+	/** A file's text and, when it has any, the words of its comments after it. */
+	async #withComments(id: string, text: string): Promise<string> {
+		const { comments, docOf } = this.#deps;
+		if (comments === undefined || !docOf(id)?.version?.includes('+c')) return text;
+		const words = await comments(id);
+		return words === '' ? text : text === '' ? words : `${text}\n${words}`;
 	}
 
 	#scheduleFlush(): void {

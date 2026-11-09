@@ -8,6 +8,7 @@
 	import { Avatar, Banner, Button, Tag } from '$lib/components';
 	import FileBrowser from '$lib/drive/ui/FileBrowser.svelte';
 	import type { DriveNode } from '$lib/drive/tree';
+	import { ROLE_LABELS } from '$lib/sharing/roles';
 	import { drive } from '$lib/state/drive.svelte';
 	import { session } from '$lib/state/session.svelte';
 	import { sharing } from '$lib/state/sharing.svelte';
@@ -86,8 +87,9 @@
 				<Avatar name={entry.grant.granter_username} size={24} />
 				<span class="who">{entry.grant.granter_username}</span>
 				<span class="what">
-					shared {drive.node(entry.node.id)?.name ?? 'something'} ·
-					{entry.grant.role === 'editor' ? 'you can edit' : 'you can view'} ·
+					shared {drive.node(entry.node.id)?.name ?? 'something'} · you {ROLE_LABELS[
+						entry.grant.role
+					].toLowerCase()} ·
 					{formatWhen(Date.parse(entry.grant.created_at))}
 				</span>
 				{#if encrypted}

@@ -31,6 +31,7 @@ const (
 	OpRoleChanged    = "role_changed"
 	OpRevoked        = "revoked"
 	OpRotated        = "rotated"
+	OpCommented      = "commented"
 )
 
 // MaxTreeDepth is how deep a tree may get. A purge relies on foreign key
@@ -76,24 +77,26 @@ type Node struct {
 	CurrentVersion string
 	ThumbBlobID    string
 	KeyGeneration  int64
-	TrashedAt      time.Time
-	PurgedAt       time.Time
-	RemoveAt       time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// CommentSeq counts the changes to a file's comments.
+	CommentSeq int64
+	TrashedAt  time.Time
+	PurgedAt   time.Time
+	RemoveAt   time.Time
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 const nodeColumns = `id, owner_id, coalesce(parent_id, ''), kind, suite, sealed_metadata, wrapped_key, name_tag,
 	coalesce(current_version, ''),
 	coalesce((SELECT b.id FROM blobs b WHERE b.node_id = nodes.id AND b.kind = 'thumb'), ''),
-	key_generation, trashed_at, purged_at, remove_at, created_at, updated_at`
+	key_generation, comment_seq, trashed_at, purged_at, remove_at, created_at, updated_at`
 
 func scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
 	var trashed, purged, remove sql.NullInt64
 	var created, updated int64
 	err := row.Scan(&n.ID, &n.OwnerID, &n.ParentID, &n.Kind, &n.Suite, &n.SealedMetadata, &n.WrappedKey, &n.NameTag,
-		&n.CurrentVersion, &n.ThumbBlobID, &n.KeyGeneration, &trashed, &purged, &remove, &created, &updated)
+		&n.CurrentVersion, &n.ThumbBlobID, &n.KeyGeneration, &n.CommentSeq, &trashed, &purged, &remove, &created, &updated)
 	n.SealedMetadata, n.WrappedKey = nonNil(n.SealedMetadata), nonNil(n.WrappedKey)
 	n.TrashedAt, n.PurgedAt, n.RemoveAt = fromNull(trashed), fromNull(purged), fromNull(remove)
 	n.CreatedAt, n.UpdatedAt = time.Unix(created, 0).UTC(), time.Unix(updated, 0).UTC()

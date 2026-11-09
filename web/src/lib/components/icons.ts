@@ -112,7 +112,9 @@ export const ICONS = {
 	text: 'M5 6h14M12 6v13',
 	cards: 'M4 4h7v9H4zM13 4h7v5h-7zM4 15h7v5H4zM13 11h7v9h-7z',
 	split: 'M4 5h16v14H4zM9 5v14',
-	quote: 'M7 7h4v4H8v3M14 7h4v4h-3v3'
+	quote: 'M7 7h4v4H8v3M14 7h4v4h-3v3',
+	comment:
+		'M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2zM8 10h8M8 13h5'
 } as const;
 
 export type IconName = keyof typeof ICONS;

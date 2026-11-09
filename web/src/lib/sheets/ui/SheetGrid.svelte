@@ -65,6 +65,8 @@
 		hiddenRows: ReadonlySet<number>;
 		/** Columns with a filter, marked in their header. */
 		filtered: ReadonlySet<number>;
+		/** Cells with an open comment thread, as `row:col`, marked in a corner. */
+		commented?: ReadonlySet<string>;
 		sel: Selection;
 		draft: Draft | null;
 		/** Puts typed text into cells; false keeps the editor open. */
@@ -90,6 +92,7 @@
 		zoom,
 		hiddenRows,
 		filtered,
+		commented = new Set(),
 		sel = $bindable(),
 		draft = $bindable(),
 		onedit,
@@ -1049,6 +1052,7 @@
 					>
 						{#if d.border}<span class="bd" style={d.border}></span>{/if}
 						<span class="txt">{d.text}</span>
+						{#if commented.has(`${r}:${c}`)}<span class="cm" data-testid="comment-mark"></span>{/if}
 					</div>
 				{/if}
 			{/each}
@@ -1080,6 +1084,8 @@
 			>
 				{#if d.border}<span class="bd" style={d.border}></span>{/if}
 				<span class="txt">{d.text}</span>
+				{#if commented.has(`${m.top}:${m.left}`)}<span class="cm" data-testid="comment-mark"
+					></span>{/if}
 			</div>
 		</div>
 	{/each}
@@ -1456,6 +1462,17 @@
 	}
 
 	/* Not editable here: a dashed corner and muted text, with the reason in the tooltip. */
+	.cm {
+		position: absolute;
+		top: 0;
+		right: 0;
+		width: 0;
+		height: 0;
+		border-top: 7px solid var(--warn);
+		border-left: 7px solid transparent;
+		pointer-events: none;
+	}
+
 	.cell.ro {
 		color: var(--text-soft);
 		background-image: linear-gradient(135deg, var(--warn-line) 0 5px, transparent 5px);
