@@ -1,6 +1,6 @@
 # YonDrive plan
 
-Status: **1.0 is released (phases 0 to 8); phase 9 (file requests) is next, then phase 10 (comments).**
+Status: **1.0 is released (phases 0 to 8); phases 9 (file requests) and 10 (comments) are built for 1.1.**
 
 This document covers what we build, the decisions that shape it, and the order
 of work. The [README](README.md) is the product description.
