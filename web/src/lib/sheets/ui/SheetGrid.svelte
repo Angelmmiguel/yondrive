@@ -582,14 +582,27 @@
 			d.how === 'edit' &&
 			targets.length === 1 &&
 			d.text === inputOf(cache.get(sel.active.row, sel.active.col));
-		const ok = same || (await onedit(targets.map((p) => ({ ...p, text: d.text }))));
-		if (!ok) {
-			editor?.focus({ preventScroll: true });
-			return false;
-		}
+		// The editor closes and the selection moves before the worker answers, so that
+		// what is typed next goes to the next cell, as it would in any spreadsheet, and not
+		// into this cell's text while its edit is on its way.
+		const at = $state.snapshot(sel);
 		draft = null;
 		if (dRow !== 0 || dCol !== 0) advance(dRow, dCol);
 		focus();
+		if (same) return true;
+		// Edits that follow before it is done queue behind it in the screen's editor.
+		const ok = await onedit(targets.map((p) => ({ ...p, text: d.text })));
+		if (!ok) {
+			// Refused, as a formula that does not parse is: back to the cell, with what was
+			// typed, unless something new is being typed already.
+			if (draft === null) {
+				sel = at;
+				draft = d;
+				await tick();
+				editor?.focus({ preventScroll: true });
+			}
+			return false;
+		}
 		return true;
 	}
 

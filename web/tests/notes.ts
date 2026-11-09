@@ -4,7 +4,8 @@ import { deflateSync } from 'node:zlib';
 import { crc32 } from '../src/lib/formats/zip';
 import { PASSPHRASE, submitUnlock } from './flows';
 
-export const noteEditor = (page: Page) => page.getByRole('textbox', { name: 'Note' });
+/** The note's editor, by its exact name: the list's "Quick note" box would match a looser one. */
+export const noteEditor = (page: Page) => page.getByRole('textbox', { name: 'Note', exact: true });
 export const noteTitle = (page: Page) => page.getByLabel('Title', { exact: true });
 export const saveStatus = (page: Page) => page.getByTestId('save-status');
 export const card = (page: Page, title: string): Locator =>
