@@ -2,7 +2,8 @@
  * File requests: someone with no account sends files into a folder through a link with a
  * password, and the owner's app adopts them when it opens. The canary checks that the
  * names, the sender's words and the contents never reach the server in end-to-end mode,
- * that the password and the request's key never do in any mode, that a request key
+ * that the password never does in any mode, that neither the password nor the request's
+ * public key reaches the logs (the server keeps a copy of that key by design), that a request key
  * other than the one in the address is refused, and that each limit stops an upload
  * with its own code.
  */
@@ -116,16 +117,16 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(all).toMatch(/\/incoming\/[0-9a-f]{32}\/adopt/);
 			const requests = Buffer.from(all);
 			const logs = Buffer.from(server.logs());
-			const secrets: Record<string, string> = {
-				password,
-				...(fragment === '' ? {} : { 'request key': fragment })
-			};
+			const secrets = { password };
+			// The public key in the address is no secret from the server, which holds a copy to
+			// show the sender; it only stays out of the logs.
+			const key: Record<string, string> = fragment === '' ? {} : { 'request key': fragment };
 			const names = { 'folder name': folderName, 'file name': fileName, from, message };
 			const words = { ...names, content: content.slice(0, 40) };
 
 			expect(findIn(requests, secrets)).toEqual([]);
 			expect(await scanDir(server.dataDir, secrets)).toEqual([]);
-			expect(findIn(logs, { ...secrets, ...words })).toEqual([]);
+			expect(findIn(logs, { ...secrets, ...key, ...words })).toEqual([]);
 			if (mode === 'e2e') {
 				expect(findIn(requests, words)).toEqual([]);
 				expect(await scanDir(server.dataDir, words)).toEqual([]);
