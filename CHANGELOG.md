@@ -56,6 +56,15 @@ tag whose section is missing or still marked unreleased
   their words are found by search on the device. Public links and file
   requests do not show comments. Mentions are not part of this release.
 
+### Documents
+
+- A zoom picker in the editor's footer, from 50% to 300%. The page grows with
+  it and scrolls sideways when it no longer fits.
+- A click anywhere on the page puts the cursor in the text: below it, at the
+  end; beside a line, on that line.
+- No focus ring around the text while typing.
+- The default font is sans-serif (Geist). A file's own fonts are kept.
+
 ### Server
 
 - Schema version 8: `links` gains a kind and a request's limits, and a new

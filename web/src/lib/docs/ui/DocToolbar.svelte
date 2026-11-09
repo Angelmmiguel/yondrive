@@ -81,7 +81,7 @@
 		{ id: 'quote', label: 'Quote' },
 		{ id: 'code', label: 'Code' }
 	];
-	const FONTS = ['Source Serif 4', 'Geist', 'Georgia', 'Arial', 'Times New Roman', 'Courier New'];
+	const FONTS = ['Geist', 'Source Serif 4', 'Georgia', 'Arial', 'Times New Roman', 'Courier New'];
 	const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 24, 32, 48];
 	const COLORS: MenuItem[] = [
 		{ id: '', label: 'Automatic' },

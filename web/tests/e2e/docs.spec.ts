@@ -64,6 +64,26 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(errors).toEqual([]);
 		});
 
+		test('the page: a click below the text types at its end, no ring, sans-serif, zoom', async () => {
+			await expect(editor(page)).toContainText('First words of a new document.');
+			const paper = page.locator('article.paper');
+			const at = (await paper.boundingBox())!;
+			const text = (await editor(page).boundingBox())!;
+			await page.mouse.click(at.x + at.width / 2, text.y + text.height + 80);
+			await expect(editor(page)).toBeFocused();
+			await page.keyboard.type(' More.');
+			await expect(editor(page)).toContainText('First words of a new document. More.');
+			expect(await editor(page).evaluate((e) => getComputedStyle(e).boxShadow)).toBe('none');
+			expect(await paper.evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/^Geist/);
+
+			await page.getByLabel('Zoom').selectOption('200');
+			await expect
+				.poll(async () => (await paper.boundingBox())!.width)
+				.toBeCloseTo(at.width * 2, -1);
+			await page.getByLabel('Zoom').selectOption('100');
+			await saveNow(page);
+		});
+
 		test('.docx: one paragraph edited, every other byte of the file as it was', async () => {
 			const original = await fixture('docs/sample.docx');
 			await reloadHome(page, server);

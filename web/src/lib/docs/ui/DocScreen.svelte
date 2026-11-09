@@ -51,7 +51,7 @@
 	import { toasts } from '$lib/state/toasts.svelte';
 	import { insertImage, setMarkValue } from '../commands';
 	import { fromDoc, toDoc } from '../convert';
-	import { createEditor } from '../editor';
+	import { createEditor, placeCursor } from '../editor';
 	import { createFormats } from '../formats-client';
 	import { ImageStore, redraw } from '../images';
 	import { Presence } from '$lib/editing/presence';
@@ -85,6 +85,7 @@
 	let mode = $state<'edit' | 'view'>('edit');
 	let rev = $state(0);
 	let zoom = $state(100);
+	const ZOOMS = [50, 75, 100, 125, 150, 200, 300];
 	/** A phone: the panels start closed and open over the page, one at a time. */
 	const narrow = new MediaQuery('max-width: 720px');
 	let outlineOpen = $state(!narrow.current);
@@ -326,6 +327,14 @@
 	function openComments() {
 		panel = 'comments';
 		if (narrow.current) outlineOpen = false;
+	}
+
+	/** A click on the page around the text, while editing, goes into the text. */
+	function pressPaper(event: MouseEvent) {
+		if (!view || !editing || event.button !== 0) return;
+		if (view.dom.contains(event.target as Node)) return;
+		event.preventDefault();
+		placeCursor(view, event.clientX, event.clientY);
 	}
 
 	function teardown() {
@@ -576,6 +585,23 @@
 	}
 </script>
 
+{#snippet zoomPick()}
+	<label class="zoom-pick" title="Zoom">
+		<Icon name="zoom-in" size={14} />
+		<span class="sr">Zoom</span>
+		<select
+			class="zoom"
+			value={zoom}
+			onchange={(e) => {
+				zoom = Number(e.currentTarget.value);
+				if (editing) view?.focus();
+			}}
+		>
+			{#each ZOOMS as z (z)}<option value={z}>{z}%</option>{/each}
+		</select>
+	</label>
+{/snippet}
+
 {#snippet commentsTab()}
 	{#if comments}
 		<!-- Its code comes with the first look at it, not with the editor. -->
@@ -794,7 +820,9 @@
 					>
 				</div>
 			{/if}
-			<div class="paper-wrap" class:hidden={phase !== 'ready'}>
+			<!-- The text is the field; the rest of the page only moves the cursor into it. -->
+			<!-- svelte-ignore a11y_no_static_element_interactions -->
+			<div class="paper-wrap" class:hidden={phase !== 'ready'} onmousedown={pressPaper}>
 				<article class="paper" class:viewing={!editing} bind:this={mount}></article>
 			</div>
 		</main>
@@ -824,21 +852,7 @@
 
 	<footer class="foot">
 		<span data-testid="word-count">{words} {words === 1 ? 'word' : 'words'}</span>
-		<span class="zoom">
-			<button
-				type="button"
-				class="ghost"
-				aria-label="Zoom out"
-				onclick={() => (zoom = Math.max(50, zoom - 10))}><Icon name="zoom-out" size={16} /></button
-			>
-			<span class="pct">{zoom}%</span>
-			<button
-				type="button"
-				class="ghost"
-				aria-label="Zoom in"
-				onclick={() => (zoom = Math.min(200, zoom + 10))}><Icon name="zoom-in" size={16} /></button
-			>
-		</span>
+		{#if phase === 'ready'}{@render zoomPick()}{/if}
 	</footer>
 </div>
 
@@ -907,8 +921,9 @@
 		color: var(--text-muted);
 	}
 
+	/* A fixed frame: the page scrolls inside it, both ways, with its scrollbars in view. */
 	.screen {
-		min-height: 100vh;
+		height: 100dvh;
 		display: flex;
 		flex-direction: column;
 		background: var(--surface-canvas);
@@ -916,8 +931,6 @@
 	}
 
 	.top {
-		position: sticky;
-		top: 0;
 		z-index: 10;
 		background: var(--surface-page);
 		border-bottom: 1px solid var(--border);
@@ -1037,13 +1050,14 @@
 
 	.body {
 		flex: 1;
+		min-height: 0;
 		display: flex;
-		flex-wrap: wrap;
 		align-items: stretch;
 	}
 
 	.outline {
-		flex: 1 1 220px;
+		flex: 0 1 220px;
+		overflow-y: auto;
 		max-width: 100%;
 		box-sizing: border-box;
 		padding: 24px 12px;
@@ -1101,13 +1115,21 @@
 		box-sizing: border-box;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
+		align-items: safe center;
 		gap: 16px;
+		overflow: auto;
 	}
 
 	.main > :global(*) {
 		width: 100%;
 		max-width: 816px;
+	}
+
+	/* The page grows with the zoom, and scrolls sideways when it no longer fits. */
+	.main > .paper-wrap {
+		flex: none;
+		width: calc(min(100%, 816px) * var(--zoom));
+		max-width: none;
 	}
 
 	.loading {
@@ -1151,7 +1173,7 @@
 		border-radius: 4px;
 		box-shadow: var(--shadow-sm);
 		zoom: var(--zoom);
-		font-family: var(--font-serif);
+		font-family: var(--font-sans);
 		font-size: 17px;
 		line-height: 1.6;
 		color: var(--text-strong);
@@ -1159,6 +1181,10 @@
 
 	.sidewrap {
 		display: contents;
+	}
+
+	.sidewrap > :global(*) {
+		overflow-y: auto;
 	}
 
 	.scrim {
@@ -1225,8 +1251,6 @@
 	}
 
 	.foot {
-		position: sticky;
-		bottom: 0;
 		z-index: 10;
 		display: flex;
 		flex-wrap: wrap;
@@ -1239,22 +1263,32 @@
 		color: var(--text-muted);
 	}
 
-	.zoom {
+	.zoom-pick {
 		margin-left: auto;
 		display: flex;
 		align-items: center;
-		gap: 4px;
+		gap: 6px;
+		color: var(--icon);
 	}
 
-	.zoom .ghost {
-		min-width: 30px;
-		height: 30px;
+	.zoom {
+		height: 26px;
+		padding: 0 4px;
+		border: 1px solid var(--border-field);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--text-strong);
+		font: inherit;
+		font-variant-numeric: tabular-nums;
 	}
 
-	.pct {
-		min-width: 44px;
-		text-align: center;
-		font-family: var(--font-mono);
+	.sr {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 
 	.warnline {
@@ -1262,8 +1296,10 @@
 	}
 
 	/* The document itself. */
+	/* The page is the field: no focus ring around the text while typing. */
 	.paper :global(.doc-body) {
 		outline: none;
+		box-shadow: none;
 		white-space: pre-wrap;
 		overflow-wrap: break-word;
 	}
@@ -1279,7 +1315,6 @@
 	.paper :global(h5),
 	.paper :global(h6),
 	.paper :global(.doc-title) {
-		font-family: var(--font-serif);
 		line-height: 1.2;
 		margin-top: 0.8em;
 	}
@@ -1547,8 +1582,14 @@
 
 		.screen,
 		.main {
+			height: auto;
+			overflow: visible;
 			background: #fff;
 			padding: 0;
+		}
+
+		.main > .paper-wrap {
+			width: 100%;
 		}
 
 		.paper {

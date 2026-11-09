@@ -4,7 +4,7 @@ import { gapCursor } from 'prosemirror-gapcursor';
 import { history, redo, undo } from 'prosemirror-history';
 import { keymap } from 'prosemirror-keymap';
 import type { Node as PMNode } from 'prosemirror-model';
-import { EditorState, type Transaction } from 'prosemirror-state';
+import { EditorState, Selection, TextSelection, type Transaction } from 'prosemirror-state';
 import { goToNextCell, tableEditing } from 'prosemirror-tables';
 import { EditorView } from 'prosemirror-view';
 import type { Caps } from '$lib/formats/document';
@@ -103,4 +103,23 @@ export function createEditor(mount: HTMLElement, o: EditorOptions): EditorView {
 		}
 	});
 	return view;
+}
+
+/**
+ * Puts the cursor where a click on the page, outside the text, means: below the
+ * text it is the end of the document; beside it, the nearest place on that line.
+ */
+export function placeCursor(view: EditorView, x: number, y: number) {
+	const box = view.dom.getBoundingClientRect();
+	const { doc } = view.state;
+	let selection = Selection.atEnd(doc);
+	if (y < box.bottom) {
+		const at = view.posAtCoords({
+			left: Math.min(Math.max(x, box.left + 1), box.right - 1),
+			top: Math.max(y, box.top + 1)
+		});
+		if (at) selection = TextSelection.near(doc.resolve(at.pos));
+	}
+	view.focus();
+	view.dispatch(view.state.tr.setSelection(selection).scrollIntoView());
 }

@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EditorState, NodeSelection, TextSelection } from 'prosemirror-state';
+import { EditorView } from 'prosemirror-view';
 import { DOMParser as PMParser, DOMSerializer, Slice } from 'prosemirror-model';
 import { describe, expect, it } from 'vitest';
 import { CAPS, readDocument, writeDocument } from '$lib/formats/document';
@@ -17,6 +18,7 @@ import {
 	toggleMark
 } from './commands';
 import { fromDoc, toDoc } from './convert';
+import { placeCursor } from './editor';
 import { findAll, replaceMatches } from './find';
 import { cleanPastedHtml, lockedGuard } from './plugins';
 import { schema } from './schema';
@@ -227,5 +229,39 @@ describe('the editor model', () => {
 		});
 		expect(links).toEqual(['https://ok.example/']);
 		expect(CAPS.md.marks.has('color')).toBe(false);
+	});
+});
+
+describe('placeCursor', () => {
+	function viewOf(texts: string[]) {
+		const doc = toDoc({
+			blocks: texts.map((text, ref) => ({
+				type: 'paragraph' as const,
+				style: 'normal' as const,
+				content: [{ type: 'text' as const, text, marks: {} }],
+				ref
+			}))
+		});
+		const view = new EditorView(document.createElement('div'), {
+			state: EditorState.create({ doc })
+		});
+		view.dom.getBoundingClientRect = () => new DOMRect(100, 100, 600, 200);
+		return view;
+	}
+
+	it('puts the cursor at the end for a click below the text', () => {
+		const view = viewOf(['first', 'last']);
+		placeCursor(view, 50, 900);
+		expect(view.state.selection.from).toBe(view.state.doc.content.size - 1);
+		expect(view.state.selection.empty).toBe(true);
+	});
+
+	it('puts the cursor on the line of a click beside the text', () => {
+		const view = viewOf(['first', 'last']);
+		const asked: { left: number; top: number }[] = [];
+		view.posAtCoords = (c) => (asked.push(c), { pos: 3, inside: -1 });
+		placeCursor(view, 20, 150);
+		expect(asked).toEqual([{ left: 101, top: 150 }]);
+		expect(view.state.selection.from).toBe(3);
 	});
 });
