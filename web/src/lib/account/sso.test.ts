@@ -163,7 +163,11 @@ describe('an account with keys, from a provider', () => {
 		const { server, deps } = await enrolled();
 		const key = await authKeyOf(server, PASSPHRASE);
 		await createDeviceToken({ name: 'phone', passphrase: PASSPHRASE }, deps);
-		expect(server.bodies.at(-1)).toEqual({ name: 'phone', current_auth_key: key });
+		expect(server.bodies.at(-1)).toEqual({
+			name: 'phone',
+			platform: 'other',
+			current_auth_key: key
+		});
 		await expect(
 			createDeviceToken({ name: 'phone', passphrase: OTHER_PASSPHRASE }, deps)
 		).rejects.toThrow(WrongPassphraseError);
@@ -257,7 +261,11 @@ describe('an account with no keys, from a provider', () => {
 		const { server, deps } = await signedIn();
 		const derive = vi.spyOn(deps, 'deriveRoot');
 		await createDeviceToken({ name: 'phone', passphrase: '' }, deps);
-		expect(server.bodies.at(-1)).toEqual({ name: 'phone', current_auth_key: '' });
+		expect(server.bodies.at(-1)).toEqual({
+			name: 'phone',
+			platform: 'other',
+			current_auth_key: ''
+		});
 		await unlinkUserIdentity({ userId: 'x', passphrase: '' }, deps);
 		await deleteUserAccount({ userId: 'x', passphrase: '' }, deps);
 		await changeSettings({ request: { local_accounts: true }, passphrase: '' }, deps);

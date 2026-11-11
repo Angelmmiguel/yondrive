@@ -26,6 +26,8 @@ describe('destinationFor', () => {
 		['signed-out', '/recover', null],
 		['signed-out', '/invite', null],
 		['signed-out', '/reset', null],
+		['signed-out', '/pair', null],
+		['locked', '/pair', null],
 		['locked', '/', '/unlock'],
 		['locked', '/settings', '/unlock'],
 		['locked', '/signin', '/unlock'],
@@ -38,6 +40,7 @@ describe('destinationFor', () => {
 		['unlocked', '/', null],
 		['unlocked', '/settings', null],
 		['unlocked', '/invite', null],
+		['unlocked', '/pair', null],
 		['booting', '/', null],
 		['offline', '/', null]
 	] as const)('%s at %s goes to %s', (status, path, expected) => {

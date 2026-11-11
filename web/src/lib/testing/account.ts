@@ -11,6 +11,7 @@ import {
 	type ErrorCode,
 	type Kdf,
 	type Mode,
+	type Pairing,
 	type RekeyRequest
 } from '$lib/api/types';
 import type { Deps, TabChannel, TabMessage } from '$lib/account/deps';
@@ -37,11 +38,20 @@ interface StoredUser {
 
 const fail = (status: number, code: ErrorCode) => new ApiError(status, code);
 
+/** A pairing as the fake server keeps it. Setting `expired` plays the clock running out. */
+export interface FakePairing extends Pairing {
+	expired: boolean;
+	tokenHash?: string;
+	sealed?: string;
+}
+
 export function fakeServer(mode: Mode) {
 	const users = new Map<string, StoredUser>();
 	const calls: string[] = [];
 	const bodies: unknown[] = [];
 	const left: string[] = [];
+	const pairings = new Map<string, FakePairing>();
+	let pairingCount = 0;
 	const state = {
 		setup: true,
 		mode,
@@ -49,6 +59,8 @@ export function fakeServer(mode: Mode) {
 		sessionKey: null as string | null,
 		/** Whether the session is a few minutes old, which stands in for a credential in `none`. */
 		recentSignIn: true,
+		/** How long a new pairing lasts by this server's clock. */
+		pairingSeconds: 300,
 		/** Rewrites what login and /me say, to play a hostile server. */
 		tamper: (account: Account): Account => account
 	};
@@ -191,9 +203,70 @@ export function fakeServer(mode: Mode) {
 		createToken: async (body) => {
 			checkCurrent(body.current_auth_key);
 			return {
-				token: { id: 't1', name: body.name, created_at: '2026-01-01T00:00:00Z' },
+				token: {
+					id: 't1',
+					name: body.name,
+					platform: body.platform,
+					origin: 'settings',
+					created_at: '2026-01-01T00:00:00Z'
+				},
 				secret: 'bearer'
 			};
+		},
+		startPairing: async (body) => {
+			checkCurrent(body.current_auth_key);
+			for (const [id, p] of pairings) if (p.status !== 'confirmed') pairings.delete(id);
+			const id = String(++pairingCount).padStart(32, 'a');
+			const pairing: FakePairing = {
+				id,
+				status: 'open',
+				expires_at: new Date(Date.now() + state.pairingSeconds * 1000).toISOString(),
+				expired: false
+			};
+			pairings.set(id, pairing);
+			return { id, status: pairing.status, expires_at: pairing.expires_at };
+		},
+		getPairing: async (id) => {
+			me();
+			const p = pairings.get(id);
+			if (p === undefined) throw fail(404, 'not_found');
+			if (p.expired) throw fail(410, 'pairing_expired');
+			return { id, status: p.status, expires_at: p.expires_at, device: p.device };
+		},
+		confirmPairing: async (id, body) => {
+			me();
+			const p = pairings.get(id);
+			if (p === undefined) throw fail(404, 'not_found');
+			if (p.expired) throw fail(410, 'pairing_expired');
+			if (p.status === 'open') throw fail(409, 'pairing_not_claimed');
+			if (p.status === 'confirmed') throw fail(409, 'pairing_already_confirmed');
+			p.status = 'confirmed';
+			p.tokenHash = body.token_hash;
+			p.sealed = body.sealed_payload;
+			return {
+				id: 'paired',
+				name: p.device!.name,
+				platform: p.device!.platform,
+				origin: 'pairing',
+				created_at: '2026-01-01T00:00:00Z'
+			};
+		},
+		cancelPairing: async (id) => {
+			me();
+			if (!pairings.delete(id)) throw fail(404, 'not_found');
+		},
+		claimPairing: async (id, body) => {
+			const p = pairings.get(id);
+			if (p === undefined || p.expired) throw fail(404, 'pairing_invalid');
+			if (p.status !== 'open') throw fail(409, 'pairing_claimed');
+			p.status = 'claimed';
+			p.device = { name: body.name, platform: body.platform, public_key: body.public_key };
+			return { status: p.status, expires_at: p.expires_at };
+		},
+		pollPairing: async (id) => {
+			const p = pairings.get(id);
+			if (p === undefined || p.expired) throw fail(404, 'pairing_invalid');
+			return { status: p.status, expires_at: p.expires_at, sealed_payload: p.sealed };
 		},
 		createInvite: async (body) => {
 			if (body.role === 'admin') checkCurrent(body.current_auth_key ?? '');
@@ -287,7 +360,7 @@ export function fakeServer(mode: Mode) {
 		return user;
 	};
 
-	return { api, calls, bodies, users, state, left, signInThroughProvider };
+	return { api, calls, bodies, users, state, left, pairings, signInThroughProvider };
 }
 
 export type FakeServer = ReturnType<typeof fakeServer>;

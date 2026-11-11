@@ -31,6 +31,17 @@ export type DisableTotpRequest = Schemas['DisableTOTPRequest'];
 export type DeviceToken = Schemas['DeviceToken'];
 export type CreateTokenRequest = Schemas['CreateTokenRequest'];
 export type CreatedToken = Schemas['CreatedToken'];
+export type DevicePlatform = Schemas['DevicePlatform'];
+export type DeviceDescription = Schemas['DeviceDescription'];
+export type DeviceLoginRequest = Schemas['DeviceLoginRequest'];
+export type DeviceLogin = Schemas['DeviceLogin'];
+export type StartPairingRequest = Schemas['StartPairingRequest'];
+export type PairingStatus = Schemas['PairingStatus'];
+export type PairingDevice = Schemas['PairingDevice'];
+export type Pairing = Schemas['Pairing'];
+export type ClaimPairingRequest = Schemas['ClaimPairingRequest'];
+export type ConfirmPairingRequest = Schemas['ConfirmPairingRequest'];
+export type PairingPickup = Schemas['PairingPickup'];
 export type UpdateUserRequest = Schemas['UpdateUserRequest'];
 export type CreatedPasswordReset = Schemas['CreatedPasswordReset'];
 export type CompletePasswordResetRequest = Schemas['CompletePasswordResetRequest'];
@@ -128,6 +139,15 @@ export type ErrorBody = Schemas['Error'];
  * code passes through as it is, for the screen that knows it.
  */
 export type ErrorCode =
+	| 'invalid_token_name'
+	| 'invalid_platform'
+	| 'device_limit_reached'
+	| 'pairing_invalid'
+	| 'pairing_claimed'
+	| 'pairing_not_claimed'
+	| 'pairing_already_confirmed'
+	| 'pairing_expired'
+	| 'invalid_pairing'
 	| 'bad_request'
 	| 'forbidden'
 	| 'not_found'

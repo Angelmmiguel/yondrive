@@ -25,7 +25,10 @@
 		try {
 			await changePassphrase({ current, next });
 			current = next = confirmation = '';
-			toasts.push('ok', 'Passphrase changed. Other sessions and devices were signed out.');
+			toasts.push(
+				'ok',
+				'Passphrase changed. Other devices were signed out; pair them again from Devices.'
+			);
 		} catch (e) {
 			error = failure(e);
 		} finally {

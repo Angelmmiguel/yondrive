@@ -43,6 +43,8 @@ var (
 	upOnItsWay = strings.Repeat("10", 16)
 	upComment  = strings.Repeat("11", 16)
 	upReply    = strings.Repeat("12", 16)
+	upDevice   = strings.Repeat("13", 16)
+	upPairing  = strings.Repeat("14", 16)
 )
 
 const (
@@ -169,6 +171,15 @@ var seeds = []func(t *testing.T, db *sql.DB){
 		exec(t, db, `INSERT INTO comment_notices (user_id, node_id, comment_id, author_id, count, created_at) VALUES (?, ?, ?, ?, 1, ?)`,
 			upRoot, upFile, upComment, upBob, upAt)
 	},
+	// 10: root signed in on a phone, and is adding another device by code from the
+	// browser session, which a device has claimed.
+	func(t *testing.T, db *sql.DB) {
+		exec(t, db, `INSERT INTO tokens (id, user_id, name, platform, origin, hash, created_at) VALUES (?, ?, 'phone', 'ios', 'login', ?, ?)`,
+			upDevice, upRoot, hash("device"), upAt)
+		exec(t, db, `INSERT INTO pairings (id, user_id, session_hash, state, device_public_key, device_name, device_platform,
+			created_at, claimed_at, expires_at) VALUES (?, ?, ?, 'claimed', ?, 'tablet', 'android', ?, ?, ?)`,
+			upPairing, upRoot, hash("session"), blob(7, 32), upAt, upAt, upFar)
+	},
 }
 
 func exec(t *testing.T, db *sql.DB, query string, args ...any) {
@@ -292,7 +303,7 @@ func checkUpgradedData(t *testing.T, st *Store, k int) {
 	if _, err := st.SessionByHash(ctx, hash("session")); err != nil {
 		t.Errorf("session: %v", err)
 	}
-	if tok, err := st.TokenByHash(ctx, hash("token")); err != nil || tok.UserID != upRoot {
+	if tok, err := st.TokenByHash(ctx, hash("token")); err != nil || tok.UserID != upRoot || tok.Origin != TokenOriginSettings || tok.Platform != "" {
 		t.Errorf("token = %+v, %v", tok, err)
 	}
 	if inv, err := st.InviteByHash(ctx, hash("invite")); err != nil || inv.Email != "carol@example.com" {
@@ -403,6 +414,17 @@ func checkUpgradedData(t *testing.T, st *Store, k int) {
 	}
 	if notices, err := st.ListCommentNotices(ctx, upRoot, 10); err != nil || len(notices) != 1 || notices[0].CommentID != upComment {
 		t.Errorf("notices = %+v, %v", notices, err)
+	}
+	if k < 10 {
+		return
+	}
+
+	if tok, err := st.TokenByHash(ctx, hash("device")); err != nil || tok.Origin != TokenOriginLogin || tok.Platform != "ios" {
+		t.Errorf("device token = %+v, %v", tok, err)
+	}
+	if p, err := st.PairingByID(ctx, upPairing); err != nil || p.State != PairingClaimed || p.DeviceName != "tablet" ||
+		p.DevicePlatform != "android" || !bytes.Equal(p.SessionHash, hash("session")) {
+		t.Errorf("pairing = %+v, %v", p, err)
 	}
 }
 

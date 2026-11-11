@@ -9,7 +9,7 @@ import type { SessionStatus } from '$lib/state/session.svelte';
 export type Destination = '/' | '/setup' | '/signin' | '/unlock' | '/settings' | '/enrol';
 
 /** Open to anyone in any state: a link is for whoever holds it. */
-const OPEN = ['/invite', '/reset', '/styleguide'];
+const OPEN = ['/invite', '/reset', '/pair', '/styleguide'];
 
 /** A public link's or a file request's page: it has no session and asks for none. */
 export function isLinkPath(path: string): boolean {

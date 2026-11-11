@@ -52,7 +52,8 @@ lock              advisory lock against a second process
 | `users` | Identity, role, quota, KDF parameters, auth key hashes, opaque blobs, TOTP state. `oidc_issuer` and `oidc_subject` are the identity at a provider. An account that signs in only that way has no `auth_key_hash`, and `unlock_auth_key_hash` proves its current credential. |
 | `recovery_codes` | SHA-256 of each unused TOTP recovery code. |
 | `sessions` | SHA-256 of the cookie, user, idle and absolute deadlines. |
-| `tokens` | SHA-256 of each device's bearer token, its name and last use. |
+| `tokens` | SHA-256 of each device's bearer token, its name and platform, how it was made (`settings`, `pairing`, `login`) and last use. |
+| `pairings` | A device being added by code: the session or token that started it, state, the device's ephemeral public key, name and platform, the payload sealed to it, its token once confirmed, expiry. Until confirmed it ends with its session or token (a trigger); confirmed, it outlives them for the device to collect, and records when it did (`picked_up_at`). The sweep drops it once its time is up, and a trigger deletes the token of a confirmed pairing that goes uncollected, however it goes. |
 | `invites` | SHA-256 of the token, email, role, quota, expiry and use. |
 | `password_resets` | SHA-256 of the token, user and expiry. At most one per user. |
 | `audit` | Time, action, actor id, target id, address. Survives deleting the user. |
@@ -93,6 +94,7 @@ POST   /auth/oidc/start                 invite token -> where to go, with the fl
 GET    /auth/oidc/callback              at the root, not under /api/v1 -> session, /
 POST   /auth/oidc/enrol                 once, with the session: the keys of an SSO account
 POST   /oidc/test                       setup token or admin: discovery and keys of an issuer
+POST   /auth/device-login               credentials + device name -> account and bearer token, no cookie
 POST   /auth/logout                     ends the session, or revokes the token
 POST   /auth/register                   invite or open sign-up
 POST   /auth/rekey                      current auth key + new credentials
@@ -107,6 +109,12 @@ GET    /me                              the same account document as login
 GET    /me/tokens
 POST   /me/tokens                       current auth key -> bearer token
 DELETE /me/tokens/{id}
+POST   /me/pairings                     current auth key -> pairing for this session or token
+GET    /me/pairings/{id}                poll: open, claimed (device name and key), confirmed
+POST   /me/pairings/{id}/confirm        token hash + payload sealed to the device -> token
+DELETE /me/pairings/{id}                cancel; a confirmed one takes its token with it
+POST   /pairings/{id}/claim             open: a device's ephemeral key, name, platform
+GET    /pairings/{id}                   open: status, and the sealed payload once confirmed
 GET    /users/{id}/keys                 public keys
 GET    /admin/users
 PATCH  /admin/users/{id}                disable, enable, quota
@@ -198,11 +206,11 @@ header cannot reach the cookie past the check.
 
 **Rate limits**, fixed windows per client address, in memory: 10 a minute by default
 on everything that checks a credential (login, registration, rekey, password reset,
-minting a token, enrolling and disabling TOTP, an admin invite, issuing a reset) and six times that on the KDF route.
+minting a token, signing in a device, starting a pairing, enrolling and disabling TOTP, an admin invite, issuing a reset)) and six times that on the KDF route.
 Looking up a username takes three times that per user and per address. A link's password takes the
 default per address and five times it per link, both counted on its state as well as on an attempt, and
 opening any link six times it per address. Starting an upload through a file request takes three times
-the default per address.
+the default per address, and a device's claims and polls of a pairing twelve times it.
 Wrong setup tokens count, right ones do not. Guesses at a second factor are also
 limited per user, since they come only with the right auth key and no stranger can
 use that to lock anyone out. The address is the connection's peer, or the last
@@ -499,8 +507,10 @@ weaken the account. Ten recovery codes, 80 random bits each, stored hashed and s
 For someone who lost both, `yondrive admin reset-totp <username>` works from the host with
 the server stopped.
 
-**Device tokens.** Named per device and revoked one at a time. Minting one needs a current
-auth key, so that a stolen session cannot outlive itself.
+**Device tokens.** Named per device and revoked one at a time, at most 24 per user. Minting one needs a
+current auth key, so that a stolen session cannot outlive itself: in Settings, at `/auth/device-login`, where
+the sign-in is that key, and when starting a pairing, whose token the browser later hands the device sealed
+(CRYPTO.md section 22). The browser draws a paired device's secret and the server stores only its hash.
 
 **Admins.** An admin cannot disable or delete themselves, so a server always has one who
 can sign in. Reading a user's blobs is not among the things an admin can do through the API.
@@ -1047,8 +1057,9 @@ so `just web-build` and everything built on it catch a regression. The **shell**
 it draws: SvelteKit's entries, the root layout and the signed-in layout, with their static imports. A **route** is
 what its page adds statically on top. What a route loads on demand and what runs in workers are not counted. The
 shell must hold none of the heavy modules: ProseMirror, pdf.js, the formula engine, the sheets grid and service,
-and the office format readers. Drive tells an editor from a file's name through `formats/names.ts`, which loads
-none of them. `YONDRIVE_BUDGETS=print pnpm build` prints the numbers.
+the office format readers, and the QR encoder, which Settings loads with the dialog that adds a device. Drive
+tells an editor from a file's name through `formats/names.ts`, which loads none of them.
+`YONDRIVE_BUDGETS=print pnpm build` prints the numbers.
 
 Measured when the budgets were set (gzip, KiB), each budget about 5% above:
 

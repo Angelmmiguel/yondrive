@@ -1,6 +1,6 @@
 # YonDrive plan
 
-Status: **1.0 is released (phases 0 to 8); phases 9 (file requests) and 10 (comments) are built for 1.1.**
+Status: **1.0 is released (phases 0 to 8); phases 9 (file requests), 10 (comments) and 11 (devices) are built for 1.1.**
 
 This document covers what we build, the decisions that shape it, and the order
 of work. The [README](README.md) is the product description.
@@ -35,7 +35,8 @@ All made in review. No questions remain open.
 | D14 | Third-party code | Our own code for ZIP, XML, office formats and formulas. Small exceptions: **ProseMirror**, **pdf.js** and the crypto libraries. Their licences are checked in [section 5.10](#510-third-party-licences). |
 | D15 | Formats left out of v1 | **`.pages` and `.numbers`.** They can be stored, shared and downloaded like any file, but not opened in the editors. |
 | D16 | License | AGPL-3.0. |
-| D17 | After 1.0 | **File requests** (phase 9), then **comments** (phase 10), released together as 1.1. Emergency access is a later feature. |
+| D17 | After 1.0 | **File requests** (phase 9), **comments** (phase 10) and **devices** (phase 11), released together as 1.1. Emergency access is a later feature. |
+| D18 | Native devices | **Two ways in, no cookie.** A device signs in with username and passphrase at `POST /auth/device-login` and gets its token with the account, or is paired from the web app by scanning a code. Pairing seals the token and, in end-to-end mode, the master key to the device with keys the server never holds; the browser proves a current credential first and confirms a six-digit code. Tokens last until revoked. Native single sign-on is later; SSO accounts pair by code. |
 
 Smaller assumptions, which I will follow unless you object:
 
@@ -110,11 +111,11 @@ encryption modes, multi-user, TOTP, OIDC, admin, OpenAPI, container and Unraid t
 
 **Designed for, but not built in v1:**
 
-- iOS and Android apps (the API and crypto spec are ready for them)
+- iOS and Android apps (the API, the crypto spec and device pairing are ready for them)
 - Desktop sync client (the change journal is ready for it)
 - Passkey unlock through PRF (shown as an option in the design)
 
-**After 1.0:** file requests (phase 9) and comments on documents, sheets and notes (phase 10).
+**After 1.0:** file requests (phase 9), comments on documents, sheets and notes (phase 10), and adding native devices by code or sign-in (phase 11).
 
 **Not planned:**
 
@@ -128,7 +129,7 @@ encryption modes, multi-user, TOTP, OIDC, admin, OpenAPI, container and Unraid t
 
 **Later:** presentations, `.pages` and `.numbers` import, moving a server between encryption modes through
 export and import, the Media app (timeline, albums, HEIC, places), extra note lock, voice notes, post-quantum
-hybrid key exchange (the format has a version field for this), and **emergency access**.
+hybrid key exchange (the format has a version field for this), native single sign-on (a system browser flow ending in a one-time code the app exchanges for a token, with universal links served by the server), and **emergency access**.
 
 **Emergency access** answers the case where a user of end-to-end mode loses both their passphrase and their
 recovery key. They name a trusted user on the same server and a waiting period. Their master key, or a key that
@@ -196,7 +197,8 @@ such as Unraid's array.
 | `changes` | Sequence, owner, node, operation | Timing and which node changed |
 | `file_removals` | Files whose rows are gone, waiting to be unlinked | Ids |
 | `edit_status` | Node, user, device, last heartbeat | Who is editing what |
-| `sessions`, `tokens`, `password_resets`, `recovery_codes` | Hashes, expiry | Yes |
+| `sessions`, `tokens`, `password_resets`, `recovery_codes` | Hashes, expiry; a token's name, platform and how it was made (settings, pairing, sign-in) | Yes |
+| `pairings` | A device being added: the browser session or token that started it, the device's ephemeral public key, name and platform, the sealed payload for the device, its token once confirmed, expiry | Yes, except the sealed payload |
 | `invites`, `settings`, `audit` | Admin data, including the fixed encryption mode | Yes |
 
 The OIDC client secret must be stored readable by the server. It protects sign-in only and cannot
@@ -344,10 +346,11 @@ service worker streaming.
 
 ```
 /api/v1/health, /setup/*                       First-run wizard, setup token
-/api/v1/auth/*                                 KDF params, login, logout, TOTP, OIDC, rekey, recover
+/api/v1/auth/*                                 KDF params, login, device login, logout, TOTP, OIDC, rekey, recover
 /auth/oidc/callback                            The redirect URI to give a provider
 /api/v1/session/key                            Server half of the split session key
 /api/v1/me, /me/tokens, /users/{id}/keys       Profile, device tokens, public keys
+/api/v1/me/pairings, /pairings/{id}            Adding a device by code
 /api/v1/nodes, /nodes/{id}, /nodes/{id}/...    Tree, move, trash, versions
 /api/v1/nodes/{id}/editing                     Heartbeat and who else is editing
 /api/v1/uploads, /uploads/{id}/frames/{n}      Resumable upload
@@ -426,6 +429,7 @@ All are compatible with distribution under AGPL-3.0. CI will fail on any new dep
 | Geist, Geist Mono, Source Serif 4 | Fonts | OFL-1.1 |
 | `oapi-codegen`, `openapi-typescript` | Code generation at build time | Apache-2.0, MIT |
 | `@axe-core/playwright`, `axe-core` | Accessibility checks in the browser tests; development only, never shipped | MPL-2.0 |
+| `jsqr` | Decoding QR codes in the tests; development only, never shipped | Apache-2.0 |
 
 ## 6. Documents and spreadsheets
 
@@ -771,6 +775,50 @@ row or column finds its threads' cells again. Bodies are limited to 16 KiB seale
 2,000 comments, and placing quotes reads a document once and weighs each quote at a bounded number of places. See
 [docs/CRYPTO.md](docs/CRYPTO.md) section 21 and [docs/SECURITY.md](docs/SECURITY.md).
 
+### Phase 11: Devices (M)
+
+A native app needs its own token and, in end-to-end mode, the account's keys, without a browser cookie
+in between and without pasting a secret by hand.
+
+**Signing in on the device.** `POST /auth/device-login` takes what `login` takes and a name for the
+device, and answers the account with a bearer token for it, setting no cookie. The auth key is the
+current credential that making a token needs, so this is the rule of `/me/tokens` without the detour.
+Two-factor applies as at sign-in.
+
+**Pairing by code.** From Settings → Devices, "Add a device" shows a QR code after the passphrase is
+confirmed, as making a token requires. The browser draws an ephemeral X25519 key and puts it in the
+code's fragment, which the server never sees. The phone scans, draws its own key, claims the code
+with a name, and both screens show six digits computed from the two keys, so a server that swaps a
+key shows the browser a code the phone does not. The user confirms in the browser, which draws the
+token secret, sends the server its hash, and seals the secret and the master key to the phone's key.
+The server stores the hash and an opaque blob and hands the blob to the phone, which opens it, checks
+the suite against the mode guard, and opens the account's identity keys with the master key. Five
+minutes to scan and confirm, two for the phone to collect, one open pairing per user, bound to the
+session that started it until confirmed. Section 22 of [docs/CRYPTO.md](docs/CRYPTO.md) has the format and vectors.
+
+**Devices.** Tokens record a platform and how they were made (settings, pairing, sign-in); the list
+marks the caller's own. They last until revoked, and credential changes revoke them all, as before;
+at most 24 per user. Single sign-on accounts pair by code: in end-to-end mode with the unlock
+passphrase, without encryption with a fresh sign-in, as for any current credential. Native single
+sign-on is left for later.
+
+**Exit:** in both modes, a device simulated in the browser tests pairs by code and signs in by
+passphrase, reads the account with its token, and in end-to-end mode opens the identity keys; the
+canary confirms that the browser's key, the token secret and the master key never reach the server;
+a swapped device key shows a different code; revoking signs the device out. **Release 1.1.**
+
+Built as designed, with these choices from building it: the QR encoder is the app's own (byte mode, level M,
+versions 1 to 10), drawn as inline SVG and loaded with the dialog, so neither the shell nor a request to another
+origin carries it; a test-only decoder checks that the picture on screen reads back as the link. Confirming takes
+the account lock, as every other way of making a token does, so the device limit holds under concurrent requests.
+The pairing's open routes count claims and polls together at twelve times the sign-in limit per address, and
+answer `pairing_invalid` for a malformed id too, while the signed-in routes answer `invalid_id`. The flow
+keeps the derived auth key for "Show a new code" and zeroes it, and the pairing's private key, when the dialog
+closes. A confirmed pairing outlives the browser session that started it, so a phone can still collect after a
+sign-out, and records when the phone first collected: one that goes uncollected, by the sweep or any other way,
+takes its token with it. See [docs/CRYPTO.md](docs/CRYPTO.md) section 22 and the "Devices" section of
+[docs/SECURITY.md](docs/SECURITY.md).
+
 ## 9. Testing
 
 - **Go:** `go test -race` on every route and store operation; hardening tests for limits, ids and headers.
@@ -801,4 +849,4 @@ row or column finds its threads' cells again. Bodies are limited to 16 KiB seale
 
 ## 11. What happens next
 
-1.0 is out, and phases 9 and 10 are built for 1.1.
+1.0 is out, and phases 9, 10 and 11 are built for 1.1.

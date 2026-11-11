@@ -75,6 +75,60 @@ func (e ChangeOp) Valid() bool {
 	}
 }
 
+// Defines values for DevicePlatform.
+const (
+	Android DevicePlatform = "android"
+	Ios     DevicePlatform = "ios"
+	Linux   DevicePlatform = "linux"
+	Macos   DevicePlatform = "macos"
+	Other   DevicePlatform = "other"
+	Web     DevicePlatform = "web"
+	Windows DevicePlatform = "windows"
+)
+
+// Valid indicates whether the value is a known member of the DevicePlatform enum.
+func (e DevicePlatform) Valid() bool {
+	switch e {
+	case Android:
+		return true
+	case Ios:
+		return true
+	case Linux:
+		return true
+	case Macos:
+		return true
+	case Other:
+		return true
+	case Web:
+		return true
+	case Windows:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceTokenOrigin.
+const (
+	DeviceTokenOriginLogin    DeviceTokenOrigin = "login"
+	DeviceTokenOriginPairing  DeviceTokenOrigin = "pairing"
+	DeviceTokenOriginSettings DeviceTokenOrigin = "settings"
+)
+
+// Valid indicates whether the value is a known member of the DeviceTokenOrigin enum.
+func (e DeviceTokenOrigin) Valid() bool {
+	switch e {
+	case DeviceTokenOriginLogin:
+		return true
+	case DeviceTokenOriginPairing:
+		return true
+	case DeviceTokenOriginSettings:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GrantRole.
 const (
 	GrantRoleCommenter GrantRole = "commenter"
@@ -252,6 +306,27 @@ func (e OIDCNewUsers) Valid() bool {
 	case Create:
 		return true
 	case Invited:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PairingStatus.
+const (
+	PairingStatusClaimed   PairingStatus = "claimed"
+	PairingStatusConfirmed PairingStatus = "confirmed"
+	PairingStatusOpen      PairingStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the PairingStatus enum.
+func (e PairingStatus) Valid() bool {
+	switch e {
+	case PairingStatusClaimed:
+		return true
+	case PairingStatusConfirmed:
+		return true
+	case PairingStatusOpen:
 		return true
 	default:
 		return false
@@ -540,6 +615,16 @@ type ChangePage struct {
 	NextCursor string `json:"next_cursor"`
 }
 
+// ClaimPairingRequest defines model for ClaimPairingRequest.
+type ClaimPairingRequest struct {
+	// Name 1 to 128 characters.
+	Name     string          `json:"name"`
+	Platform *DevicePlatform `json:"platform,omitempty"`
+
+	// PublicKey The device's ephemeral X25519 public key, 32 bytes.
+	PublicKey []byte `json:"public_key"`
+}
+
 // Comment A comment on a file, kept beside it: the file's bytes never change for one. The
 // server cannot read `sealed_body` or the anchor; in `none` mode they hold readable
 // JSON. A client MUST verify the signature against the author's pinned key, and
@@ -661,6 +746,15 @@ type CompletePasswordResetRequest struct {
 	// Kdf Argon2id parameters, which the client runs.
 	Kdf   KDF    `json:"kdf"`
 	Token string `json:"token"`
+}
+
+// ConfirmPairingRequest defines model for ConfirmPairingRequest.
+type ConfirmPairingRequest struct {
+	// SealedPayload The payload of CRYPTO.md section 22, sealed to the device. 41 to 2048 bytes. Opaque to the server.
+	SealedPayload []byte `json:"sealed_payload"`
+
+	// TokenHash SHA-256 of the token secret the browser drew, 32 bytes. The server stores it and never sees the secret.
+	TokenHash []byte `json:"token_hash"`
 }
 
 // ConfirmTOTPRequest defines model for ConfirmTOTPRequest.
@@ -821,7 +915,8 @@ type CreateTokenRequest struct {
 	CurrentAuthKey []byte `json:"current_auth_key"`
 
 	// Name 1 to 128 characters.
-	Name string `json:"name"`
+	Name     string          `json:"name"`
+	Platform *DevicePlatform `json:"platform,omitempty"`
 }
 
 // CreateUploadRequest defines model for CreateUploadRequest.
@@ -887,15 +982,61 @@ type CurrentCredential struct {
 	CurrentAuthKey []byte `json:"current_auth_key"`
 }
 
+// DeviceDescription defines model for DeviceDescription.
+type DeviceDescription struct {
+	// Name 1 to 128 characters.
+	Name     string          `json:"name"`
+	Platform *DevicePlatform `json:"platform,omitempty"`
+}
+
+// DeviceLogin defines model for DeviceLogin.
+type DeviceLogin struct {
+	// Account What a client needs to unlock an account. For an account that has no KDF
+	// parameters of its own, a single sign-on account before enrolment or any in
+	// `none` mode, `kdf` is placeholder parameters that nothing is derived with.
+	Account Account `json:"account"`
+
+	// Secret The value to send as `Authorization: Bearer`. Not stored; shown only now.
+	Secret string      `json:"secret"`
+	Token  DeviceToken `json:"token"`
+}
+
+// DeviceLoginRequest defines model for DeviceLoginRequest.
+type DeviceLoginRequest struct {
+	// AuthKey Either auth key, 32 bytes.
+	AuthKey []byte            `json:"auth_key"`
+	Device  DeviceDescription `json:"device"`
+
+	// TotpCode Needed when TOTP is on, unless a recovery code is given.
+	TotpCode *string `json:"totp_code,omitempty"`
+
+	// TotpRecoveryCode Single use, in place of `totp_code`.
+	TotpRecoveryCode *string `json:"totp_recovery_code,omitempty"`
+	Username         string  `json:"username"`
+}
+
+// DevicePlatform defines model for DevicePlatform.
+type DevicePlatform string
+
 // DeviceToken defines model for DeviceToken.
 type DeviceToken struct {
-	CreatedAt  time.Time  `json:"created_at"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// Current Present and true on the token this request was made with.
+	Current    *bool      `json:"current,omitempty"`
 	Id         string     `json:"id"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 
 	// Name Examples: Angel's phone
 	Name string `json:"name"`
+
+	// Origin How the token was made, in Settings, by pairing a device, or by signing in on the device.
+	Origin   DeviceTokenOrigin `json:"origin"`
+	Platform *DevicePlatform   `json:"platform,omitempty"`
 }
+
+// DeviceTokenOrigin How the token was made, in Settings, by pairing a device, or by signing in on the device.
+type DeviceTokenOrigin string
 
 // DisableTOTPRequest defines model for DisableTOTPRequest.
 type DisableTOTPRequest struct {
@@ -967,6 +1108,17 @@ type Error struct {
 	// - `totp_required`, `totp_invalid`, `totp_already_enabled`,
 	//   `totp_not_pending`, `totp_not_enabled`
 	// - `invalid_token_name`
+	// - `invalid_platform`: a device platform outside the list
+	// - `device_limit_reached`: the user has 24 tokens (409)
+	// - `pairing_invalid`: no such pairing, or it has expired or been cancelled; the
+	//   one answer the open pairing routes give for anything they will not act on (404)
+	// - `pairing_claimed`: another device already claimed this code (409)
+	// - `pairing_not_claimed`: no device has claimed the code yet (409)
+	// - `pairing_already_confirmed` (409)
+	// - `pairing_expired`: the pairing's time is up, as its starter sees it (410)
+	// - `invalid_pairing`: a public key that is not 32 bytes or is all zeros, a token hash
+	//   that is not 32 bytes or is already in use, or a sealed payload outside 41 to
+	//   2048 bytes
 	// - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
 	// - `session_required`: the route needs a browser session, not a token
 	// - `invalid_id`: an id is not 32 lowercase hex characters
@@ -1573,6 +1725,39 @@ type OIDCTestResult struct {
 	UserinfoEndpoint *string `json:"userinfo_endpoint,omitempty"`
 }
 
+// Pairing A pairing as the browser that started it sees it.
+type Pairing struct {
+	// Device Present once a device has claimed the code.
+	Device    *PairingDevice `json:"device,omitempty"`
+	ExpiresAt time.Time      `json:"expires_at"`
+	Id        string         `json:"id"`
+	Status    PairingStatus  `json:"status"`
+
+	// Token Present once confirmed.
+	Token *DeviceToken `json:"token,omitempty"`
+}
+
+// PairingDevice The device that claimed a code.
+type PairingDevice struct {
+	Name     string          `json:"name"`
+	Platform *DevicePlatform `json:"platform,omitempty"`
+
+	// PublicKey The device's ephemeral X25519 public key, 32 bytes.
+	PublicKey []byte `json:"public_key"`
+}
+
+// PairingPickup A pairing as the device sees it.
+type PairingPickup struct {
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// SealedPayload Present once confirmed. Opens only with the device's own key and the key from the code.
+	SealedPayload *[]byte       `json:"sealed_payload,omitempty"`
+	Status        PairingStatus `json:"status"`
+}
+
+// PairingStatus defines model for PairingStatus.
+type PairingStatus string
+
 // Profile defines model for Profile.
 type Profile struct {
 	CreatedAt time.Time `json:"created_at"`
@@ -1991,6 +2176,12 @@ type SmallBlobPage struct {
 
 	// NextCursor Present if there may be more.
 	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// StartPairingRequest defines model for StartPairingRequest.
+type StartPairingRequest struct {
+	// CurrentAuthKey Either current auth key.
+	CurrentAuthKey []byte `json:"current_auth_key"`
 }
 
 // Storage defines model for Storage.
@@ -2568,6 +2759,9 @@ type UnlinkIdentityJSONRequestBody = CurrentCredential
 // CreatePasswordResetJSONRequestBody defines body for CreatePasswordReset for application/json ContentType.
 type CreatePasswordResetJSONRequestBody = CurrentCredential
 
+// LoginDeviceJSONRequestBody defines body for LoginDevice for application/json ContentType.
+type LoginDeviceJSONRequestBody = DeviceLoginRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -2607,6 +2801,12 @@ type AdoptIncomingJSONRequestBody = AdoptIncomingRequest
 // CreateLinkJSONRequestBody defines body for CreateLink for application/json ContentType.
 type CreateLinkJSONRequestBody = CreateLinkRequest
 
+// StartPairingJSONRequestBody defines body for StartPairing for application/json ContentType.
+type StartPairingJSONRequestBody = StartPairingRequest
+
+// ConfirmPairingJSONRequestBody defines body for ConfirmPairing for application/json ContentType.
+type ConfirmPairingJSONRequestBody = ConfirmPairingRequest
+
 // CreateTokenJSONRequestBody defines body for CreateToken for application/json ContentType.
 type CreateTokenJSONRequestBody = CreateTokenRequest
 
@@ -2645,6 +2845,9 @@ type MarkNotificationsReadJSONRequestBody = MarkNotificationsReadRequest
 
 // TestOIDCJSONRequestBody defines body for TestOIDC for application/json ContentType.
 type TestOIDCJSONRequestBody = OIDCTestRequest
+
+// ClaimPairingJSONRequestBody defines body for ClaimPairing for application/json ContentType.
+type ClaimPairingJSONRequestBody = ClaimPairingRequest
 
 // UnlockPublicLinkJSONRequestBody defines body for UnlockPublicLink for application/json ContentType.
 type UnlockPublicLinkJSONRequestBody = UnlockLinkRequest
@@ -2714,6 +2917,9 @@ type ServerInterface interface {
 	// CreatePasswordReset Issue a one-time password reset link
 	// (POST /api/v1/admin/users/{id}/password-reset)
 	CreatePasswordReset(w http.ResponseWriter, r *http.Request, id ID)
+	// LoginDevice Sign a native client in
+	// (POST /api/v1/auth/device-login)
+	LoginDevice(w http.ResponseWriter, r *http.Request)
 	// GetKDF Fetch the parameters to derive an auth key with
 	// (GET /api/v1/auth/kdf)
 	GetKDF(w http.ResponseWriter, r *http.Request, params GetKDFParams)
@@ -2807,6 +3013,18 @@ type ServerInterface interface {
 	// ListIndexBlobs List the signed-in user's index segments
 	// (GET /api/v1/me/index)
 	ListIndexBlobs(w http.ResponseWriter, r *http.Request, params ListIndexBlobsParams)
+	// StartPairing Start adding a device by code
+	// (POST /api/v1/me/pairings)
+	StartPairing(w http.ResponseWriter, r *http.Request)
+	// CancelPairing Cancel a pairing
+	// (DELETE /api/v1/me/pairings/{id})
+	CancelPairing(w http.ResponseWriter, r *http.Request, id ID)
+	// GetPairing Read a pairing this session started
+	// (GET /api/v1/me/pairings/{id})
+	GetPairing(w http.ResponseWriter, r *http.Request, id ID)
+	// ConfirmPairing Confirm the device that claimed a code
+	// (POST /api/v1/me/pairings/{id}/confirm)
+	ConfirmPairing(w http.ResponseWriter, r *http.Request, id ID)
 	// GetMyStorage Report the signed-in user's storage
 	// (GET /api/v1/me/storage)
 	GetMyStorage(w http.ResponseWriter, r *http.Request)
@@ -2900,6 +3118,12 @@ type ServerInterface interface {
 	// TestOIDC Test an identity provider
 	// (POST /api/v1/oidc/test)
 	TestOIDC(w http.ResponseWriter, r *http.Request)
+	// PollPairing Collect a pairing as the device being added
+	// (GET /api/v1/pairings/{id})
+	PollPairing(w http.ResponseWriter, r *http.Request, id ID)
+	// ClaimPairing Claim a code as the device being added
+	// (POST /api/v1/pairings/{id}/claim)
+	ClaimPairing(w http.ResponseWriter, r *http.Request, id ID)
 	// GetPublicLink Open a public link
 	// (GET /api/v1/public/links/{id})
 	GetPublicLink(w http.ResponseWriter, r *http.Request, id ID, params GetPublicLinkParams)
@@ -3269,6 +3493,20 @@ func (siw *ServerInterfaceWrapper) CreatePasswordReset(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreatePasswordReset(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LoginDevice operation middleware
+func (siw *ServerInterfaceWrapper) LoginDevice(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LoginDevice(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4128,6 +4366,98 @@ func (siw *ServerInterfaceWrapper) ListIndexBlobs(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// StartPairing operation middleware
+func (siw *ServerInterfaceWrapper) StartPairing(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartPairing(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CancelPairing operation middleware
+func (siw *ServerInterfaceWrapper) CancelPairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelPairing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPairing operation middleware
+func (siw *ServerInterfaceWrapper) GetPairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPairing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConfirmPairing operation middleware
+func (siw *ServerInterfaceWrapper) ConfirmPairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConfirmPairing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMyStorage operation middleware
 func (siw *ServerInterfaceWrapper) GetMyStorage(w http.ResponseWriter, r *http.Request) {
 
@@ -4967,6 +5297,58 @@ func (siw *ServerInterfaceWrapper) TestOIDC(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.TestOIDC(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PollPairing operation middleware
+func (siw *ServerInterfaceWrapper) PollPairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PollPairing(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ClaimPairing operation middleware
+func (siw *ServerInterfaceWrapper) ClaimPairing(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id ID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", r.PathValue("id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimPairing(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6388,6 +6770,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/oidc/test", wrapper.TestOIDC)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/auth/kdf", wrapper.GetKDF)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/login", wrapper.Login)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/device-login", wrapper.LoginDevice)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/logout", wrapper.Logout)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/register", wrapper.Register)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/auth/rekey", wrapper.Rekey)
@@ -6403,6 +6786,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/tokens", wrapper.ListTokens)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/me/tokens", wrapper.CreateToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/me/tokens/{id}", wrapper.RevokeToken)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/me/pairings", wrapper.StartPairing)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/me/pairings/{id}", wrapper.CancelPairing)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/me/pairings/{id}", wrapper.GetPairing)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/me/pairings/{id}/confirm", wrapper.ConfirmPairing)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/pairings/{id}/claim", wrapper.ClaimPairing)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/pairings/{id}", wrapper.PollPairing)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/admin/invites", wrapper.ListInvites)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/admin/invites", wrapper.CreateInvite)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/api/v1/admin/invites/{id}", wrapper.DeleteInvite)
@@ -6970,6 +7359,45 @@ type CreatePasswordResetdefaultJSONResponse struct {
 }
 
 func (response CreatePasswordResetdefaultJSONResponse) VisitCreatePasswordResetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginDeviceRequestObject struct {
+	Body *LoginDeviceJSONRequestBody
+}
+
+type LoginDeviceResponseObject interface {
+	VisitLoginDeviceResponse(w http.ResponseWriter) error
+}
+
+type LoginDevice201JSONResponse DeviceLogin
+
+func (response LoginDevice201JSONResponse) VisitLoginDeviceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LoginDevicedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response LoginDevicedefaultJSONResponse) VisitLoginDeviceResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -8242,6 +8670,157 @@ func (response ListIndexBlobsdefaultJSONResponse) VisitListIndexBlobsResponse(w 
 	return err
 }
 
+type StartPairingRequestObject struct {
+	Body *StartPairingJSONRequestBody
+}
+
+type StartPairingResponseObject interface {
+	VisitStartPairingResponse(w http.ResponseWriter) error
+}
+
+type StartPairing201JSONResponse Pairing
+
+func (response StartPairing201JSONResponse) VisitStartPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartPairingdefaultJSONResponse) VisitStartPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelPairingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type CancelPairingResponseObject interface {
+	VisitCancelPairingResponse(w http.ResponseWriter) error
+}
+
+type CancelPairing204Response struct {
+}
+
+func (response CancelPairing204Response) VisitCancelPairingResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type CancelPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CancelPairingdefaultJSONResponse) VisitCancelPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPairingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type GetPairingResponseObject interface {
+	VisitGetPairingResponse(w http.ResponseWriter) error
+}
+
+type GetPairing200JSONResponse Pairing
+
+func (response GetPairing200JSONResponse) VisitGetPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetPairingdefaultJSONResponse) VisitGetPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmPairingRequestObject struct {
+	Id   ID `json:"id"`
+	Body *ConfirmPairingJSONRequestBody
+}
+
+type ConfirmPairingResponseObject interface {
+	VisitConfirmPairingResponse(w http.ResponseWriter) error
+}
+
+type ConfirmPairing200JSONResponse DeviceToken
+
+func (response ConfirmPairing200JSONResponse) VisitConfirmPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ConfirmPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ConfirmPairingdefaultJSONResponse) VisitConfirmPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetMyStorageRequestObject struct {
 }
 
@@ -9450,6 +10029,85 @@ type TestOIDCdefaultJSONResponse struct {
 }
 
 func (response TestOIDCdefaultJSONResponse) VisitTestOIDCResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PollPairingRequestObject struct {
+	Id ID `json:"id"`
+}
+
+type PollPairingResponseObject interface {
+	VisitPollPairingResponse(w http.ResponseWriter) error
+}
+
+type PollPairing200JSONResponse PairingPickup
+
+func (response PollPairing200JSONResponse) VisitPollPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PollPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PollPairingdefaultJSONResponse) VisitPollPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimPairingRequestObject struct {
+	Id   ID `json:"id"`
+	Body *ClaimPairingJSONRequestBody
+}
+
+type ClaimPairingResponseObject interface {
+	VisitClaimPairingResponse(w http.ResponseWriter) error
+}
+
+type ClaimPairing200JSONResponse PairingPickup
+
+func (response ClaimPairing200JSONResponse) VisitClaimPairingResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ClaimPairingdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ClaimPairingdefaultJSONResponse) VisitClaimPairingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -10765,6 +11423,9 @@ type StrictServerInterface interface {
 	// CreatePasswordReset Issue a one-time password reset link
 	// (POST /api/v1/admin/users/{id}/password-reset)
 	CreatePasswordReset(ctx context.Context, request CreatePasswordResetRequestObject) (CreatePasswordResetResponseObject, error)
+	// LoginDevice Sign a native client in
+	// (POST /api/v1/auth/device-login)
+	LoginDevice(ctx context.Context, request LoginDeviceRequestObject) (LoginDeviceResponseObject, error)
 	// GetKDF Fetch the parameters to derive an auth key with
 	// (GET /api/v1/auth/kdf)
 	GetKDF(ctx context.Context, request GetKDFRequestObject) (GetKDFResponseObject, error)
@@ -10858,6 +11519,18 @@ type StrictServerInterface interface {
 	// ListIndexBlobs List the signed-in user's index segments
 	// (GET /api/v1/me/index)
 	ListIndexBlobs(ctx context.Context, request ListIndexBlobsRequestObject) (ListIndexBlobsResponseObject, error)
+	// StartPairing Start adding a device by code
+	// (POST /api/v1/me/pairings)
+	StartPairing(ctx context.Context, request StartPairingRequestObject) (StartPairingResponseObject, error)
+	// CancelPairing Cancel a pairing
+	// (DELETE /api/v1/me/pairings/{id})
+	CancelPairing(ctx context.Context, request CancelPairingRequestObject) (CancelPairingResponseObject, error)
+	// GetPairing Read a pairing this session started
+	// (GET /api/v1/me/pairings/{id})
+	GetPairing(ctx context.Context, request GetPairingRequestObject) (GetPairingResponseObject, error)
+	// ConfirmPairing Confirm the device that claimed a code
+	// (POST /api/v1/me/pairings/{id}/confirm)
+	ConfirmPairing(ctx context.Context, request ConfirmPairingRequestObject) (ConfirmPairingResponseObject, error)
 	// GetMyStorage Report the signed-in user's storage
 	// (GET /api/v1/me/storage)
 	GetMyStorage(ctx context.Context, request GetMyStorageRequestObject) (GetMyStorageResponseObject, error)
@@ -10951,6 +11624,12 @@ type StrictServerInterface interface {
 	// TestOIDC Test an identity provider
 	// (POST /api/v1/oidc/test)
 	TestOIDC(ctx context.Context, request TestOIDCRequestObject) (TestOIDCResponseObject, error)
+	// PollPairing Collect a pairing as the device being added
+	// (GET /api/v1/pairings/{id})
+	PollPairing(ctx context.Context, request PollPairingRequestObject) (PollPairingResponseObject, error)
+	// ClaimPairing Claim a code as the device being added
+	// (POST /api/v1/pairings/{id}/claim)
+	ClaimPairing(ctx context.Context, request ClaimPairingRequestObject) (ClaimPairingResponseObject, error)
 	// GetPublicLink Open a public link
 	// (GET /api/v1/public/links/{id})
 	GetPublicLink(ctx context.Context, request GetPublicLinkRequestObject) (GetPublicLinkResponseObject, error)
@@ -11444,6 +12123,37 @@ func (sh *strictHandler) CreatePasswordReset(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CreatePasswordResetResponseObject); ok {
 		if err := validResponse.VisitCreatePasswordResetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LoginDevice operation middleware
+func (sh *strictHandler) LoginDevice(w http.ResponseWriter, r *http.Request) {
+	var request LoginDeviceRequestObject
+
+	var body LoginDeviceJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LoginDevice(ctx, request.(LoginDeviceRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LoginDevice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LoginDeviceResponseObject); ok {
+		if err := validResponse.VisitLoginDeviceResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -12315,6 +13025,122 @@ func (sh *strictHandler) ListIndexBlobs(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListIndexBlobsResponseObject); ok {
 		if err := validResponse.VisitListIndexBlobsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartPairing operation middleware
+func (sh *strictHandler) StartPairing(w http.ResponseWriter, r *http.Request) {
+	var request StartPairingRequestObject
+
+	var body StartPairingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartPairing(ctx, request.(StartPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartPairingResponseObject); ok {
+		if err := validResponse.VisitStartPairingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CancelPairing operation middleware
+func (sh *strictHandler) CancelPairing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request CancelPairingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelPairing(ctx, request.(CancelPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelPairingResponseObject); ok {
+		if err := validResponse.VisitCancelPairingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPairing operation middleware
+func (sh *strictHandler) GetPairing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request GetPairingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPairing(ctx, request.(GetPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPairingResponseObject); ok {
+		if err := validResponse.VisitGetPairingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ConfirmPairing operation middleware
+func (sh *strictHandler) ConfirmPairing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request ConfirmPairingRequestObject
+
+	request.Id = id
+
+	var body ConfirmPairingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ConfirmPairing(ctx, request.(ConfirmPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ConfirmPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ConfirmPairingResponseObject); ok {
+		if err := validResponse.VisitConfirmPairingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -13204,6 +14030,65 @@ func (sh *strictHandler) TestOIDC(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(TestOIDCResponseObject); ok {
 		if err := validResponse.VisitTestOIDCResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PollPairing operation middleware
+func (sh *strictHandler) PollPairing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request PollPairingRequestObject
+
+	request.Id = id
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PollPairing(ctx, request.(PollPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PollPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PollPairingResponseObject); ok {
+		if err := validResponse.VisitPollPairingResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ClaimPairing operation middleware
+func (sh *strictHandler) ClaimPairing(w http.ResponseWriter, r *http.Request, id ID) {
+	var request ClaimPairingRequestObject
+
+	request.Id = id
+
+	var body ClaimPairingJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ClaimPairing(ctx, request.(ClaimPairingRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ClaimPairing")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ClaimPairingResponseObject); ok {
+		if err := validResponse.VisitClaimPairingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

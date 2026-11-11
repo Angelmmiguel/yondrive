@@ -182,3 +182,28 @@ func TestATokenAloneCannotRekey(t *testing.T) {
 	_, secret := mint(t, e.login("root"), "phone")
 	e.call(http.MethodPost, rekeyPath, passphraseRekey("wrong", "new"), bearer(secret)...).wantError(t, http.StatusUnauthorized, "wrong_credential")
 }
+
+func TestTokensRecordTheirPlatformAndOrigin(t *testing.T) {
+	e := configured(t, "none", server.Config{})
+	c := e.login("root")
+	_, plain := mint(t, c, "script")
+	resp := c.call(http.MethodPost, tokensPath, obj{"name": "laptop", "platform": "linux", "current_auth_key": b64(key("root"))})
+	resp.wantStatus(t, http.StatusCreated)
+	c.call(http.MethodPost, tokensPath, obj{"name": "x", "platform": "toaster", "current_auth_key": b64(key("root"))}).wantError(t, http.StatusBadRequest, "invalid_platform")
+
+	got := listTokens(t, e, bearer(plain)...)
+	if len(got) != 2 {
+		t.Fatalf("tokens = %+v", got)
+	}
+	for _, tok := range got {
+		script := tok.Name == "script"
+		if tok.Origin != "settings" || tok.Current != script || (script && tok.Platform != "") || (!script && tok.Platform != "linux") {
+			t.Errorf("token = %+v", tok)
+		}
+	}
+	for _, tok := range listTokens(t, e, "Cookie", c.cookie) {
+		if tok.Current {
+			t.Errorf("a session sees %q as its own", tok.Name)
+		}
+	}
+}

@@ -87,6 +87,7 @@ describe('passphrase-confirmed actions', () => {
 		const { deps } = await setUp();
 		const created = await createDeviceToken({ name: 'phone', passphrase: PASSPHRASE }, deps);
 		expect(created.token.name).toBe('phone');
+		expect(created.token.platform).toBe('other');
 		await expect(
 			createDeviceToken({ name: 'phone', passphrase: 'not the passphrase' }, deps)
 		).rejects.toBeInstanceOf(WrongPassphraseError);

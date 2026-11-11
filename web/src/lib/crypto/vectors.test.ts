@@ -52,6 +52,14 @@ import {
 	sealRequestPrivateKey
 } from './request';
 import { signVersion, verifyVersion, versionMessage } from './manifest';
+import {
+	encodePairingLink,
+	openPairingPayload,
+	pairingCode,
+	parsePairingLink,
+	sealPairingPayload,
+	tokenHash
+} from './pairing';
 import { nameHmac, normalizeName, openMetadata, sealMetadata } from './metadata';
 import {
 	deriveNodeSubkeys,
@@ -669,4 +677,47 @@ describe('comment', () => {
 			none.verifyComment(signed, nothing, { x25519: nothing, ed25519: nothing })
 		).not.toThrow();
 	});
+});
+
+describe('pairing', () => {
+	const p = v.pairing;
+	const browser = { privateKey: h(p.browserPrivate), publicKey: h(p.browserPublic) };
+	const device = { privateKey: h(p.devicePrivate), publicKey: h(p.devicePublic) };
+
+	it('shows the same code on both screens', () => {
+		expect(pairingCode(browser.publicKey, device.publicKey, p.pairingId)).toBe(p.code);
+		expect(pairingCode(device.publicKey, browser.publicKey, p.pairingId)).not.toBe(p.code);
+	});
+
+	it('carries the browser key in the fragment and hashes the token as the server does', () => {
+		const link = encodePairingLink('https://drive.example.com', p.pairingId, browser.publicKey);
+		expect(link).toBe(`https://drive.example.com/pair#${p.fragment}`);
+		expect(bytesToHex(parsePairingLink(link)!.browserKey)).toBe(p.browserPublic);
+		expect(bytesToHex(tokenHash(p.token))).toBe(p.tokenHash);
+	});
+
+	for (const suite of ['e2e', 'none'] as const) {
+		it(`seals the payload to the device in suite ${suite}`, () => {
+			const c = p[suite];
+			const payload = JSON.parse(c.json);
+			fixRandom(c.nonce);
+
+			expect(bytesToHex(sealPairingPayload(browser, device.publicKey, p.pairingId, payload))).toBe(
+				c.sealed
+			);
+			const opened = openPairingPayload(device, browser.publicKey, p.pairingId, h(c.sealed));
+			expect(opened).toEqual(payload);
+			expect('master_key' in opened).toBe(suite === 'e2e');
+			const other = h(v.grant.recipientPublic);
+			expect(() => openPairingPayload(device, other, p.pairingId, h(c.sealed))).toThrow(SealError);
+			expect(() =>
+				openPairingPayload(
+					device,
+					browser.publicKey,
+					'b1b2c3d4e5f60718293a4b5c6d7e8f90',
+					h(c.sealed)
+				)
+			).toThrow(SealError);
+		});
+	}
 });

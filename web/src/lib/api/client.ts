@@ -14,6 +14,8 @@ import {
 	type Editing,
 	type AuthMethods,
 	type ChangePage,
+	type ClaimPairingRequest,
+	type ConfirmPairingRequest,
 	type Comment,
 	type CommentAnchorInput,
 	type CommentPage,
@@ -37,6 +39,8 @@ import {
 	type CreateTokenRequest,
 	type CreateUploadRequest,
 	type CurrentCredential,
+	type DeviceLogin,
+	type DeviceLoginRequest,
 	type DeviceToken,
 	type DisableTotpRequest,
 	type EmptiedTrash,
@@ -60,6 +64,8 @@ import {
 	type OidcStartRequest,
 	type OidcTestRequest,
 	type OidcTestResult,
+	type Pairing,
+	type PairingPickup,
 	type Profile,
 	type PublicLink,
 	type PublicNode,
@@ -79,6 +85,7 @@ import {
 	type SmallBlob,
 	type SmallBlobKind,
 	type SmallBlobPage,
+	type StartPairingRequest,
 	type Storage,
 	type Suite,
 	type TotpEnrolment,
@@ -187,6 +194,9 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 
 		getKdf: (username: string) => json<Kdf>('GET', `/auth/kdf?username=${id(username)}`),
 		login: (body: LoginRequest) => json<Account>('POST', '/auth/login', { body }),
+		/** A native client's sign-in: a bearer token with the account, and no cookie. */
+		loginDevice: (body: DeviceLoginRequest) =>
+			json<DeviceLogin>('POST', '/auth/device-login', { body }),
 		logout: () => empty('POST', '/auth/logout'),
 		register: (body: RegisterRequest) => json<CreatedUser>('POST', '/auth/register', { body }),
 		rekey: (body: RekeyRequest) => empty('POST', '/auth/rekey', { body }),
@@ -207,6 +217,15 @@ export function createApi(fetcher: typeof fetch = (input, init) => fetch(input, 
 		listTokens: () => json<DeviceToken[]>('GET', '/me/tokens'),
 		createToken: (body: CreateTokenRequest) => json<CreatedToken>('POST', '/me/tokens', { body }),
 		revokeToken: (tokenId: string) => empty('DELETE', `/me/tokens/${id(tokenId)}`),
+		startPairing: (body: StartPairingRequest) => json<Pairing>('POST', '/me/pairings', { body }),
+		getPairing: (pairingId: string) => json<Pairing>('GET', `/me/pairings/${id(pairingId)}`),
+		confirmPairing: (pairingId: string, body: ConfirmPairingRequest) =>
+			json<DeviceToken>('POST', `/me/pairings/${id(pairingId)}/confirm`, { body }),
+		cancelPairing: (pairingId: string) => empty('DELETE', `/me/pairings/${id(pairingId)}`),
+		/** The device's side of a pairing, which the web app plays only in its tests. */
+		claimPairing: (pairingId: string, body: ClaimPairingRequest) =>
+			json<PairingPickup>('POST', `/pairings/${id(pairingId)}/claim`, { body }),
+		pollPairing: (pairingId: string) => json<PairingPickup>('GET', `/pairings/${id(pairingId)}`),
 
 		listInvites: () => json<Invite[]>('GET', '/admin/invites'),
 		createInvite: (body: CreateInviteRequest) =>

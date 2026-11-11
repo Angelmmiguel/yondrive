@@ -174,6 +174,19 @@ export async function tour(browser: Browser, page: Page, visit: Visit): Promise<
 			timeout: DERIVE
 		});
 		await visit(page, 'settings');
+		await page.getByRole('tab', { name: 'Devices' }).click();
+		await visit(page, 'settings: devices');
+		await page.getByRole('button', { name: 'Add a device' }).click();
+		const adding = page.getByRole('dialog', { name: 'Add a device' });
+		await visit(page, 'add a device: passphrase');
+		await adding.getByLabel(/^Your passphrase/).fill(PASSPHRASE);
+		await adding.getByRole('button', { name: 'Continue' }).click();
+		await expect(adding.getByRole('heading', { name: 'Scan with your phone' })).toBeVisible({
+			timeout: DERIVE
+		});
+		await visit(page, 'add a device: code');
+		await adding.getByRole('button', { name: 'Cancel' }).click();
+		await expect(adding).toHaveCount(0);
 
 		const invite = await createInvite(page);
 		for (const tab of ['Users', 'Invites', 'Server', 'Sign-in', 'Audit']) {
@@ -221,6 +234,9 @@ export async function tour(browser: Browser, page: Page, visit: Visit): Promise<
 		await guest.goto(`${server.url}/recover`);
 		await expect(guest.getByRole('heading').first()).toBeVisible();
 		await visit(guest, 'recover');
+		await guest.goto(`${server.url}/pair#1.${'0'.repeat(32)}.${'A'.repeat(43)}`);
+		await expect(guest.getByRole('heading', { name: 'Add this device' })).toBeVisible();
+		await visit(guest, 'pair');
 		await guest.context().close();
 	} finally {
 		await box.remove();

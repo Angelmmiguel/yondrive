@@ -397,6 +397,7 @@ The same operations with no keys:
 | Frame digest, content hash | as in section 11, over the plaintext frames |
 | `frameSize`, framing | as in section 11, with an overhead of 0 |
 | Thumbnail, index segment | the bytes, unchanged |
+| Pairing | As section 22, with no `master_key` in the payload: the token secret still crosses sealed |
 
 ## 14. Mode guard
 
@@ -464,6 +465,7 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/content/version/v1` | HKDF info, fields |
 | `yondrive/grant/key/v1` | HKDF info, fields |
 | `yondrive/request/key/v1` | HKDF info, fields |
+| `yondrive/pairing/key/v1` | HKDF info, fields |
 | `yondrive/master/passphrase/v1` | AAD |
 | `yondrive/master/recovery/v1` | AAD |
 | `yondrive/master/session/v1` | AAD |
@@ -480,6 +482,7 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/request/node/v1` | AAD |
 | `yondrive/comment/body/v1` | AAD |
 | `yondrive/comment/anchor/v1` | AAD |
+| `yondrive/pairing/payload/v1` | AAD |
 | `yondrive/pins/seal/v1` | AAD |
 | `yondrive/meta/seal/v1` | AAD |
 | `yondrive/frame/v1` | AAD |
@@ -493,6 +496,7 @@ The bytes of `pins` are the device's own business, and no other client reads the
 | `yondrive/comment/anchor/signed/v1` | signed message |
 | `yondrive/fingerprint/v1` | hash input |
 | `yondrive/safety-number/v1` | hash input |
+| `yondrive/pairing/code/v1` | hash input |
 
 ## 17. Test vectors
 
@@ -703,3 +707,70 @@ and signs a new body under the current generation. The resolved state is the ser
 
 **Suite `none`.** The body and the anchor are `utf8(json)` and the signatures are empty, as with
 metadata. Only the list of who may comment says who wrote what.
+
+## 22. Device pairing
+
+Pairing gives a device of the user's a bearer token and, in end-to-end mode,
+the master key, without the passphrase: the browser that is already unlocked
+hands them over, sealed so that the server carries only ciphertext. The two
+sides agree a key with X25519, and a six-digit code shown on both screens lets
+the user see that the server stood between them honestly.
+
+The browser draws an ephemeral X25519 key pair `b`, `P_b` for each pairing and
+asks the server for a pairing id, which is 32 lowercase hex characters the
+server chooses. It then shows `https://host/pair#1.<pairing id>.<P_b>`, with
+`P_b` in unpadded base64url, as a QR code. `P_b` reaches the device through
+the code and nowhere else: a client MUST NOT send it to the server, which is
+what makes the code below one the server cannot forge.
+
+The device draws its own pair `d`, `P_d`, and claims the pairing with `P_d`, a
+name and a platform. Both sides then compute:
+
+```
+shared   = X25519(b, P_d) = X25519(d, P_b)        refuse if all zeros
+wrap key = HKDF(shared, fields("yondrive/pairing/key/v1", P_b, P_d))
+aad      = fields("yondrive/pairing/payload/v1", P_b, P_d, utf8(pairing id))
+code     = SHA-256(fields("yondrive/pairing/code/v1", P_b, P_d, utf8(pairing id)))
+```
+
+The six digits are the first four bytes of `code` as an unsigned big-endian
+integer, modulo 1000000, with leading zeros, shown as two groups of three. The
+browser computes them with the `P_d` the server reports and the device with
+its own, so a server that reports another key shows the browser another code,
+which it cannot predict without `P_b`. The user confirms in the browser only
+when the two screens agree.
+
+On confirmation the browser draws the token secret, 32 random bytes in unpadded
+base64url, and seals the payload:
+
+```
+payload        = utf8(json)
+sealed payload = Seal(wrap key, payload, aad)
+token hash     = SHA-256(utf8(token secret))
+```
+
+The payload is `{"v":1,"suite":…,"token":…,"master_key":…}`: the suite the
+browser accepted (section 2), the token secret as the string sent in
+`Authorization: Bearer`, and in end-to-end mode the master key in base64.
+In suite `none` there is no `master_key`. The browser sends the server the
+sealed payload and the token hash, and nothing else: the server stores the
+hash as it stores every token, keeps the sealed payload for the device to
+fetch, and can open neither.
+
+A device MUST open the payload with the `P_b` from the code, its own `P_d`
+and the pairing id, and refuse one that does not open, whose `v` is not 1 or
+whose `suite` it does not know. It MUST then treat the suite as the mode
+guard treats wrapped keys (section 14): a payload with a `master_key` is an
+account with keys, and a server that claims `none` is refused. In end-to-end
+mode it MUST open the account's sealed identity keys with the master key
+(section 6), which recomputes the public keys, before it keeps anything. `b`,
+`d` and the shared secret MUST be zeroed when the pairing ends, however it
+ends.
+
+The master key on a paired device is the same key the passphrase unwraps.
+Changing the passphrase does not change it, and revokes every other token,
+so a paired device is signed out and pairs again.
+
+The vectors (section 17) hold a pairing with fixed keys, id and nonces: the
+shared secret, wrap key, AAD, code, token hash, the fragment, and the sealed
+payload in both suites.

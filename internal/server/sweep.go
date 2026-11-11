@@ -16,8 +16,9 @@ const (
 
 // Sweep does what is due: it purges what the trash has held long enough, removes
 // what has waited out its grace period, drops abandoned uploads and what ended
-// requests never saw adopted, and unlinks the files of everything that has gone.
-// Each step is its own short transaction, so that requests go on in between.
+// requests never saw adopted, and pairings past their time, and unlinks the
+// files of everything that has gone. Each step is its own short transaction, so
+// that requests go on in between.
 func (s *Server) Sweep(ctx context.Context) error {
 	s.sweepMu.Lock()
 	defer s.sweepMu.Unlock()
@@ -84,6 +85,9 @@ func (s *Server) Sweep(ctx context.Context) error {
 		return err
 	}
 	if err := s.store.RemoveExpiredEditing(ctx, now); err != nil {
+		return err
+	}
+	if _, err := s.store.RemoveExpiredPairings(ctx, now); err != nil {
 		return err
 	}
 	if err := s.trimHistory(ctx, settings, now); err != nil {

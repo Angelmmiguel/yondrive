@@ -531,6 +531,52 @@ function requestVector() {
 	};
 }
 
+function pairingVector() {
+	const pairingId = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
+	const browserPrivate = bytes(95, 32);
+	const devicePrivate = bytes(96, 32);
+	const browserPublic = publicOf('x25519', browserPrivate);
+	const devicePublic = publicOf('x25519', devicePrivate);
+	const shared = x25519(browserPrivate, devicePublic);
+	assert.deepEqual(shared, x25519(devicePrivate, browserPublic));
+	const wrapKey = hkdf(shared, fields('yondrive/pairing/key/v1', browserPublic, devicePublic));
+	const aad = fields('yondrive/pairing/payload/v1', browserPublic, devicePublic, utf8(pairingId));
+	const digest = sha256(
+		fields('yondrive/pairing/code/v1', browserPublic, devicePublic, utf8(pairingId))
+	);
+	const token = bytes(97, 32).toString('base64url');
+	const payload = (suite, masterKey) =>
+		JSON.stringify(
+			masterKey === undefined
+				? { v: 1, suite, token }
+				: { v: 1, suite, token, master_key: masterKey.toString('base64') }
+		);
+	const sealed = (nonce, json) => hex(seal(wrapKey, nonce, aad, utf8(json)));
+	const e2e = payload(SUITE, master);
+	const none = payload('none');
+	return {
+		pairingId,
+		browserPrivate: hex(browserPrivate),
+		browserPublic: hex(browserPublic),
+		devicePrivate: hex(devicePrivate),
+		devicePublic: hex(devicePublic),
+		shared: hex(shared),
+		wrapKey: hex(wrapKey),
+		aad: hex(aad),
+		code: String(digest.readUInt32BE(0) % 1000000).padStart(6, '0'),
+		token,
+		tokenHash: hex(sha256(utf8(token))),
+		fragment: `1.${pairingId}.${browserPublic.toString('base64url')}`,
+		e2e: {
+			masterKey: hex(master),
+			json: e2e,
+			nonce: hex(bytes(98, 24)),
+			sealed: sealed(bytes(98, 24), e2e)
+		},
+		none: { json: none, nonce: hex(bytes(99, 24)), sealed: sealed(bytes(99, 24), none) }
+	};
+}
+
 function commentVector() {
 	const nodeId = 'node-1';
 	const threadId = 'comment-1';
@@ -671,7 +717,8 @@ const vectors = {
 	smallBlobs: smallBlobVectors(),
 	...sharingVectors(),
 	request: requestVector(),
-	comment: commentVector()
+	comment: commentVector(),
+	pairing: pairingVector()
 };
 
 process.stdout.write(`${JSON.stringify(vectors, null, '\t')}\n`);

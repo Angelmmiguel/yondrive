@@ -84,34 +84,65 @@ func (s *Store) DeleteExpiredSessions(ctx context.Context, now time.Time) ([][]b
 	return hashes, nil
 }
 
+// How a token was made.
+const (
+	TokenOriginSettings = "settings"
+	TokenOriginPairing  = "pairing"
+	TokenOriginLogin    = "login"
+)
+
 // Token is a named bearer token for one device. Only its hash is stored.
 type Token struct {
 	ID         string
 	UserID     string
 	Name       string
+	Platform   string // empty if not given
+	Origin     string // a TokenOrigin constant
 	Hash       []byte
 	CreatedAt  time.Time
 	LastUsedAt time.Time // zero if never used
 }
 
-// CreateToken stores a token.
+// CreateToken stores a token. It fails with ErrTokenHashTaken if another token
+// has the same hash.
 func (s *Store) CreateToken(ctx context.Context, t Token) error {
-	_, err := s.write.ExecContext(ctx,
-		"INSERT INTO tokens (id, user_id, name, hash, created_at) VALUES (?, ?, ?, ?, ?)",
-		t.ID, t.UserID, t.Name, t.Hash, t.CreatedAt.Unix())
+	return s.tx(ctx, func(tx *sql.Tx) error { return insertToken(ctx, tx, t) })
+}
+
+func insertToken(ctx context.Context, tx *sql.Tx, t Token) error {
+	var exists int
+	err := tx.QueryRowContext(ctx, "SELECT 1 FROM tokens WHERE hash = ?", t.Hash).Scan(&exists)
+	if err == nil {
+		return ErrTokenHashTaken
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("store: check token hash: %w", err)
+	}
+	_, err = tx.ExecContext(ctx,
+		"INSERT INTO tokens (id, user_id, name, platform, origin, hash, created_at) VALUES (?, ?, ?, nullif(?, ''), ?, ?, ?)",
+		t.ID, t.UserID, t.Name, t.Platform, t.Origin, t.Hash, t.CreatedAt.Unix())
 	if err != nil {
 		return fmt.Errorf("store: create token: %w", err)
 	}
 	return nil
 }
 
-const tokenColumns = "id, user_id, name, hash, created_at, last_used_at" //nolint:gosec // column names, not a credential
+// CountTokens returns how many tokens a user has.
+func (s *Store) CountTokens(ctx context.Context, userID string) (int, error) {
+	var n int
+	if err := s.read.QueryRowContext(ctx, "SELECT count(*) FROM tokens WHERE user_id = ?", userID).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count tokens: %w", err)
+	}
+	return n, nil
+}
+
+const tokenColumns = "id, user_id, name, coalesce(platform, ''), origin, hash, created_at, last_used_at" //nolint:gosec // column names, not a credential
 
 func scanToken(row interface{ Scan(...any) error }) (Token, error) {
 	var t Token
 	var created int64
 	var used sql.NullInt64
-	if err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Hash, &created, &used); err != nil {
+	if err := row.Scan(&t.ID, &t.UserID, &t.Name, &t.Platform, &t.Origin, &t.Hash, &created, &used); err != nil {
 		return Token{}, err
 	}
 	t.CreatedAt = time.Unix(created, 0).UTC()

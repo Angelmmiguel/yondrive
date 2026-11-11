@@ -55,6 +55,12 @@ var (
 	ErrInviteInvalid = errors.New("store: invite is not valid")
 	// ErrResetInvalid means the password reset is unknown or expired.
 	ErrResetInvalid = errors.New("store: password reset is not valid")
+	// ErrTokenHashTaken means another token has the same hash.
+	ErrTokenHashTaken = errors.New("store: token hash is taken")
+	// ErrPairingClaimed means another device claimed the pairing first.
+	ErrPairingClaimed = errors.New("store: pairing is already claimed")
+	// ErrPairingState means the pairing is not in the state the change needs.
+	ErrPairingState = errors.New("store: pairing is not in that state")
 )
 
 //go:embed migrations/*.sql

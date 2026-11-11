@@ -97,6 +97,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			}
 
 			await page.getByRole('tab', { name: 'Devices' }).click();
+			await page.getByText('Need a token for a script?').click();
 			await page.getByLabel(/^Device name/).fill('canary phone');
 			await page.getByLabel(/^Passphrase/).fill(SECOND_PASSPHRASE);
 			await page.getByRole('button', { name: 'Create token' }).click();

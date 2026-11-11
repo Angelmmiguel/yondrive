@@ -63,7 +63,7 @@ func addSession(t *testing.T, st *Store, userID, name string) []byte {
 
 func addToken(t *testing.T, st *Store, userID, name string) Token {
 	t.Helper()
-	tok := Token{ID: NewID(), UserID: userID, Name: name, Hash: hash(name), CreatedAt: t0}
+	tok := Token{ID: NewID(), UserID: userID, Name: name, Origin: TokenOriginSettings, Hash: hash(name), CreatedAt: t0}
 	if err := st.CreateToken(ctx, tok); err != nil {
 		t.Fatal(err)
 	}

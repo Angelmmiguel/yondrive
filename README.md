@@ -164,6 +164,9 @@ the ZIP export turns into relative paths.
 - Local accounts, two-factor authentication and single sign-on through OpenID
   Connect, with guides for Pocket ID, Authelia, Authentik and Keycloak
 - A first-run wizard, then an admin area for users, quotas, sign-in and storage
+- Phones and other devices added by scanning a code from the web app, each with
+  its own revocable token; in end-to-end mode the keys travel sealed from your
+  browser to the device, never through the server
 - Light and dark themes
 
 ### For developers
@@ -171,7 +174,8 @@ the ZIP export turns into relative paths.
 - A versioned HTTP API described by an [OpenAPI](https://www.openapis.org/) spec
   served by the application
 - A language-independent specification of the encryption format, with test
-  vectors, so iOS, Android and other clients can interoperate
+  vectors, so iOS, Android and other clients can interoperate, and a pairing flow
+  that hands them a token and the keys without a passphrase
 
 ## Choosing an encryption mode
 

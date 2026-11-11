@@ -29,12 +29,13 @@ export const BUDGETS = {
 		'/invite': 3 * KIB,
 		'/notes': 9 * KIB,
 		'/notes/[id]': 136 * KIB,
+		'/pair': 1 * KIB,
 		'/recent': 5 * KIB,
 		'/r/[id]': 10 * KIB,
 		'/recover': 4 * KIB,
 		'/reset': 2 * KIB,
 		'/s/[id]': 7 * KIB,
-		'/settings': 7 * KIB,
+		'/settings': 8 * KIB,
 		'/setup': 13 * KIB,
 		'/shared': 6 * KIB,
 		'/shared/by-me': 3 * KIB,
@@ -53,7 +54,8 @@ const HEAVY: Record<string, RegExp> = {
 	'pdf.js': /node_modules\/.*pdfjs-dist/,
 	'formula engine': /src\/lib\/formula\//,
 	'sheets grid': /src\/lib\/sheets\/(ui\/|service)/,
-	'office formats': /src\/lib\/formats\/(cfb|csv|doc|docx|odf|ods|rtf|workbook|xls|xlsx.*)\.ts$/
+	'office formats': /src\/lib\/formats\/(cfb|csv|doc|docx|odf|ods|rtf|workbook|xls|xlsx.*)\.ts$/,
+	'QR encoder': /src\/lib\/qr\//
 };
 
 interface Chunk {

@@ -69,47 +69,15 @@ func decodeKDF(stored []byte) (oapi.KDF, error) {
 // creating the session happen under the account lock, so a rekey cannot slip
 // between them and leave a session opened on a retired credential.
 func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.LoginResponseObject, error) {
-	if err := s.checkAttempt(ctx); err != nil {
+	username, err := s.checkSignInAttempt(ctx, req.Body.Username)
+	if err != nil {
 		return nil, err
-	}
-	username := normalizeUsername(req.Body.Username)
-	if usernamePattern.MatchString(username) && !s.usernameLimiter.Allow(username) {
-		return nil, fail(http.StatusTooManyRequests, codeRateLimited)
 	}
 	s.accountMu.Lock()
 	defer s.accountMu.Unlock()
-
-	user, err := s.store.UserByUsername(ctx, username)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	user, err := s.authenticateLocal(ctx, username, req.Body.AuthKey, req.Body.TotpCode, req.Body.TotpRecoveryCode)
+	if err != nil {
 		return nil, err
-	}
-	// An account with no passphrase has nothing to sign in with here. Its recovery
-	// key is not offered, so that this answers as it does for a name that does not
-	// exist, and does not confirm the key.
-	recovery := user.RecoveryAuthKeyHash
-	if user.SSOOnly() {
-		recovery = nil
-	}
-	if !auth.VerifyKey(req.Body.AuthKey, user.AuthKeyHash, recovery) {
-		s.audit(ctx, auditLoginFailed, "", user.ID)
-		s.log.Warn("login failed", "remote", s.clientIP(requestFrom(ctx)))
-		return nil, fail(http.StatusUnauthorized, codeInvalidCredentials)
-	}
-	if user.Disabled {
-		s.audit(ctx, auditLoginFailed, "", user.ID)
-		return nil, fail(http.StatusForbidden, codeUserDisabled)
-	}
-	if err := s.checkLocalSignIn(ctx, user); err != nil {
-		s.audit(ctx, auditLoginFailed, "", user.ID)
-		return nil, err
-	}
-	if user.TOTPEnabled {
-		if req.Body.TotpCode == nil && req.Body.TotpRecoveryCode == nil {
-			return nil, fail(http.StatusUnauthorized, codeTOTPRequired)
-		}
-		if err := s.checkSecondFactor(ctx, user, req.Body.TotpCode, req.Body.TotpRecoveryCode); err != nil {
-			return nil, err
-		}
 	}
 
 	token, err := s.openSession(ctx, user)
@@ -125,6 +93,90 @@ func (s *Server) Login(ctx context.Context, req oapi.LoginRequestObject) (oapi.L
 		Body:    account,
 		Headers: oapi.Login200ResponseHeaders{SetCookie: s.sessionCookieHeader(ctx, token)},
 	}, nil
+}
+
+// LoginDevice signs a native client in: the credentials of Login, answered with a
+// bearer token in place of a session. The auth key is the current credential that
+// making a token needs, so the token is minted under the same lock as the check.
+func (s *Server) LoginDevice(ctx context.Context, req oapi.LoginDeviceRequestObject) (oapi.LoginDeviceResponseObject, error) {
+	username, err := s.checkSignInAttempt(ctx, req.Body.Username)
+	if err != nil {
+		return nil, err
+	}
+	if !validName(req.Body.Device.Name) {
+		return nil, badRequest(codeInvalidTokenName)
+	}
+	platform, err := platformOf(req.Body.Device.Platform)
+	if err != nil {
+		return nil, err
+	}
+	s.accountMu.Lock()
+	defer s.accountMu.Unlock()
+	user, err := s.authenticateLocal(ctx, username, req.Body.AuthKey, req.Body.TotpCode, req.Body.TotpRecoveryCode)
+	if err != nil {
+		return nil, err
+	}
+	token, secret, err := s.mintToken(ctx, user.ID, req.Body.Device.Name, platform, store.TokenOriginLogin)
+	if err != nil {
+		return nil, err
+	}
+	s.audit(ctx, auditLoginSucceeded, user.ID, user.ID)
+	account, err := s.account(user)
+	if err != nil {
+		return nil, err
+	}
+	return oapi.LoginDevice201JSONResponse{Account: account, Token: tokenView(token, token.ID), Secret: secret}, nil
+}
+
+// checkSignInAttempt counts a sign-in against the caller's address and the
+// username, and returns the username as stored.
+func (s *Server) checkSignInAttempt(ctx context.Context, raw string) (string, error) {
+	if err := s.checkAttempt(ctx); err != nil {
+		return "", err
+	}
+	username := normalizeUsername(raw)
+	if usernamePattern.MatchString(username) && !s.usernameLimiter.Allow(username) {
+		return "", fail(http.StatusTooManyRequests, codeRateLimited)
+	}
+	return username, nil
+}
+
+// authenticateLocal checks a local sign-in up to and including the second
+// factor, and returns the user. The caller holds accountMu.
+func (s *Server) authenticateLocal(ctx context.Context, username string, authKey []byte, code, recoveryCode *string) (store.User, error) {
+	user, err := s.store.UserByUsername(ctx, username)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.User{}, err
+	}
+	// An account with no passphrase has nothing to sign in with here. Its recovery
+	// key is not offered, so that this answers as it does for a name that does not
+	// exist, and does not confirm the key.
+	recovery := user.RecoveryAuthKeyHash
+	if user.SSOOnly() {
+		recovery = nil
+	}
+	if !auth.VerifyKey(authKey, user.AuthKeyHash, recovery) {
+		s.audit(ctx, auditLoginFailed, "", user.ID)
+		s.log.Warn("login failed", "remote", s.clientIP(requestFrom(ctx)))
+		return store.User{}, fail(http.StatusUnauthorized, codeInvalidCredentials)
+	}
+	if user.Disabled {
+		s.audit(ctx, auditLoginFailed, "", user.ID)
+		return store.User{}, fail(http.StatusForbidden, codeUserDisabled)
+	}
+	if err := s.checkLocalSignIn(ctx, user); err != nil {
+		s.audit(ctx, auditLoginFailed, "", user.ID)
+		return store.User{}, err
+	}
+	if user.TOTPEnabled {
+		if code == nil && recoveryCode == nil {
+			return store.User{}, fail(http.StatusUnauthorized, codeTOTPRequired)
+		}
+		if err := s.checkSecondFactor(ctx, user, code, recoveryCode); err != nil {
+			return store.User{}, err
+		}
+	}
+	return user, nil
 }
 
 // openSession makes a session and returns its token. The caller holds accountMu.

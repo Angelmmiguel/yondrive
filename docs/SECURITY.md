@@ -19,6 +19,7 @@ encryption, none of the confidentiality claims below apply: see
 | Someone with a public link | Yes, for what it covers: the current version of each file and no history. |
 | Someone with a public link's id but not its key | No. Without a password on the link, they can fetch ciphertext within its limits. With one, they get nothing until they have it. |
 | Someone with a file request | No. They can send files into its folder, within its limits, and read nothing there, what they sent included. |
+| Someone who photographs a pairing code | No. They can claim the code once; the owner's phone then fails, shows no code, and the owner sees a stranger's device name and cancels. Nothing is sealed to them unless the owner confirms. |
 | Malware on an unlocked device | Yes. |
 
 ## What the server still sees
@@ -56,7 +57,7 @@ quoted words or the cell, are sealed.
 It cannot see names, types, tags, dates inside metadata, contents or the text of comments.
 
 **Held in plaintext, in both modes:** usernames, email addresses, the subject of each identity at a
-provider, the email address an invite was made for, and the names given to device tokens. The
+provider, the email address an invite was made for, and the names and platforms of devices. The
 audit trail and the request log hold the client address of each event, including the anonymous
 ones of public links and file requests (opening one, a wrong password, unlocking it, a file arriving).
 In `none` mode the search index
@@ -182,6 +183,40 @@ decrypts nothing. Discovery fetches an address an admin or setup token holder ty
 bounded requests, follows no redirect to another host, refuses link-local addresses such as a
 cloud metadata service, and returns codes rather than what it found. Private addresses stay
 allowed, since a provider on the LAN is normal, so an admin can tell which hosts answer.
+
+## Devices
+
+A native client holds a bearer token and, in end-to-end mode, the master key, in the platform's
+keychain. It gets them in one of two ways.
+
+**Signing in on the device** sends the auth key, as the web does, and receives the token with the
+account. The passphrase and the KEK never leave the device. Two-factor applies.
+
+**Pairing by code** (CRYPTO.md section 22) moves the token and the master key from an unlocked
+browser to the device through the server, sealed under a key the two agree with X25519. The
+browser's half of the agreement travels only in the code's fragment, so the server never has it;
+a server that puts its own key in the device's place cannot show the browser the six digits the
+phone shows, and cannot search for a key that would, so one guess in a million is all it gets, and
+the user still has to confirm. The browser draws the token secret and gives the server only its
+hash, so no token secret exists on the server at any moment. The payload names the suite the
+browser accepted, which a paired device checks against the server's claimed mode, so a device added
+this way is not the "new device with nothing to compare against" of the downgrade limit.
+
+Starting a pairing needs a current credential, as making a token does, so a stolen session cannot
+add a device; until it is confirmed the pairing is bound to the session that made it and ends with
+it, it lasts five minutes, works once, and one per user is open at a time. Once confirmed it no
+longer needs the session: the device has two minutes to collect, and a token it never collected is
+deleted with the pairing, so no token is left whose secret nobody holds. Someone who photographs the code can claim it first, and then the
+owner's own phone fails and the browser names a device the owner does not recognise, with a code
+the phone never showed. The copy says to confirm only when both screens agree.
+
+**What remains.** A paired device has the master key without the passphrase: the device is trusted,
+as every unlocked device is. Revoking it from Settings ends its access at its next request, but not
+what it has already read. Changing the passphrase revokes every token and does not change the master
+key, so a device that kept a copy of the key could still open ciphertext it had already saved. In
+mode `none` a token is the content; a hostile server can hand a device a token for an account of its
+own, which the device shows as the wrong username and which exposes nothing of the owner's. Device
+names and platforms are plaintext, as token names were.
 
 ## What tampering is detected
 
@@ -341,7 +376,8 @@ manifest's suite is signed and checked per item.
 claims `none`, has nothing to compare against and accepts. And in the web app, this catches
 mistakes and migrations but not a server that also replaces the JavaScript. Native clients do
 not load code from the server, so the check is stronger there. The app shows a permanent "Not
-encrypted" indicator in `none` mode.
+encrypted" indicator in `none` mode. A device added by pairing receives the suite the browser
+accepted inside the sealed payload, and refuses a server that claims otherwise.
 
 **A file request** is sent by someone with no account and no pin. Its address carries the request's
 public key when it was made on an encrypting server, so a page whose server then claims `none`

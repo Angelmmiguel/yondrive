@@ -133,6 +133,8 @@ type Server struct {
 	linkOpenLimiter     *auth.RateLimiter
 	// requestUploadLimiter counts the uploads an address starts through requests.
 	requestUploadLimiter *auth.RateLimiter
+	// pairingLimiter counts the claims and polls of devices being added, by address.
+	pairingLimiter *auth.RateLimiter
 	// linkTokenKey signs link tokens.
 	linkTokenKey []byte
 	keys         *auth.SessionKeys
@@ -223,6 +225,7 @@ func New(cfg Config, st *store.Store) (*Server, error) {
 		linkLimiter:          auth.NewRateLimiter(usernameAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		linkOpenLimiter:      auth.NewRateLimiter(kdfAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		requestUploadLimiter: auth.NewRateLimiter(requestUploadAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
+		pairingLimiter:       auth.NewRateLimiter(pairingAttemptsFactor*cfg.LoginAttempts, cfg.LoginWindow, cfg.Now),
 		linkTokenKey:         deriveLinkTokenKey(secret),
 		keys:                 auth.NewSessionKeys(),
 		secret:               secret,

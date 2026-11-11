@@ -73,7 +73,11 @@ export function createDeviceToken(
 	deps: Deps = defaultDeps
 ): Promise<CreatedToken> {
 	return withCurrentKey(input.passphrase, deps, (key) =>
-		deps.api.createToken({ name: input.name, current_auth_key: encodeBase64(key) })
+		deps.api.createToken({
+			name: input.name,
+			platform: 'other',
+			current_auth_key: encodeBase64(key)
+		})
 	);
 }
 

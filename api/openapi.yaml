@@ -15,7 +15,8 @@ info:
     Failures answer with the `Error` schema, whose `code` is listed there.
     Browsers authenticate with the session cookie, and their state-changing
     requests must be same-origin; native clients use a bearer token, which is
-    exempt from that check.
+    exempt from that check. A native client gets its token by signing in at
+    `/auth/device-login`, or by pairing with a code shown by a signed-in browser.
   license:
     name: AGPL-3.0-only
     identifier: AGPL-3.0-only
@@ -31,7 +32,9 @@ tags:
   - name: setup
     description: The first-run wizard. Every call needs the one-time setup token.
   - name: auth
-    description: Signing in and out, registering and changing credentials.
+    description: |
+      Signing in and out, registering and changing credentials. Native clients sign
+      in at `/auth/device-login` or pair by code through `/pairings/{id}`.
   - name: account
     description: The signed-in user, the session key and other users' public keys.
   - name: drive
@@ -389,6 +392,33 @@ paths:
                 $ref: "#/components/schemas/Account"
         default:
           $ref: "#/components/responses/Error"
+  /api/v1/auth/device-login:
+    post:
+      operationId: loginDevice
+      tags: [auth]
+      summary: Sign a native client in
+      description: |
+        Signs a native client in. Takes what `login` takes, plus a name for the device,
+        and answers the account together with a bearer token for it, setting no cookie.
+        The auth key is the current credential that making a token needs. The same
+        limits, `totp_required` and codes as `login`, plus `invalid_token_name`,
+        `invalid_platform` and `device_limit_reached`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeviceLoginRequest"
+      responses:
+        "201":
+          description: Signed in. The secret is shown only here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceLogin"
+        default:
+          $ref: "#/components/responses/Error"
   /api/v1/auth/logout:
     post:
       operationId: logout
@@ -668,6 +698,146 @@ paths:
       responses:
         "204":
           description: Revoked.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/pairings:
+    post:
+      operationId: startPairing
+      tags: [account]
+      summary: Start adding a device by code
+      description: |
+        Starts pairing a device by QR code (CRYPTO.md section 22). Needs a current auth
+        key, as making a token does. The pairing lasts five minutes, is bound to the
+        session or token that made it, and replaces any earlier unconfirmed pairing of
+        the user. Answers `device_limit_reached` when the user has all the tokens they
+        may have.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartPairingRequest"
+      responses:
+        "201":
+          description: The pairing, open.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pairing"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/pairings/{id}:
+    get:
+      operationId: getPairing
+      tags: [account]
+      summary: Read a pairing this session started
+      description: |
+        Poll every two seconds until a device claims the code. Answers `not_found` for
+        a pairing another session or token started, and `pairing_expired` once its
+        time is up.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: The pairing.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pairing"
+        default:
+          $ref: "#/components/responses/Error"
+    delete:
+      operationId: cancelPairing
+      tags: [account]
+      summary: Cancel a pairing
+      description: |
+        Ends a pairing this session started. If it was confirmed, its token goes too:
+        the device may or may not have collected it.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "204":
+          description: Cancelled.
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/me/pairings/{id}/confirm:
+    post:
+      operationId: confirmPairing
+      tags: [account]
+      summary: Confirm the device that claimed a code
+      description: |
+        Hands the device its token, after the user saw the same six digits on both
+        screens. The browser draws the token secret and sends only its hash, with the
+        payload sealed to the device (CRYPTO.md section 22). The device then has two
+        minutes to collect it. Answers `pairing_not_claimed` before a device claimed the
+        code, `pairing_already_confirmed` on a second confirmation, and
+        `invalid_pairing` for a hash or payload of the wrong size, or a hash in use.
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmPairingRequest"
+      responses:
+        "200":
+          description: The device's token. Its secret never reached the server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceToken"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/pairings/{id}/claim:
+    post:
+      operationId: claimPairing
+      tags: [auth]
+      summary: Claim a code as the device being added
+      description: |
+        A device that scanned a code claims it with an ephemeral X25519 public key, a
+        name and a platform. Answers `pairing_invalid` for a code it does not know,
+        that has expired or was cancelled, or whose id is malformed, and
+        `pairing_claimed` for one another device took. The device then shows the
+        six-digit code of CRYPTO.md section 22 and polls `GET /pairings/{id}`. The key from the code itself is never sent here.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimPairingRequest"
+      responses:
+        "200":
+          description: Claimed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingPickup"
+        default:
+          $ref: "#/components/responses/Error"
+  /api/v1/pairings/{id}:
+    get:
+      operationId: pollPairing
+      tags: [auth]
+      summary: Collect a pairing as the device being added
+      description: |
+        Poll every two seconds after claiming. Once the browser confirms, the answer
+        carries the sealed payload, which opens only with the device's own key and the
+        key from the code. Answers `pairing_invalid` for a code that is unknown,
+        expired or cancelled, or whose id is malformed.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ID"
+      responses:
+        "200":
+          description: The pairing as the device sees it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairingPickup"
         default:
           $ref: "#/components/responses/Error"
   /api/v1/admin/invites:
@@ -2568,6 +2738,17 @@ components:
             - `totp_required`, `totp_invalid`, `totp_already_enabled`,
               `totp_not_pending`, `totp_not_enabled`
             - `invalid_token_name`
+            - `invalid_platform`: a device platform outside the list
+            - `device_limit_reached`: the user has 24 tokens (409)
+            - `pairing_invalid`: no such pairing, or it has expired or been cancelled; the
+              one answer the open pairing routes give for anything they will not act on (404)
+            - `pairing_claimed`: another device already claimed this code (409)
+            - `pairing_not_claimed`: no device has claimed the code yet (409)
+            - `pairing_already_confirmed` (409)
+            - `pairing_expired`: the pairing's time is up, as its starter sees it (410)
+            - `invalid_pairing`: a public key that is not 32 bytes or is all zeros, a token hash
+              that is not 32 bytes or is already in use, or a sealed payload outside 41 to
+              2048 bytes
             - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
             - `session_required`: the route needs a browser session, not a token
             - `invalid_id`: an id is not 32 lowercase hex characters
@@ -3026,21 +3207,33 @@ components:
           type: string
         recovery_code:
           type: string
+    DevicePlatform:
+      type: string
+      enum: [ios, android, macos, windows, linux, web, other]
     DeviceToken:
       type: object
-      required: [id, name, created_at]
+      required: [id, name, origin, created_at]
       properties:
         id:
           type: string
         name:
           type: string
           examples: [Angel's phone]
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+        origin:
+          type: string
+          enum: [settings, pairing, login]
+          description: How the token was made, in Settings, by pairing a device, or by signing in on the device.
         created_at:
           type: string
           format: date-time
         last_used_at:
           type: string
           format: date-time
+        current:
+          type: boolean
+          description: Present and true on the token this request was made with.
     CreateTokenRequest:
       type: object
       required: [name, current_auth_key]
@@ -3048,6 +3241,8 @@ components:
         name:
           type: string
           description: 1 to 128 characters.
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
         current_auth_key:
           type: string
           format: byte
@@ -3061,6 +3256,125 @@ components:
         secret:
           type: string
           description: The value to send as `Authorization`. Not stored; shown only now.
+    DeviceDescription:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: 1 to 128 characters.
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+    DeviceLoginRequest:
+      type: object
+      required: [username, auth_key, device]
+      properties:
+        username:
+          type: string
+        auth_key:
+          type: string
+          format: byte
+          description: Either auth key, 32 bytes.
+        totp_code:
+          type: string
+          description: Needed when TOTP is on, unless a recovery code is given.
+        totp_recovery_code:
+          type: string
+          description: Single use, in place of `totp_code`.
+        device:
+          $ref: "#/components/schemas/DeviceDescription"
+    DeviceLogin:
+      type: object
+      required: [account, token, secret]
+      properties:
+        account:
+          $ref: "#/components/schemas/Account"
+        token:
+          $ref: "#/components/schemas/DeviceToken"
+        secret:
+          type: string
+          description: "The value to send as `Authorization: Bearer`. Not stored; shown only now."
+    StartPairingRequest:
+      type: object
+      required: [current_auth_key]
+      properties:
+        current_auth_key:
+          type: string
+          format: byte
+          description: Either current auth key.
+    PairingStatus:
+      type: string
+      enum: [open, claimed, confirmed]
+    PairingDevice:
+      type: object
+      description: The device that claimed a code.
+      required: [name, public_key]
+      properties:
+        name:
+          type: string
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+        public_key:
+          type: string
+          format: byte
+          description: The device's ephemeral X25519 public key, 32 bytes.
+    Pairing:
+      type: object
+      description: A pairing as the browser that started it sees it.
+      required: [id, status, expires_at]
+      properties:
+        id:
+          type: string
+        status:
+          $ref: "#/components/schemas/PairingStatus"
+        expires_at:
+          type: string
+          format: date-time
+        device:
+          $ref: "#/components/schemas/PairingDevice"
+          description: Present once a device has claimed the code.
+        token:
+          $ref: "#/components/schemas/DeviceToken"
+          description: Present once confirmed.
+    ClaimPairingRequest:
+      type: object
+      required: [public_key, name]
+      properties:
+        public_key:
+          type: string
+          format: byte
+          description: The device's ephemeral X25519 public key, 32 bytes.
+        name:
+          type: string
+          description: 1 to 128 characters.
+        platform:
+          $ref: "#/components/schemas/DevicePlatform"
+    ConfirmPairingRequest:
+      type: object
+      required: [token_hash, sealed_payload]
+      properties:
+        token_hash:
+          type: string
+          format: byte
+          description: SHA-256 of the token secret the browser drew, 32 bytes. The server stores it and never sees the secret.
+        sealed_payload:
+          type: string
+          format: byte
+          description: The payload of CRYPTO.md section 22, sealed to the device. 41 to 2048 bytes. Opaque to the server.
+    PairingPickup:
+      type: object
+      description: A pairing as the device sees it.
+      required: [status, expires_at]
+      properties:
+        status:
+          $ref: "#/components/schemas/PairingStatus"
+        expires_at:
+          type: string
+          format: date-time
+        sealed_payload:
+          type: string
+          format: byte
+          description: Present once confirmed. Opens only with the device's own key and the key from the code.
     UpdateUserRequest:
       type: object
       properties:

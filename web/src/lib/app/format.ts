@@ -1,4 +1,6 @@
 /** Numbers and dates as the screens show them. */
+import type { DevicePlatform } from '$lib/api/types';
+
 const UNITS = ['bytes', 'KB', 'MB', 'GB', 'TB', 'PB'];
 
 export function formatBytes(bytes: number): string {
@@ -66,4 +68,19 @@ export function greeting(hour: number): string {
 export function formatDate(iso: string): string {
 	const date = new Date(iso);
 	return Number.isNaN(date.getTime()) ? iso : date.toLocaleDateString();
+}
+
+const PLATFORMS: Record<DevicePlatform, string> = {
+	ios: 'iOS',
+	android: 'Android',
+	macos: 'macOS',
+	windows: 'Windows',
+	linux: 'Linux',
+	web: 'Web',
+	other: 'Other'
+};
+
+/** A device's platform as people write it; empty when the device did not say. */
+export function formatPlatform(platform: DevicePlatform | undefined): string {
+	return platform === undefined ? '' : (PLATFORMS[platform] ?? '');
 }

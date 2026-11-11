@@ -51,6 +51,7 @@ test('change passphrase, new recovery key, device tokens and the theme', async (
 
 	// Device tokens.
 	await page.getByRole('tab', { name: 'Devices' }).click();
+	await page.getByText('Need a token for a script?').click();
 	await page.getByLabel(/^Device name/).fill('my phone');
 	await page.getByLabel(/^Passphrase/).fill(NEW_PASSPHRASE);
 	await page.getByRole('button', { name: 'Create token' }).click();

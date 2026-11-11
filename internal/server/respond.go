@@ -125,6 +125,14 @@ const (
 	codeCommentTooLarge       = "comment_too_large"
 	codeCommentLimitReached   = "comment_limit_reached"
 	codeCommentHasReplies     = "comment_has_replies"
+	codeInvalidPlatform       = "invalid_platform"
+	codeDeviceLimitReached    = "device_limit_reached"
+	codePairingInvalid        = "pairing_invalid"
+	codePairingClaimed        = "pairing_claimed"
+	codePairingNotClaimed     = "pairing_not_claimed"
+	codePairingConfirmed      = "pairing_already_confirmed"
+	codePairingExpired        = "pairing_expired"
+	codeInvalidPairing        = "invalid_pairing"
 )
 
 type errorBody struct {

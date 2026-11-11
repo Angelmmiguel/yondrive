@@ -65,6 +65,21 @@ tag whose section is missing or still marked unreleased
 - No focus ring around the text while typing.
 - The default font is sans-serif (Geist). A file's own fonts are kept.
 
+### Devices
+
+- Settings → Devices lists every phone, tablet or app signed in to your account,
+  with its platform, how it was added and when it was last used, and revokes
+  each on its own. "Add a device" shows a QR code: scan it with the YonDrive app,
+  check that both screens show the same six digits, confirm, and the device is
+  in. It gets its own token and, in end-to-end mode, the keys to your files,
+  sealed in your browser to a key only that device holds; the server carries
+  ciphertext and the hash of the token. The code lasts five minutes and works
+  once. Accounts that sign in through a provider add devices the same way.
+- A native app can also sign in with username and passphrase (and the two-factor
+  code) and receive its token with the account in one answer, with no cookie.
+- Changing your passphrase signs out every other device, as before; pair them
+  again from Devices.
+
 ### Server
 
 - Schema version 8: `links` gains a kind and a request's limits, and a new
@@ -85,6 +100,16 @@ tag whose section is missing or still marked unreleased
   can). Comments do not count
   against quota. Non-owners see the commenters on a node as well as the
   editors, as a client checks a comment's author against them.
+- Schema version 10: `tokens` record a `platform` and an `origin` (`settings`,
+  `pairing` or `login`), and a new `pairings` table holds a device being added.
+  Upgrading migrates in place.
+- New routes `POST /api/v1/auth/device-login`, `/api/v1/me/pairings` (start,
+  read, confirm, cancel) and the open `/api/v1/pairings/{id}` (claim, poll), and
+  the codes `pairing_invalid`, `pairing_claimed`, `pairing_not_claimed`,
+  `pairing_already_confirmed`, `pairing_expired`, `invalid_pairing`,
+  `invalid_platform` and `device_limit_reached` (24 tokens per user). `DeviceToken`
+  gains `platform`, `origin` and `current`. The pairing format is section 22 of
+  [docs/CRYPTO.md](docs/CRYPTO.md), with test vectors.
 
 ## [1.0.0] - 2026-11-07
 

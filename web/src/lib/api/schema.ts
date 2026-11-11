@@ -274,6 +274,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/device-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a native client in
+         * @description Signs a native client in. Takes what `login` takes, plus a name for the device,
+         *     and answers the account together with a bearer token for it, setting no cookie.
+         *     The auth key is the current credential that making a token needs. The same
+         *     limits, `totp_required` and codes as `login`, plus `invalid_token_name`,
+         *     `invalid_platform` and `device_limit_reached`.
+         */
+        post: operations["loginDevice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/logout": {
         parameters: {
             query?: never;
@@ -537,6 +561,129 @@ export interface paths {
         post?: never;
         /** Revoke a device token */
         delete: operations["revokeToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/pairings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start adding a device by code
+         * @description Starts pairing a device by QR code (CRYPTO.md section 22). Needs a current auth
+         *     key, as making a token does. The pairing lasts five minutes, is bound to the
+         *     session or token that made it, and replaces any earlier unconfirmed pairing of
+         *     the user. Answers `device_limit_reached` when the user has all the tokens they
+         *     may have.
+         */
+        post: operations["startPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/pairings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a pairing this session started
+         * @description Poll every two seconds until a device claims the code. Answers `not_found` for
+         *     a pairing another session or token started, and `pairing_expired` once its
+         *     time is up.
+         */
+        get: operations["getPairing"];
+        put?: never;
+        post?: never;
+        /**
+         * Cancel a pairing
+         * @description Ends a pairing this session started. If it was confirmed, its token goes too:
+         *     the device may or may not have collected it.
+         */
+        delete: operations["cancelPairing"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/pairings/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm the device that claimed a code
+         * @description Hands the device its token, after the user saw the same six digits on both
+         *     screens. The browser draws the token secret and sends only its hash, with the
+         *     payload sealed to the device (CRYPTO.md section 22). The device then has two
+         *     minutes to collect it. Answers `pairing_not_claimed` before a device claimed the
+         *     code, `pairing_already_confirmed` on a second confirmation, and
+         *     `invalid_pairing` for a hash or payload of the wrong size, or a hash in use.
+         */
+        post: operations["confirmPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pairings/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim a code as the device being added
+         * @description A device that scanned a code claims it with an ephemeral X25519 public key, a
+         *     name and a platform. Answers `pairing_invalid` for a code it does not know,
+         *     that has expired or was cancelled, or whose id is malformed, and
+         *     `pairing_claimed` for one another device took. The device then shows the
+         *     six-digit code of CRYPTO.md section 22 and polls `GET /pairings/{id}`. The key from the code itself is never sent here.
+         */
+        post: operations["claimPairing"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/pairings/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Collect a pairing as the device being added
+         * @description Poll every two seconds after claiming. Once the browser confirms, the answer
+         *     carries the sealed payload, which opens only with the device's own key and the
+         *     key from the code. Answers `pairing_invalid` for a code that is unknown,
+         *     expired or cancelled, or whose id is malformed.
+         */
+        get: operations["pollPairing"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2163,6 +2310,17 @@ export interface components {
              *     - `totp_required`, `totp_invalid`, `totp_already_enabled`,
              *       `totp_not_pending`, `totp_not_enabled`
              *     - `invalid_token_name`
+             *     - `invalid_platform`: a device platform outside the list
+             *     - `device_limit_reached`: the user has 24 tokens (409)
+             *     - `pairing_invalid`: no such pairing, or it has expired or been cancelled; the
+             *       one answer the open pairing routes give for anything they will not act on (404)
+             *     - `pairing_claimed`: another device already claimed this code (409)
+             *     - `pairing_not_claimed`: no device has claimed the code yet (409)
+             *     - `pairing_already_confirmed` (409)
+             *     - `pairing_expired`: the pairing's time is up, as its starter sees it (410)
+             *     - `invalid_pairing`: a public key that is not 32 bytes or is all zeros, a token hash
+             *       that is not 32 bytes or is already in use, or a sealed payload outside 41 to
+             *       2048 bytes
              *     - `cannot_modify_self`, `invalid_quota`, `wrong_mode`, `reset_invalid`
              *     - `session_required`: the route needs a browser session, not a token
              *     - `invalid_id`: an id is not 32 lowercase hex characters
@@ -2526,18 +2684,29 @@ export interface components {
             code?: string;
             recovery_code?: string;
         };
+        /** @enum {string} */
+        DevicePlatform: "ios" | "android" | "macos" | "windows" | "linux" | "web" | "other";
         DeviceToken: {
             id: string;
             /** @example Angel's phone */
             name: string;
+            platform?: components["schemas"]["DevicePlatform"];
+            /**
+             * @description How the token was made, in Settings, by pairing a device, or by signing in on the device.
+             * @enum {string}
+             */
+            origin: "settings" | "pairing" | "login";
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
             last_used_at?: string;
+            /** @description Present and true on the token this request was made with. */
+            current?: boolean;
         };
         CreateTokenRequest: {
             /** @description 1 to 128 characters. */
             name: string;
+            platform?: components["schemas"]["DevicePlatform"];
             /**
              * Format: byte
              * @description Either current auth key.
@@ -2548,6 +2717,93 @@ export interface components {
             token: components["schemas"]["DeviceToken"];
             /** @description The value to send as `Authorization`. Not stored; shown only now. */
             secret: string;
+        };
+        DeviceDescription: {
+            /** @description 1 to 128 characters. */
+            name: string;
+            platform?: components["schemas"]["DevicePlatform"];
+        };
+        DeviceLoginRequest: {
+            username: string;
+            /**
+             * Format: byte
+             * @description Either auth key, 32 bytes.
+             */
+            auth_key: string;
+            /** @description Needed when TOTP is on, unless a recovery code is given. */
+            totp_code?: string;
+            /** @description Single use, in place of `totp_code`. */
+            totp_recovery_code?: string;
+            device: components["schemas"]["DeviceDescription"];
+        };
+        DeviceLogin: {
+            account: components["schemas"]["Account"];
+            token: components["schemas"]["DeviceToken"];
+            /** @description The value to send as `Authorization: Bearer`. Not stored; shown only now. */
+            secret: string;
+        };
+        StartPairingRequest: {
+            /**
+             * Format: byte
+             * @description Either current auth key.
+             */
+            current_auth_key: string;
+        };
+        /** @enum {string} */
+        PairingStatus: "open" | "claimed" | "confirmed";
+        /** @description The device that claimed a code. */
+        PairingDevice: {
+            name: string;
+            platform?: components["schemas"]["DevicePlatform"];
+            /**
+             * Format: byte
+             * @description The device's ephemeral X25519 public key, 32 bytes.
+             */
+            public_key: string;
+        };
+        /** @description A pairing as the browser that started it sees it. */
+        Pairing: {
+            id: string;
+            status: components["schemas"]["PairingStatus"];
+            /** Format: date-time */
+            expires_at: string;
+            /** @description Present once a device has claimed the code. */
+            device?: components["schemas"]["PairingDevice"];
+            /** @description Present once confirmed. */
+            token?: components["schemas"]["DeviceToken"];
+        };
+        ClaimPairingRequest: {
+            /**
+             * Format: byte
+             * @description The device's ephemeral X25519 public key, 32 bytes.
+             */
+            public_key: string;
+            /** @description 1 to 128 characters. */
+            name: string;
+            platform?: components["schemas"]["DevicePlatform"];
+        };
+        ConfirmPairingRequest: {
+            /**
+             * Format: byte
+             * @description SHA-256 of the token secret the browser drew, 32 bytes. The server stores it and never sees the secret.
+             */
+            token_hash: string;
+            /**
+             * Format: byte
+             * @description The payload of CRYPTO.md section 22, sealed to the device. 41 to 2048 bytes. Opaque to the server.
+             */
+            sealed_payload: string;
+        };
+        /** @description A pairing as the device sees it. */
+        PairingPickup: {
+            status: components["schemas"]["PairingStatus"];
+            /** Format: date-time */
+            expires_at: string;
+            /**
+             * Format: byte
+             * @description Present once confirmed. Opens only with the device's own key and the key from the code.
+             */
+            sealed_payload?: string;
         };
         UpdateUserRequest: {
             disabled?: boolean;
@@ -4340,6 +4596,31 @@ export interface operations {
             default: components["responses"]["Error"];
         };
     };
+    loginDevice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Signed in. The secret is shown only here. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceLogin"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
     logout: {
         parameters: {
             query?: never;
@@ -4677,6 +4958,157 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    startPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartPairingRequest"];
+            };
+        };
+        responses: {
+            /** @description The pairing, open. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pairing"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    getPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pairing. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pairing"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    cancelPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    confirmPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmPairingRequest"];
+            };
+        };
+        responses: {
+            /** @description The device's token. Its secret never reached the server. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceToken"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    claimPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimPairingRequest"];
+            };
+        };
+        responses: {
+            /** @description Claimed. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingPickup"];
+                };
+            };
+            default: components["responses"]["Error"];
+        };
+    };
+    pollPairing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A record id, 32 lowercase hex characters. Anything else answers `invalid_id`. */
+                id: components["parameters"]["ID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pairing as the device sees it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingPickup"];
+                };
             };
             default: components["responses"]["Error"];
         };

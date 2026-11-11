@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { formatBytes, formatDate, formatQuota, formatWhen, GB, greeting } from './format';
+import {
+	formatBytes,
+	formatDate,
+	formatPlatform,
+	formatQuota,
+	formatWhen,
+	GB,
+	greeting
+} from './format';
 
 describe('formatWhen', () => {
 	const now = new Date(2026, 5, 15, 12, 0, 0).getTime();
@@ -51,5 +59,13 @@ describe('format', () => {
 
 	it('hands back a date it cannot read', () => {
 		expect(formatDate('nonsense')).toBe('nonsense');
+	});
+});
+
+describe('formatPlatform', () => {
+	it('names a platform as people write it', () => {
+		expect(formatPlatform('ios')).toBe('iOS');
+		expect(formatPlatform('macos')).toBe('macOS');
+		expect(formatPlatform(undefined)).toBe('');
 	});
 });

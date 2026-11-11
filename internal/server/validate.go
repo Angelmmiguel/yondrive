@@ -76,6 +76,18 @@ func validName(name string) bool {
 	return !strings.ContainsFunc(name, unicode.IsControl)
 }
 
+// platformOf checks an optional device platform and returns the form that is
+// stored, empty if none was given.
+func platformOf(p *oapi.DevicePlatform) (string, error) {
+	if p == nil {
+		return "", nil
+	}
+	if !p.Valid() {
+		return "", badRequest(codeInvalidPlatform)
+	}
+	return string(*p), nil
+}
+
 // encodeKDF validates KDF parameters and returns the form that is stored.
 func encodeKDF(kdf oapi.KDF) ([]byte, error) {
 	if kdf.Name != oapi.Argon2id || kdf.M < minKDFMemory || kdf.M > maxKDFMemory ||

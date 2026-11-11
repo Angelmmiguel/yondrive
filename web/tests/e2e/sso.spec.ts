@@ -328,6 +328,7 @@ test.describe.serial('with no keys', () => {
 		test.setTimeout(60_000);
 		await page.goto(`${server.url}/settings`);
 		await page.getByRole('tab', { name: 'Devices' }).click();
+		await page.getByText('Need a token for a script?').click();
 		await expect(page.getByTestId('reauth-note')).toBeVisible();
 		await page.getByLabel(/^Device name/).fill('tablet');
 		const before = provider.authorizations.length;
@@ -338,6 +339,7 @@ test.describe.serial('with no keys', () => {
 		expect(provider.authorizations.at(-1)?.get('prompt')).toBe('login');
 		expect(provider.authorizations.at(-1)?.get('max_age')).toBe('300');
 		await page.getByRole('tab', { name: 'Devices' }).click();
+		await page.getByText('Need a token for a script?').click();
 		await page.getByLabel(/^Device name/).fill('tablet');
 		await page.getByRole('button', { name: 'Create token' }).click();
 		await expect(page.getByText('Copy this token now')).toBeVisible();
@@ -347,6 +349,7 @@ test.describe.serial('with no keys', () => {
 		test.setTimeout(60_000);
 		await page.goto(`${server.url}/settings`);
 		await page.getByRole('tab', { name: 'Devices' }).click();
+		await page.getByText('Need a token for a script?').click();
 		await page.route(
 			'**/api/v1/me/tokens',
 			async (route) => {
@@ -369,6 +372,7 @@ test.describe.serial('with no keys', () => {
 		await page.unroute('**/api/v1/me/tokens');
 
 		await page.getByRole('tab', { name: 'Devices' }).click();
+		await page.getByText('Need a token for a script?').click();
 		await page.getByLabel(/^Device name/).fill('phone');
 		await page.getByRole('button', { name: 'Create token' }).click();
 		await expect(page.getByText('Copy this token now')).toBeVisible();
