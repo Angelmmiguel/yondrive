@@ -11,9 +11,11 @@ Pushing a tag `vX.Y.Z` runs [`.github/workflows/release.yml`](../.github/workflo
 Before anything else it checks the tag: it must be `vX.Y.Z` or a pre-release
 `vX.Y.Z-something`, on a commit that is on `main`, and `CHANGELOG.md` must have a
 dated section for the version (a pre-release takes the section of the version it
-leads to, which may still say Unreleased). Then it runs the whole CI suite on the
-tagged commit (the same workflow every push to `main` runs) and builds nothing
-unless that passes. Then it publishes:
+leads to, which may still say Unreleased). CI must have passed on that commit on
+`main`. It is not run again: the tag names the same commit. A commit that
+changed only Markdown, which CI skips, counts as tested when every commit back to
+one that passed changed only Markdown too. Then it waits for one approval in the
+`release` environment, building the binaries meanwhile, and publishes:
 
 | Artifact | What it is |
 | --- | --- |
@@ -204,25 +206,30 @@ their own code, are the way past it.
 
 For maintainers.
 
-1. Make sure `main` is green, and that `just verify-reproducible docker=true`
-   passes on the commit to release.
-2. In `CHANGELOG.md`, turn `## [X.Y.Z] - Unreleased` into `## [X.Y.Z] - YYYY-MM-DD`,
-   and commit to `main`. The workflow's first job refuses a tag whose section is
-   missing or still marked unreleased, and every job that builds or publishes
-   waits for it, so nothing is published.
-3. Tag that commit `vX.Y.Z` and push the tag. Nothing else starts a release. A
-   tag on a commit that is not on `main`, or one that is not `vX.Y.Z` or
-   `vX.Y.Z-pre`, stops at the same first job.
-4. Approve the `release` environment's deployments when the workflow asks (the
-   jobs that push the image, sign, and make the GitHub release each wait for it;
-   approve them together).
-5. When the workflow has finished, verify the release as above, from a clean
+1. Make sure CI on `main` has passed on the commit to release, and that
+   `just verify-reproducible docker=true` passes on it. Update the status line
+   at the top of `PLAN.md` if the release changes it; a commit of Markdown
+   alone runs no CI and needs none.
+2. Run `just release X.Y.Z` on an up-to-date, clean `main`. It checks CI as the
+   workflow will, turns `## [Unreleased]` in `CHANGELOG.md` into
+   `## [X.Y.Z] - YYYY-MM-DD`, sets the README's status line to `X.Y`, commits
+   "Release X.Y.Z", tags it `vX.Y.Z` with a signed tag, and pushes `main` and
+   the tag together. Nothing else starts a release. The workflow's first job
+   refuses a tag that is not `vX.Y.Z` or `vX.Y.Z-pre`, one on a commit that is
+   not on `main`, one whose changelog section is missing or still marked
+   unreleased, and one whose commit has no CI run on `main` that passed. Every
+   later job waits for it, so nothing is published.
+3. Approve the release once, when the workflow's Approval job asks. Every job
+   that pushes, signs or publishes waits for it; the rest then runs on its own
+   and takes about ten minutes.
+4. When the workflow has finished, verify the release as above, from a clean
    machine, including the rebuild. If anything fails, delete the release and the
    image tags, fix it, and release the next patch version rather than moving the
    tag.
 
-What can only be checked by pushing a tag: the keyless signatures and the
-provenance (they need GitHub's OIDC token), the `release` environment's approval,
+What can only be checked by pushing a tag: the CI check against GitHub's API,
+the keyless signatures and the provenance (they need GitHub's OIDC token), the
+`release` environment's approval,
 the multi-platform image push and its index annotations, and the GitHub release
 itself. Everything they sign or package is built by `just dist` and the
 Dockerfile, which run locally.
@@ -242,8 +249,9 @@ release, are settings of the repository, which only its owner can change:
    named `release`. Required reviewers: the maintainers who approve releases
    (with Prevent self-review if there is more than one). Deployment branches and
    tags: Selected branches and tags > Add deployment branch or tag rule > Ref
-   type Tag, pattern `v*`. The image push, the signing and the GitHub release
-   then run only for a `v*` tag, and only once a reviewer approves.
+   type Tag, pattern `v*`. Only the workflow's Approval job is in the
+   environment, and the image push, the signing and the GitHub release all need
+   it, so they run only for a `v*` tag, and only once a reviewer approves.
 3. **Workflow permissions.** Settings > Actions > General > Workflow
    permissions: Read repository contents and packages permissions (each job asks
    for what more it needs), and leave "Allow GitHub Actions to create and approve

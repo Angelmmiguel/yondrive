@@ -111,6 +111,15 @@ tag whose section is missing or still marked unreleased
   gains `platform`, `origin` and `current`. The pairing format is section 22 of
   [docs/CRYPTO.md](docs/CRYPTO.md), with test vectors.
 
+### Builds and releases
+
+- A release no longer runs CI again on its tag: it checks that CI passed on that
+  commit on `main`, and a commit that changed only Markdown, which CI now skips,
+  counts as tested by the run before it. It asks for one approval, at the start,
+  instead of one for each job that signs or publishes.
+- `just release X.Y.Z` dates the changelog, sets the README's status, commits,
+  tags with a signed tag and pushes, after checking what the workflow checks.
+
 ## [1.0.0] - 2026-11-07
 
 The first release: a private drive with documents, spreadsheets, notes and

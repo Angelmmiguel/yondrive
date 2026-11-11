@@ -119,6 +119,44 @@ verify-reproducible docker="false":
     echo "reproducible: $(sha256sum < "$work/a/bin/yondrive" | cut -d' ' -f1)"
     "$work/a/bin/yondrive" version
 
+# Release VERSION (X.Y.Z) from main: date the Unreleased section of
+# CHANGELOG.md, set the README's status line, commit, tag the commit with a
+# signed vVERSION tag and push both at once. It refuses what release.yml would:
+# a dirty tree, a main that differs from origin, and a commit whose CI has not
+# passed (or a run still in progress). docs/RELEASE.md has the whole process.
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    v="{{version}}"
+    fail() { echo "release: $*" >&2; exit 1; }
+    [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "$v is not X.Y.Z"
+    [ "$(git branch --show-current)" = main ] || fail "not on main"
+    [ -z "$(git status --porcelain)" ] || fail "the tree has uncommitted changes"
+    git fetch --quiet origin main --tags
+    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || fail "main differs from origin/main"
+    ! git rev-parse -q --verify "refs/tags/v$v" >/dev/null || fail "v$v already exists"
+    grep -q '^## \[Unreleased\]$' CHANGELOG.md || fail "CHANGELOG.md has no Unreleased section"
+    # As release.yml checks: CI passed on HEAD, or on an ancestor with only
+    # Markdown changed since (CI skips those).
+    for sha in $(git rev-list --first-parent --max-count=50 HEAD); do
+        state=$(gh run list --workflow ci.yml --branch main --event push --commit "$sha" --json status,conclusion -q '.[0] | "\(.status) \(.conclusion)"')
+        case "$state" in
+            "completed success") break ;;
+            "") ;;
+            "completed "*) fail "CI did not pass on $sha ($state)" ;;
+            *) fail "CI is still running on $sha; wait for it" ;;
+        esac
+        if git diff-tree --no-commit-id --name-only -r "$sha^" "$sha" | grep -v '\.md$' | grep -q .; then
+            fail "$sha changed more than Markdown and has no CI run on main"
+        fi
+    done
+    sed -i "s/^## \[Unreleased\]$/## [$v] - $(date -u +%F)/" CHANGELOG.md
+    sed -i -E "s/^> \*\*Status: [0-9]+\.[0-9]+\.\*\*/> **Status: ${v%.*}.**/" README.md
+    git commit --quiet -am "Release $v"
+    git tag -s "v$v" -m "YonDrive $v"
+    git push --atomic origin main "v$v"
+    echo "Pushed v$v. Approve the release: https://github.com/$(gh repo view --json nameWithOwner -q .nameWithOwner)/actions/workflows/release.yml"
+
 # Build the container image for linux/amd64, the platform Unraid runs. The
 # Dockerfile builds the web app and the binary itself, so nothing here
 # depends on a prior `just build`. It reports the version git gives, as

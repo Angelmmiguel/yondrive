@@ -664,7 +664,7 @@ Built for release engineering: reproducible builds (the same commit gives the sa
 from `just build` and the Dockerfile, checked by `just verify-reproducible`), release builds with the
 official Go release rather than the patched one in nixpkgs, `yondrive version` and `yondrive assets`
 with the web app's root hash in health and the admin area, a release workflow on `v*` tags, refused unless the tag is a release version on `main` with a dated
-changelog section, with binaries, SHA256SUMS, SBOMs, and keyless signatures and provenance made
+changelog section and a CI run on `main` that passed, behind one approval and cut by `just release`, with binaries, SHA256SUMS, SBOMs, and keyless signatures and provenance made
 in jobs apart from the build ([docs/RELEASE.md](docs/RELEASE.md)),
 [CHANGELOG.md](CHANGELOG.md), upgrade tests from every schema version, `yondrive migrate` and
 `yondrive restore` with a backup and restore drill in Go and in the browser, operator commands to get

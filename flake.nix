@@ -34,6 +34,7 @@
 
         # Misc
         just
+        gh               # just release: whether CI passed on the commit
       ];
 
       # Keep Go's module cache and build cache inside the project so a

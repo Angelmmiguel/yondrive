@@ -1,5 +1,5 @@
-# Releases. Pushing a tag vX.Y.Z runs the whole CI suite on that commit and,
-# only once it passes, builds and publishes the release:
+# Releases. Pushing a tag vX.Y.Z checks that CI passed on that commit, waits
+# for one approval, and builds and publishes the release:
 #
 #   - static binaries for linux and darwin on amd64 and arm64 (`just dist`),
 #     the web app's hash list, SHA256SUMS and an SBOM;
@@ -9,7 +9,12 @@
 #   - a GitHub release carrying all of it, with notes from CHANGELOG.md.
 #
 # Nothing is built or published until `guard` has checked the tag: a release
-# version, on a commit that is on main, with a dated section in CHANGELOG.md.
+# version, on a commit that is on main, with a dated section in CHANGELOG.md,
+# whose CI run on main passed. CI is not run again: a commit that changed only
+# Markdown, which CI skips, counts as tested when the commits before it up to
+# one that passed changed only Markdown too. Nothing is pushed, signed or
+# published until `approve`, the one job in the `release` environment, has
+# been approved; the binaries build meanwhile.
 #
 # Building runs the web app's dependencies (Vite and its plugins), so no job
 # that builds can sign: `binaries` and `image` have no OIDC token, and `sign`
@@ -41,8 +46,11 @@ env:
 
 jobs:
   guard:
-    name: Tag, branch and changelog
+    name: Tag, branch, changelog and CI
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # the CI runs of the tagged commit
     outputs:
       version: ${{ steps.tag.outputs.version }}
       prerelease: ${{ steps.tag.outputs.prerelease }}
@@ -92,25 +100,48 @@ jobs:
             echo "::error::CHANGELOG.md still marks $VERSION as unreleased"; exit 1
           fi
 
+      # The tagged commit passed CI on main, or changed only Markdown since
+      # the latest of its first-parent ancestors that did. A run still in
+      # progress does not count: wait for it, then tag.
+      - name: CI passed on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for sha in $(git rev-list --first-parent --max-count=50 "$GITHUB_SHA"); do
+            passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&branch=main&event=push&status=success" -q .total_count)
+            if [ "$passed" -gt 0 ]; then
+              echo "CI passed on $sha"; exit 0
+            fi
+            changed=$(git diff-tree --no-commit-id --name-only -r "$sha^" "$sha")
+            if grep -v '\.md$' <<< "$changed" | grep -q .; then
+              echo "::error::$sha changed more than Markdown and has no CI run on main that passed"; exit 1
+            fi
+          done
+          echo "::error::no CI run on main passed in the last 50 commits"; exit 1
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: notes
           path: notes.md
           if-no-files-found: error
 
-  suites:
-    name: CI
+  # The release's one approval. Every job that pushes, signs or publishes
+  # needs it; only this job is in the `release` environment, whose reviewers
+  # and tag rule (docs/RELEASE.md) gate the whole release at once.
+  approve:
+    name: Approval
     needs: [guard]
-    uses: ./.github/workflows/ci.yml
-    # The called workflow's publish job asks for packages: write, so the call
-    # must allow it, although that job runs only for main and is skipped here.
-    permissions:
-      contents: read
-      packages: write
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Approved
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: echo "Releasing $VERSION"
 
   binaries:
     name: Binaries, checksums and SBOM
-    needs: [guard, suites]
+    needs: [guard]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
@@ -172,9 +203,8 @@ jobs:
   # pins cosign.
   sign:
     name: Sign the binaries
-    needs: [guard, binaries]
+    needs: [guard, approve, binaries]
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
       id-token: write # keyless signing and provenance
@@ -215,9 +245,8 @@ jobs:
   # app's dependencies. `sign-image` signs what this pushed, by digest.
   image:
     name: Image
-    needs: [guard, suites]
+    needs: [guard, approve]
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
       packages: write
@@ -282,9 +311,8 @@ jobs:
   # tag can be moved under it. Nothing is built here.
   sign-image:
     name: Sign the image
-    needs: [guard, image]
+    needs: [guard, approve, image]
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: read
       packages: write # the signature and the attestation are pushed beside the image
@@ -320,9 +348,8 @@ jobs:
 
   release:
     name: GitHub release
-    needs: [guard, sign, image, sign-image]
+    needs: [guard, approve, sign, image, sign-image]
     runs-on: ubuntu-latest
-    environment: release
     permissions:
       contents: write
     steps:

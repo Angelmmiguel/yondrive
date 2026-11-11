@@ -62,6 +62,7 @@ just image      # container image
 just dist       # release binaries for linux and darwin, and the web app's hashes
 just api-docs   # render the API reference into docs/api/
 just verify-reproducible  # build twice from scratch and compare (docker=true: and the Dockerfile)
+just release X.Y.Z  # date the changelog, commit, sign and push the tag (docs/RELEASE.md)
 ```
 
 `just test` and `just lint` must be clean, and `just fmt` must print nothing,

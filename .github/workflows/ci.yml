@@ -2,16 +2,17 @@
 # locally, inside the flake's shell, so CI and `just` never drift: the Go
 # toolchain, Node, pnpm and the Playwright browsers all come from flake.lock.
 # The image is published only after every suite passes on that commit. A
-# release (release.yml, on a v* tag) calls this workflow first and builds
-# only once it passes.
+# release (release.yml, on a v* tag) builds only a commit whose run here
+# passed. A push that changes only Markdown runs nothing: there is nothing in
+# it to test, and a release counts it as tested by the run before it.
 name: CI
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md"]
   pull_request:
   workflow_dispatch:
-  workflow_call:
 
 # A new push to a branch makes the previous run obsolete, but a run that may
 # publish is left to finish.
