@@ -216,9 +216,11 @@ web-test:
 # its own throwaway Go server over a temporary data directory (web/tests/
 # server.ts), so nothing here depends on a port or a data path. The browsers
 # come from the flake (PLAYWRIGHT_BROWSERS_PATH).
+# Arguments go to Playwright, as `just web-e2e --shard=1/4` in CI or a spec's
+# path to run one file.
 [working-directory('web')]
-web-e2e: web-build
-    pnpm test:e2e
+web-e2e *args: web-build
+    pnpm test:e2e {{args}}
 
 # Compile the app into web/build, where the Go binary embeds it from. The
 # build script recreates build/.gitkeep afterwards: adapter-static wipes the

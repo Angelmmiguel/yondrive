@@ -118,9 +118,16 @@ jobs:
       - name: Test
         run: nix develop --command just web-test
 
+  # The specs in four parts, one runner each: every spec file starts its own
+  # server, so the files split cleanly, and a part takes about a quarter of
+  # the time. Each part still runs its files one at a time.
   e2e:
-    name: End to end
+    name: End to end (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
@@ -154,12 +161,12 @@ jobs:
       # server per file. The browsers come from the flake, so nothing is
       # downloaded here.
       - name: Browser specs
-        run: nix develop --command just web-e2e
+        run: nix develop --command just web-e2e --shard=${{ matrix.shard }}/4
 
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             web/playwright-report
             web/test-results
