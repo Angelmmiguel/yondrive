@@ -155,3 +155,15 @@ export function colSizes(
 	}
 	return sizes;
 }
+
+/**
+ * Whether a point, relative to an element's border box, is on its scrollbars:
+ * past its client area, inside its border.
+ */
+export function onScrollbar(
+	x: number,
+	y: number,
+	el: { clientLeft: number; clientTop: number; clientWidth: number; clientHeight: number }
+): boolean {
+	return x - el.clientLeft >= el.clientWidth || y - el.clientTop >= el.clientHeight;
+}

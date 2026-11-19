@@ -257,6 +257,48 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(text.y + text.height).toBeLessThanOrEqual(box.y + box.height - 2);
 		});
 
+		test('pressing on the grid’s scrollbars scrolls it and selects nothing', async ({
+			browser
+		}) => {
+			// The other mode signs in with a key that a fresh page would ask for; the
+			// pointer is handled alike in both.
+			test.skip(mode === 'e2e', 'the same in both modes');
+			await saveNow(page);
+			// The browsers under test hide scrollbars; this one draws them, as a desktop does.
+			const shown = await browser
+				.browserType()
+				.launch({ ignoreDefaultArgs: ['--hide-scrollbars'] });
+			try {
+				const other = await (
+					await shown.newContext({ storageState: await page.context().storageState() })
+				).newPage();
+				await other.goto(page.url());
+				const g = grid(other);
+				await expect(g).toBeVisible({ timeout: 30_000 });
+				await goTo(other, 'A1');
+				const bar = await g.evaluate((el: HTMLElement) => ({
+					w: el.offsetWidth - el.clientWidth,
+					h: el.offsetHeight - el.clientHeight
+				}));
+				expect(bar.w).toBeGreaterThan(0);
+				expect(bar.h).toBeGreaterThan(0);
+				const box = (await g.boundingBox())!;
+				const press = async (x: number, y: number, dx: number, dy: number) => {
+					await other.mouse.move(x, y);
+					await other.mouse.down();
+					await other.mouse.move(x + dx, y + dy, { steps: 5 });
+					await other.mouse.up();
+				};
+				await press(box.x + box.width - bar.w / 2, box.y + 80, 0, 120);
+				await press(box.x + 120, box.y + box.height - bar.h / 2, 160, 0);
+				await expect(other.getByLabel('Selected cell')).toHaveValue('A1');
+				await expect(g.locator('[role=gridcell][aria-selected=true]')).toHaveCount(1);
+				expect(await g.evaluate((el) => el.scrollTop + el.scrollLeft)).toBeGreaterThan(0);
+			} finally {
+				await shown.close();
+			}
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');

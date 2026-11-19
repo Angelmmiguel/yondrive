@@ -85,6 +85,8 @@ tag whose section is missing or still marked unreleased
   file or a person sized keep their size.
 - The details panel starts closed, so the whole sheet shows; the Details button
   opens it.
+- Pressing on the grid's scrollbars scrolls it, and no longer selects the cells
+  under them or starts a selection.
 
 ### Devices
 

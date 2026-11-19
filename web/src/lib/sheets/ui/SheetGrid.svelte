@@ -31,7 +31,7 @@
 	import type { WindowCache } from './cache';
 	import { htmlTableRows, isOwnCopy, parseTsv, shiftFormulaText, toTsv } from './clipboard';
 	import ContextMenu from './ContextMenu.svelte';
-	import { Axis, colPx, colSizes, defaultRowPx, rowSizes } from './geometry';
+	import { Axis, colPx, colSizes, defaultRowPx, onScrollbar, rowSizes } from './geometry';
 	import { textOf } from './history';
 	import { inputOf as cellInput } from '../input';
 	import { editorKey, gridKey, type EditHow } from './keys';
@@ -714,13 +714,21 @@
 		else sel = single(at);
 	}
 
+	/** A press on the grid's own scrollbars scrolls it, and selects nothing. */
+	function scrolling(e: { clientX: number; clientY: number }): boolean {
+		const v = viewport;
+		if (!v) return false;
+		const box = v.getBoundingClientRect();
+		return onScrollbar(e.clientX - box.left, e.clientY - box.top, v);
+	}
+
 	/** The mouse events that follow a tap would take the focus back from an editor just opened. */
 	function onmousedown(e: MouseEvent) {
-		if (draft && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+		if (draft && !(e.target instanceof HTMLTextAreaElement) && !scrolling(e)) e.preventDefault();
 	}
 
 	function onpointerdown(e: PointerEvent) {
-		if ((e.target as HTMLElement).closest('.editbox, .hbtn')) return;
+		if ((e.target as HTMLElement).closest('.editbox, .hbtn') || scrolling(e)) return;
 		const h = hit(e);
 		if (!h) return;
 		// Links open from view mode, or with Ctrl or Cmd held while editing.
@@ -859,13 +867,14 @@
 	});
 
 	function ondblclick(e: MouseEvent) {
-		if (draft || e.target instanceof HTMLTextAreaElement) return;
+		if (draft || e.target instanceof HTMLTextAreaElement || scrolling(e)) return;
 		const h = hit(e);
 		if (!h || h.row < 0 || h.col < 0 || h.edge) return;
 		void startEdit('edit');
 	}
 
 	function oncontextmenu(e: MouseEvent) {
+		if (scrolling(e)) return;
 		const h = hit(e);
 		if (!h) return;
 		e.preventDefault();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SheetCaches, WindowCache } from './cache';
 import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipboard';
-import { Axis, colPx, defaultRowPx, pxToChars, pxToPt, rowPx } from './geometry';
+import { Axis, colPx, defaultRowPx, onScrollbar, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
 import { cellLink, cellLook, DRAWN_CHARS, drawnText } from './style';
@@ -60,6 +60,16 @@ describe('geometry', () => {
 		// Dragged shut, it reads as hidden; the base is untouched.
 		expect(base.withSize(4, 0).hidden(4)).toBe(true);
 		expect(base.sizeOf(7)).toBe(20);
+	});
+
+	it('tells a press on the scrollbars from one on the cells', () => {
+		const el = { clientLeft: 0, clientTop: 0, clientWidth: 785, clientHeight: 585 };
+		expect(onScrollbar(100, 100, el)).toBe(false);
+		expect(onScrollbar(784, 584, el)).toBe(false);
+		expect(onScrollbar(790, 100, el)).toBe(true);
+		expect(onScrollbar(100, 590, el)).toBe(true);
+		// A border is not the client area's: it moves the scrollbars in.
+		expect(onScrollbar(786, 100, { ...el, clientLeft: 2 })).toBe(false);
 	});
 
 	it('converts Excel units', () => {
