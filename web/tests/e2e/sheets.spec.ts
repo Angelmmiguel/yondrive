@@ -297,7 +297,10 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 				await press(box.x + box.width - bar.w / 2, box.y + 80, 0, 120);
 				await press(box.x + 120, box.y + box.height - bar.h / 2, 160, 0);
 				await expect(other.getByLabel('Selected cell')).toHaveValue('A1');
-				await expect(g.locator('[role=gridcell][aria-selected=true]')).toHaveCount(1);
+				// A1 may have scrolled out of view; no other cell is selected.
+				await expect(
+					g.locator('[role=gridcell][aria-selected=true]:not([aria-colindex="1"])')
+				).toHaveCount(0);
 				expect(await g.evaluate((el) => el.scrollTop + el.scrollLeft)).toBeGreaterThan(0);
 			} finally {
 				await shown.close();
