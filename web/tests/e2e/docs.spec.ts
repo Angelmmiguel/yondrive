@@ -25,6 +25,12 @@ import { startServer, type Mode, type Server } from '../server';
 import { addUser, openShared, refocus, shareDialog, shareWith } from '../sharing';
 
 const box = await fileBox();
+
+/** Opens the side panel, which starts closed. */
+async function openPanel(page: Page) {
+	const toggle = page.getByRole('button', { name: 'Toggle details panel' });
+	if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+}
 test.afterAll(() => box.remove());
 
 for (const mode of ['e2e', 'none'] as Mode[]) {
@@ -52,6 +58,15 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByRole('heading', { name: 'Untitled document.docx' })).toBeVisible();
 			// Made here, not brought: nothing to say about how the file is kept.
 			await expect(page.getByTestId('doc-notice')).toHaveCount(0);
+			// The whole page shows: the details panel starts closed, and opens on request.
+			const toggle = page.getByRole('button', { name: 'Toggle details panel' });
+			const details = page.getByRole('complementary', { name: 'Document details' });
+			await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+			await expect(details).toHaveCount(0);
+			await toggle.click();
+			await expect(details).toBeVisible();
+			await toggle.click();
+			await expect(details).toHaveCount(0);
 			// The header's buttons stand in one row of one height.
 			const height = async (name: string | RegExp) =>
 				(await page.getByRole('button', { name, exact: true }).boundingBox())!.height;
@@ -271,6 +286,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(bytes.subarray(0, 2).toString()).toBe('PK');
 			const text = plainText((await readDocument(new Uint8Array(bytes), 'docx')).model);
 			expect(text).toContain('Converted.');
+			await openPanel(page);
 			await page.getByRole('tab', { name: 'Versions' }).click();
 			await expect(page.getByTestId('doc-version')).toHaveCount(2);
 		});
@@ -325,6 +341,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await openDoc(page, 'Untitled document.docx');
 			await typeAfter(page, 'First words', ' Second thoughts.');
 			await saveNow(page);
+			await openPanel(page);
 			await page.getByRole('tab', { name: 'Versions' }).click();
 			const versions = page.getByTestId('doc-version');
 			await expect(versions.nth(2)).toBeVisible();
@@ -451,6 +468,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await openDoc(page, `sample-${mode}.docx`);
 			const details = page.getByRole('complementary', { name: 'Document details' });
 			const outline = page.getByRole('navigation', { name: 'Outline' });
+			await openPanel(page);
 			await expect(details).toBeVisible();
 			await expect(outline).toBeVisible();
 			await page.setViewportSize({ width: 390, height: 844 });

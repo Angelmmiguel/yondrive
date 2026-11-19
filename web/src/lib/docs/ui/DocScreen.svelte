@@ -93,7 +93,8 @@
 	/** A phone: the panels start closed and open over the page, one at a time. */
 	const narrow = new MediaQuery('max-width: 720px');
 	let outlineOpen = $state(!narrow.current);
-	let panel = $state<'details' | 'versions' | 'comments' | null>(narrow.current ? null : 'details');
+	/** The side panel starts closed, so the whole page shows. */
+	let panel = $state<'details' | 'versions' | 'comments' | null>(null);
 	// Narrowed to a phone's width, open panels would cover the page: they close.
 	$effect(() => {
 		if (narrow.current)

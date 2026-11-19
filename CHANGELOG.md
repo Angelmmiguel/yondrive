@@ -64,6 +64,8 @@ tag whose section is missing or still marked unreleased
   end; beside a line, on that line.
 - No focus ring around the text while typing.
 - The default font is sans-serif (Geist). A file's own fonts are kept.
+- The details panel starts closed, so the whole page shows; the Details button
+  opens it.
 - The file's name in the header of a document or a spreadsheet renames it in
   place: click it, type, and Enter or click away; Escape keeps the old name.
 - Share and Comments in the header of a document or a spreadsheet are as tall
