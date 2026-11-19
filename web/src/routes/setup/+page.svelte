@@ -271,7 +271,7 @@
 {:else if info}
 	<div class="page">
 		<header class="brand">
-			<Logo size={28} />
+			<Logo size={32} />
 			<span class="product">YonDrive</span>
 			<span class="sub">· First-run setup</span>
 			<span class="version">{info.version}</span>
