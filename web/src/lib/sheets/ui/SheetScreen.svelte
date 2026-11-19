@@ -589,11 +589,19 @@
 		const m = meta;
 		const beyond =
 			m && out.changed.some((r) => r.sheet === m.id && (r.row >= m.rows || r.col >= m.cols));
-		if (out.layout || beyond || out.changed.some((r) => r.sheet !== current)) {
+		// Whole rows and columns keep their style in the sheet's layout, for their empty cells.
+		const wholeLines = out.restyled?.some(
+			({ area: a }) =>
+				(a.top === 0 && a.bottom >= MAX_ROWS - 1) || (a.left === 0 && a.right >= MAX_COLS - 1)
+		);
+		if (out.layout || beyond || wholeLines || out.changed.some((r) => r.sheet !== current)) {
 			if (client) sheets = await client.api.sheets();
 		}
 		if (out.layout) caches.clear();
-		else caches.changed(out.changed);
+		else {
+			caches.changed(out.changed);
+			if (out.restyled) caches.restyled(out.restyled);
+		}
 		rev++;
 		if (filter) void refilter();
 	}

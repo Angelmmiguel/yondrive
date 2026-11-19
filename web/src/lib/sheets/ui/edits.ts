@@ -31,6 +31,8 @@ const suggestsFormat = (t: string) => /\d/.test(t) && !PLAIN_NUMBER.test(t);
 export interface Outcome {
 	/** Cells whose value or formula changed. */
 	changed: CellRef[];
+	/** Areas whose formatting changed: their cells are drawn again, with their new style and text. */
+	restyled?: { sheet: number; area: Area }[];
 	/** The style table, when it grew. */
 	styles?: CellStyle[];
 	/** Rows, columns, merges, sizes or panes changed: the sheet's layout is read again. */
@@ -147,6 +149,7 @@ export class SheetEditor {
 			const r = await this.#exec(op);
 			if (op.t === 'rows' || op.t === 'cols') this.onshift?.(op.sheet, op.t, op.at, op.count);
 			out.layout ||= LAYOUT.has(op.t);
+			if (op.t === 'style') (out.restyled ??= []).push({ sheet: op.sheet, area: op.area });
 			if (r) {
 				out.changed.push(...r.changed);
 				if (r.partial) out.partial = true;

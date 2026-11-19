@@ -162,6 +162,11 @@ export class SheetCaches {
 		for (const [id, areas] of by) this.#all.get(id)?.stale(areas.length > 2000 ? undefined : areas);
 	}
 
+	/** Marks the cells of areas whose formatting changed as stale. */
+	restyled(parts: readonly { sheet: number; area: Area }[]): void {
+		for (const p of parts) this.#all.get(p.sheet)?.stale([p.area]);
+	}
+
 	stale(): void {
 		for (const c of this.#all.values()) c.stale();
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WindowCache } from './cache';
+import { SheetCaches, WindowCache } from './cache';
 import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipboard';
 import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
@@ -301,6 +301,20 @@ describe('the window cache', () => {
 		c.fill(third[0], []);
 		expect(c.size.blocks).toBe(2);
 		expect(c.get(2, 17)).toBeUndefined();
+	});
+
+	it('fetches again the cells whose formatting changed, on their sheet only', () => {
+		const caches = new SheetCaches();
+		const one = caches.of(1);
+		const two = caches.of(2);
+		for (const c of [one, two]) {
+			const [b] = c.missing({ top: 0, left: 0, bottom: 0, right: 0 });
+			c.fill(b, [view(0, 0)]);
+		}
+		caches.restyled([{ sheet: 1, area: { top: 0, left: 0, bottom: 2, right: 2 } }]);
+		expect(one.get(0, 0)?.text).toBe('x');
+		expect(one.missing({ top: 0, left: 0, bottom: 0, right: 0 })).toHaveLength(1);
+		expect(two.missing({ top: 0, left: 0, bottom: 0, right: 0 })).toEqual([]);
 	});
 
 	it('ignores answers asked for before the rows moved', () => {

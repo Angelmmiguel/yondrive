@@ -8,6 +8,7 @@
 	import { Icon, Menu, type IconName, type MenuItem } from '$lib/components';
 	import type { CellStyle, HAlign } from '$lib/formats/workbook';
 	import { FUNCTIONS } from '$lib/formula/functions';
+	import { CURRENCIES, currencyOf, currencySymbol } from './currency';
 
 	export type BorderKind = 'all' | 'outer' | 'top' | 'bottom' | 'left' | 'right' | 'none';
 
@@ -99,7 +100,23 @@
 		.sort()
 		.map((n) => ({ id: n, label: n }));
 
-	const fmt = $derived(NUMBER_FORMATS.find((f) => f.code === style.numFmt)?.code ?? 'custom');
+	/** The active cell shows a currency; which one, when it is one listed. */
+	const currencyOn = $derived(currencySymbol(style.numFmt) !== null);
+	const currency = $derived(currencyOf(style.numFmt));
+	/** What the currency button gives: the active cell's currency, else the last one chosen. */
+	let lastCurrency = $state(CURRENCIES[0]);
+	const CURRENCY_ITEMS: MenuItem[] = $derived(
+		CURRENCIES.map((c) => ({
+			id: c.id,
+			label: `${c.name} (${c.id})`,
+			note: c.symbol,
+			icon: currency?.id === c.id ? ('check' as const) : undefined
+		}))
+	);
+	const fmt = $derived(
+		NUMBER_FORMATS.find((f) => f.code === style.numFmt)?.code ??
+			(currencyOn ? NUMBER_FORMATS[2].code : 'custom')
+	);
 	const size = $derived(style.font.size ?? 11);
 	const h = $derived(style.align.h ?? 'general');
 
@@ -161,13 +178,43 @@
 	</select>
 	<span class="sep" aria-hidden="true"></span>
 
-	<button
-		type="button"
-		class="tb"
-		aria-label="Format as currency"
-		title="Format as currency"
-		onclick={() => onnumfmt('"$"#,##0.00')}><Icon name="currency" size={17} /></button
-	>
+	<span class="split">
+		<button
+			type="button"
+			class="tb"
+			class:on={currencyOn}
+			aria-label="Format as currency"
+			title={currencyOn
+				? 'Remove the currency format'
+				: `Format as currency (${lastCurrency.name}, ${lastCurrency.symbol})`}
+			aria-pressed={currencyOn}
+			onclick={() => onnumfmt(currencyOn ? 'General' : lastCurrency.numFmt)}
+			><Icon name="currency" size={17} /></button
+		>
+		<Menu
+			label="Currency"
+			floating
+			align="start"
+			items={CURRENCY_ITEMS}
+			width={230}
+			onselect={(id) => {
+				const c = CURRENCIES.find((x) => x.id === id);
+				if (!c) return;
+				lastCurrency = c;
+				onnumfmt(c.numFmt);
+			}}
+		>
+			{#snippet trigger(attrs)}
+				<button
+					type="button"
+					class="tb more"
+					title="Choose a currency"
+					aria-label="Choose a currency"
+					{...attrs}><Icon name="chevron-down" size={14} /></button
+				>
+			{/snippet}
+		</Menu>
+	</span>
 	<button
 		type="button"
 		class="tb"
@@ -349,6 +396,16 @@
 	.tb.on {
 		background: var(--tag-green-soft);
 		color: var(--tag-green);
+	}
+
+	.split {
+		display: inline-flex;
+		align-items: center;
+	}
+
+	.tb.more {
+		min-width: 18px;
+		padding: 0 2px;
 	}
 
 	.bar {

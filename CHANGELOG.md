@@ -65,6 +65,16 @@ tag whose section is missing or still marked unreleased
 - No focus ring around the text while typing.
 - The default font is sans-serif (Geist). A file's own fonts are kept.
 
+### Spreadsheets
+
+- Formatting shows at once: a currency, bold or any other format applied from
+  the toolbar no longer waits for the next edit to appear.
+- The currency button shows as pressed on a cell formatted as currency, and
+  pressing it again takes the format off. Its menu offers US dollar, euro,
+  pound, yen, yuan, Swiss franc, Canadian, Australian and Mexican dollars and
+  pesos, real and rupee, each with its symbol where its readers expect it and
+  kept through .xlsx and .ods.
+
 ### Devices
 
 - Settings → Devices lists every phone, tablet or app signed in to your account,

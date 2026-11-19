@@ -130,6 +130,41 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await page.keyboard.press('Delete');
 		});
 
+		test('currency and bold show at once, and the chosen currency is kept in the file', async () => {
+			await typeIn(page, 'M1', '1234.5');
+			await typeIn(page, 'M2', '7');
+			await goTo(page, 'M1');
+			const currency = page.getByRole('button', { name: 'Format as currency' });
+			await expect(currency).toHaveAttribute('aria-pressed', 'false');
+			await currency.click();
+			await expect(cell(page, 'M1')).toHaveText('$1,234.50');
+			await expect(currency).toHaveAttribute('aria-pressed', 'true');
+			await page.getByRole('button', { name: 'Bold' }).click();
+			await expect(cell(page, 'M1')).toHaveCSS('font-weight', '700');
+			await goTo(page, 'M2');
+			await expect(currency).toHaveAttribute('aria-pressed', 'false');
+			// Another currency, from the keyboard.
+			await page.getByRole('button', { name: 'Choose a currency' }).focus();
+			await page.keyboard.press('Enter');
+			const menu = page.getByRole('menu', { name: 'Currency' });
+			await expect(menu.getByRole('menuitem').first()).toBeFocused();
+			await page.keyboard.type('Euro');
+			await expect(menu.getByRole('menuitem', { name: /Euro/ })).toBeFocused();
+			await page.keyboard.press('Enter');
+			await expect(cell(page, 'M2')).toHaveText('€7.00');
+			await expect(currency).toHaveAttribute('aria-pressed', 'true');
+			await saveNow(page);
+			const bytes = await downloadAs(page, /Original/);
+			const { book } = await readSpreadsheet(new Uint8Array(bytes), 'xlsx');
+			const s = book.ordered()[0];
+			expect(book.display(book.engine.cell(s.id, 1, 12))).toBe('€7.00');
+			expect(book.display(book.engine.cell(s.id, 0, 12))).toBe('$1,234.50');
+			// Pressed again, the currency comes off.
+			await currency.click();
+			await expect(cell(page, 'M2')).toHaveText('7');
+			await expect(currency).toHaveAttribute('aria-pressed', 'false');
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');

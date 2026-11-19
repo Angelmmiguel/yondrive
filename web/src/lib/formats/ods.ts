@@ -838,13 +838,17 @@ function dataStyleXml(name: string, code: string): string | null {
 		const tag = isDate ? 'number:date-style' : 'number:time-style';
 		return `<${tag} style:name="${name}"${!isDate && !truncate ? ' number:truncate-on-overflow="false"' : ''}>${parts.join('')}</${tag}>`;
 	}
-	const m = /^(.*?)([#0,]*0[#0,]*|#+)(?:\.(0*)(#*))?(.*)$/.exec(first.replace(/_.|\*./g, ''));
+	// [$€-1809] is the symbol as text: its locale's digits are not the number's.
+	const plain = first
+		.replace(/_.|\*./g, '')
+		.replace(/\[\$([^\]-]*)[^\]]*\]/g, (_, s: string) => (s ? `"${s}"` : ''));
+	const m = /^(.*?)([#0,]*0[#0,]*|#+)(?:\.(0*)(#*))?(.*)$/.exec(plain);
 	if (!m) return null;
 	const lit = (s: string) =>
 		s
 			.replace(/"([^"]*)"/g, '$1')
 			.replace(/\\(.)/g, '$1')
-			.replace(/[[\]]/g, '');
+			.replace(/\[[^\]]*\]/g, '');
 	const pre = lit(m[1]);
 	const post = lit(m[5]);
 	const percent = post.includes('%');
@@ -852,14 +856,19 @@ function dataStyleXml(name: string, code: string): string | null {
 	const minInt = (m[2].match(/0/g) ?? []).length;
 	const dec = (m[3] ?? '').length + (m[4] ?? '').length;
 	const num = `<number:number number:decimal-places="${dec}" number:min-decimal-places="${(m[3] ?? '').length}" number:min-integer-digits="${minInt}"${grouping ? ' number:grouping="true"' : ''}/>`;
-	const currency = /[$€£¥]/.exec(pre + post)?.[0];
+	const currency = /\[\$([^\]-]+)/.exec(first)?.[1] ?? /[$€£¥₹]/.exec(pre + post)?.[0];
 	const text = (s: string) => (s ? `<number:text>${escapeXml(s)}</number:text>` : '');
 	if (percent)
 		return `<number:percentage-style style:name="${name}">${text(pre)}${num}<number:text>%</number:text></number:percentage-style>`;
 	if (currency) {
 		const before = pre.includes(currency);
-		const sym = `<number:currency-symbol>${escapeXml(currency)}</number:currency-symbol>`;
-		return `<number:currency-style style:name="${name}">${before ? sym : ''}${num}${before ? '' : sym}</number:currency-style>`;
+		const side = before ? pre : post;
+		const at = side.indexOf(currency);
+		const sym =
+			text(side.slice(0, at)) +
+			`<number:currency-symbol>${escapeXml(currency)}</number:currency-symbol>` +
+			text(side.slice(at + currency.length));
+		return `<number:currency-style style:name="${name}">${before ? sym : text(pre)}${num}${before ? text(post) : sym}</number:currency-style>`;
 	}
 	return `<number:number-style style:name="${name}">${text(pre)}${num}${text(post)}</number:number-style>`;
 }

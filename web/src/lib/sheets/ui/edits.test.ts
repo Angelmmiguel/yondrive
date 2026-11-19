@@ -76,12 +76,14 @@ describe('undo and redo through the worker', () => {
 		await ed.undo();
 		await ed.undo();
 		expect(await column(0, 3)).toEqual(['b', 'a', 'c']);
-		await ed.style(sheet, { top: 0, left: 1, bottom: 2, right: 1 }, [
+		const bolded = await ed.style(sheet, { top: 0, left: 1, bottom: 2, right: 1 }, [
 			{ area: { top: 0, left: 1, bottom: 2, right: 1 }, patch: { font: { bold: true } } }
 		]);
+		// No value changed, yet the area is drawn again.
+		expect(bolded.restyled).toEqual([{ sheet, area: { top: 0, left: 1, bottom: 2, right: 1 } }]);
 		const styles = await api.styles();
 		expect(styles[(await api.cell(sheet, 1, 1))!.style].font.bold).toBe(true);
-		await ed.undo();
+		expect((await ed.undo())?.restyled?.length).toBeGreaterThan(0);
 		expect(styles[(await api.cell(sheet, 1, 1))!.style]?.font.bold).toBeUndefined();
 	});
 
