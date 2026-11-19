@@ -1347,6 +1347,7 @@
 				<div class="actions">
 					<Button
 						variant="ghost"
+						size="sm"
 						icon="comment"
 						aria-pressed={panel === 'comments'}
 						onclick={() => (panel === 'comments' ? (panel = null) : openComments())}
@@ -1375,6 +1376,7 @@
 					{#if node && isOwner(node)}
 						<Button
 							variant="primary"
+							size="sm"
 							icon="shared"
 							onclick={() => node && (drive.dialog = { kind: 'share', node })}>Share</Button
 						>

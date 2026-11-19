@@ -52,6 +52,11 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByRole('heading', { name: 'Untitled document.docx' })).toBeVisible();
 			// Made here, not brought: nothing to say about how the file is kept.
 			await expect(page.getByTestId('doc-notice')).toHaveCount(0);
+			// The header's buttons stand in one row of one height.
+			const height = async (name: string | RegExp) =>
+				(await page.getByRole('button', { name, exact: true }).boundingBox())!.height;
+			expect(await height('Share')).toBe(await height('Download'));
+			expect(await height('Comments')).toBe(await height('Download'));
 			await editor(page).click();
 			await page.keyboard.type('First words of a new document.');
 			await expect(saveStatus(page)).toHaveText(/Unsaved changes|Saving…/);

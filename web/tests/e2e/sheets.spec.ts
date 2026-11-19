@@ -60,6 +60,11 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByRole('heading', { name: 'Untitled spreadsheet.xlsx' })).toBeVisible();
 			// Made here, not brought: nothing to say about how the file is kept.
 			await expect(page.getByTestId('sheet-notice')).toHaveCount(0);
+			// The header's buttons stand in one row of one height.
+			const height = async (name: string | RegExp) =>
+				(await page.getByRole('button', { name, exact: true }).boundingBox())!.height;
+			expect(await height('Share')).toBe(await height('Download'));
+			expect(await height('Comments')).toBe(await height('Download'));
 			// The whole sheet shows: the details panel starts closed, and opens on request.
 			const toggle = page.getByRole('button', { name: 'Toggle details panel' });
 			await expect(toggle).toHaveAttribute('aria-pressed', 'false');

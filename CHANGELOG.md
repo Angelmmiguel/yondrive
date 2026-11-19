@@ -66,6 +66,8 @@ tag whose section is missing or still marked unreleased
 - The default font is sans-serif (Geist). A file's own fonts are kept.
 - The file's name in the header of a document or a spreadsheet renames it in
   place: click it, type, and Enter or click away; Escape keeps the old name.
+- Share and Comments in the header of a document or a spreadsheet are as tall
+  as the buttons beside them.
 
 ### Spreadsheets
 
