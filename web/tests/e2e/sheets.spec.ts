@@ -235,6 +235,14 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(Math.round(shown.height)).toBe(Math.round(at.height));
 		});
 
+		test('a row of the default height has room around its text', async () => {
+			const box = (await cell(page, 'B5').boundingBox())!;
+			const text = (await cell(page, 'B5').locator('.txt').boundingBox())!;
+			expect(box.height).toBe(24);
+			expect(text.y).toBeGreaterThanOrEqual(box.y + 1);
+			expect(text.y + text.height).toBeLessThanOrEqual(box.y + box.height - 2);
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');
@@ -387,7 +395,8 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			const perFrame = await grid(page).evaluate(async (el) => {
 				const start = performance.now();
 				for (let i = 1; i <= 60; i++) {
-					el.scrollTop = i * 3000;
+					// 150 rows a frame, to row 9,001 at the default height of 24 pixels.
+					el.scrollTop = i * 3600;
 					await new Promise((r) => requestAnimationFrame(r));
 				}
 				return (performance.now() - start) / 60;

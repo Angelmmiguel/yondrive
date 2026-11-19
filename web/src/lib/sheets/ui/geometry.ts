@@ -13,6 +13,15 @@ export const pxToChars = (px: number) => Math.max(0, Math.round(((px - 5) / 7) *
 /** Row height in points as pixels at 100%. */
 export const rowPx = (pt: number) => Math.max(0, Math.round((pt * 4) / 3));
 export const pxToPt = (px: number) => Math.max(0, Math.round(px * 0.75 * 4) / 4);
+/**
+ * The room a row of the default height is given beyond the file's height, at
+ * 100%: the default height suits the file's default font, which draws smaller
+ * than the one here, and the text would touch the grid lines. Rows the file or
+ * a person sized keep their size.
+ */
+export const DEFAULT_ROW_ROOM = 4;
+/** The default row height in points as pixels at 100%, with its room. */
+export const defaultRowPx = (pt: number) => rowPx(pt) + DEFAULT_ROW_ROOM;
 
 export class Axis {
 	readonly size: number;

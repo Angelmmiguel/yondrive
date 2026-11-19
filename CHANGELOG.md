@@ -80,6 +80,9 @@ tag whose section is missing or still marked unreleased
   cell.
 - Typing into a cell no longer jumps: the editor lies exactly on the cell, in
   its font, size, weight and alignment, so Enter leaves the text where it is.
+- Rows of the default height have a little more room around their text. Only
+  how they are drawn changes: the height the file keeps is the same, and rows a
+  file or a person sized keep their size.
 
 ### Devices
 

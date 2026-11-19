@@ -31,7 +31,7 @@
 	import type { WindowCache } from './cache';
 	import { htmlTableRows, isOwnCopy, parseTsv, shiftFormulaText, toTsv } from './clipboard';
 	import ContextMenu from './ContextMenu.svelte';
-	import { Axis, colPx, colSizes, rowPx, rowSizes } from './geometry';
+	import { Axis, colPx, colSizes, defaultRowPx, rowSizes } from './geometry';
 	import { textOf } from './history';
 	import { inputOf as cellInput } from '../input';
 	import { editorKey, gridKey, type EditHow } from './keys';
@@ -155,7 +155,7 @@
 	// Built from the file's sizes only; a drag lays its one size over them on each move.
 	const baseRowAxis = $derived(
 		new Axis(
-			Math.round(rowPx(meta.defaultRowHeight) * z),
+			Math.round(defaultRowPx(meta.defaultRowHeight) * z),
 			shownRows,
 			rowSizes(meta.rowInfo, z, hiddenRows)
 		)

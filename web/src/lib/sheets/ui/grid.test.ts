@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SheetCaches, WindowCache } from './cache';
 import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipboard';
-import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
+import { Axis, colPx, defaultRowPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
 import { cellLink, cellLook, DRAWN_CHARS, drawnText } from './style';
@@ -67,6 +67,9 @@ describe('geometry', () => {
 		expect(pxToChars(64)).toBeCloseTo(8.43, 1);
 		expect(rowPx(15)).toBe(20);
 		expect(pxToPt(20)).toBe(15);
+		// A default row has room for the text; a row dragged to it keeps that size.
+		expect(defaultRowPx(15)).toBe(24);
+		expect(rowPx(pxToPt(defaultRowPx(15)))).toBe(24);
 	});
 });
 
