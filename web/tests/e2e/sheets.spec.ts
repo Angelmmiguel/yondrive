@@ -192,11 +192,10 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			try {
 				await typeIn(page, 'N1', 'https://example.org/sheet-link');
 				await typeIn(page, 'N2', 'javascript:alert(1)');
-				const link = cell(page, 'N1').getByRole('link');
-				await expect(link).toHaveAttribute('href', 'https://example.org/sheet-link');
-				await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-				await expect(link).toHaveAttribute('target', '_blank');
-				await expect(cell(page, 'N2').getByRole('link')).toHaveCount(0);
+				const link = cell(page, 'N1').locator('[data-href]');
+				await expect(link).toHaveAttribute('data-href', 'https://example.org/sheet-link');
+				await expect(link).toHaveCSS('text-decoration-line', 'underline');
+				await expect(cell(page, 'N2').locator('[data-href]')).toHaveCount(0);
 
 				let opened = 0;
 				context.on('page', () => opened++);
@@ -517,6 +516,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 				}
 				return (performance.now() - start) / 60;
 			});
+			console.log('PERFRAME', perFrame);
 			expect(perFrame).toBeLessThan(100);
 			await expect(cell(page, 'A9001')).toHaveText('90000');
 			expect(await drawn()).toBeLessThan(3000);

@@ -732,11 +732,12 @@
 		const h = hit(e);
 		if (!h) return;
 		// Links open from view mode, or with Ctrl or Cmd held while editing.
-		const link = (e.target as Element).closest?.('a.link');
+		// The text of a link, as drawn in its cell or spilling over the next ones.
+		const href = (e.target as Element).closest?.('[data-href]')?.getAttribute('data-href');
 		pressed =
-			link instanceof HTMLAnchorElement && e.button === 0 && h.row >= 0 && h.col >= 0
+			href && e.button === 0 && h.row >= 0 && h.col >= 0
 				? {
-						href: link.href,
+						href,
 						row: h.row,
 						col: h.col,
 						open: !editable || e.ctrlKey || e.metaKey
@@ -853,11 +854,6 @@
 		const p = pressed;
 		pressed = null;
 		if (p?.open && h && h.row === p.row && h.col === p.col) openLink(p.href);
-	}
-
-	/** The browser does not follow a cell's link itself: a press selects, and `follow` decides. */
-	function onclick(e: MouseEvent) {
-		if ((e.target as Element).closest?.('a.link')) e.preventDefault();
 	}
 
 	/** Drawn sizes are dropped once the layout read back carries the new one. */
@@ -1079,30 +1075,12 @@
 			cellCount(a) > 1 ? `, ${a.bottom - a.top + 1} by ${a.right - a.left + 1} selected` : '';
 		const what = v?.text ? `${v.text}${v.formula ? `, formula ${v.formula}` : ''}` : 'empty';
 		const flag = flagsOf(v);
-		said = `${name}, ${what}${flag ? `. ${flag}` : ''}${many}`;
+		const link = cellLink(v?.value) ? ', a link: Ctrl+click it or open it from the menu' : '';
+		said = `${name}, ${what}${link}${flag ? `. ${flag}` : ''}${many}`;
 	});
 
 	const activeId = $derived(cid(activeArea.top, activeArea.left));
 </script>
-
-{#snippet text(d: Look)}
-	{#if d.link}
-		<!-- An address from the cell, to another site. -->
-		<!-- eslint-disable svelte/no-navigation-without-resolve -->
-		<a
-			class="txt link"
-			href={d.link}
-			target="_blank"
-			rel="noopener noreferrer"
-			tabindex="-1"
-			draggable="false"
-			title={editable ? 'Ctrl+click or ⌘+click to open the link' : 'Open the link'}>{d.text}</a
-		>
-		<!-- eslint-enable svelte/no-navigation-without-resolve -->
-	{:else}
-		<span class="txt">{d.text}</span>
-	{/if}
-{/snippet}
 
 {#snippet cells(rows: number[], cols: number[])}
 	{@const lastCol = cols[cols.length - 1] ?? 0}
@@ -1135,7 +1113,7 @@
 						title={flag || undefined}
 					>
 						{#if d.border}<span class="bd" style={d.border}></span>{/if}
-						{@render text(d)}
+						<span class="txt" data-href={d.link}>{d.text}</span>
 						{#if commented.has(`${r}:${c}`)}<span class="cm" data-testid="comment-mark"></span>{/if}
 					</div>
 				{/if}
@@ -1167,7 +1145,7 @@
 				title={flag || undefined}
 			>
 				{#if d.border}<span class="bd" style={d.border}></span>{/if}
-				{@render text(d)}
+				<span class="txt" data-href={d.link}>{d.text}</span>
 				{#if commented.has(`${m.top}:${m.left}`)}<span class="cm" data-testid="comment-mark"
 					></span>{/if}
 			</div>
@@ -1256,7 +1234,6 @@
 	{onpointermove}
 	{onpointerup}
 	onpointercancel={() => ((drag = null), (touch = null))}
-	{onclick}
 	{ondblclick}
 	{oncontextmenu}
 	{oncopy}
@@ -1547,14 +1524,14 @@
 		text-overflow: clip;
 	}
 
-	.link {
+	.txt[data-href] {
 		color: var(--accent-ink);
 		text-decoration: underline;
 		text-underline-offset: 2px;
 		cursor: cell;
 	}
 
-	.viewport[aria-readonly='true'] .link {
+	.viewport[aria-readonly='true'] .txt[data-href] {
 		cursor: pointer;
 	}
 
