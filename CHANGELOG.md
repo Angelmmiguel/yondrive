@@ -74,6 +74,10 @@ tag whose section is missing or still marked unreleased
   pound, yen, yuan, Swiss franc, Canadian, Australian and Mexican dollars and
   pesos, real and rupee, each with its symbol where its readers expect it and
   kept through .xlsx and .ods.
+- A cell whose value is a web or mail address is a link. It opens in a new tab
+  with a click while viewing, with Ctrl or Cmd held while editing, as in
+  documents, and from the cell's menu; a plain click while editing selects the
+  cell.
 
 ### Devices
 

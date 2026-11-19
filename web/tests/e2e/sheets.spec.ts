@@ -165,6 +165,49 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(currency).toHaveAttribute('aria-pressed', 'false');
 		});
 
+		test('a web address in a cell is a link: Ctrl+click or the menu opens it, a click selects', async () => {
+			const context = page.context();
+			await context.route('https://example.org/**', (r) =>
+				r.fulfill({ contentType: 'text/plain', body: 'elsewhere' })
+			);
+			try {
+				await typeIn(page, 'N1', 'https://example.org/sheet-link');
+				await typeIn(page, 'N2', 'javascript:alert(1)');
+				const link = cell(page, 'N1').getByRole('link');
+				await expect(link).toHaveAttribute('href', 'https://example.org/sheet-link');
+				await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+				await expect(link).toHaveAttribute('target', '_blank');
+				await expect(cell(page, 'N2').getByRole('link')).toHaveCount(0);
+
+				let opened = 0;
+				context.on('page', () => opened++);
+				const start = { x: 6, y: 6 };
+				await link.click({ position: start });
+				await expect(cell(page, 'N1')).toHaveAttribute('aria-selected', 'true');
+				await expect(page.getByRole('textbox', { name: /^Edit cell/ })).toHaveCount(0);
+				expect(opened).toBe(0);
+
+				const [tab] = await Promise.all([
+					context.waitForEvent('page'),
+					link.click({ position: start, modifiers: ['ControlOrMeta'] })
+				]);
+				await expect.poll(() => tab.url()).toBe('https://example.org/sheet-link');
+				expect(await tab.evaluate(() => window.opener)).toBeNull();
+				await tab.close();
+
+				await link.click({ position: start, button: 'right' });
+				const [again] = await Promise.all([
+					context.waitForEvent('page'),
+					page.getByRole('menuitem', { name: 'Open link' }).click()
+				]);
+				await expect.poll(() => again.url()).toBe('https://example.org/sheet-link');
+				await again.close();
+				await page.bringToFront();
+			} finally {
+				await context.unroute('https://example.org/**');
+			}
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');

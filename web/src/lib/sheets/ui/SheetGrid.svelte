@@ -49,7 +49,7 @@
 		type Pos,
 		type Selection
 	} from './selection';
-	import { cellLook, drawnText } from './style';
+	import { cellLink, cellLook, drawnText } from './style';
 
 	interface Props {
 		/** The file's id, which the clipboard memory is kept for. */
@@ -238,6 +238,8 @@
 		align: string;
 		wrap: boolean;
 		view?: CellView;
+		/** Where the value links to, when it is a web or mail address. */
+		link: string | null;
 		/** Columns of empty neighbours the text runs over. */
 		spill: number;
 	}
@@ -261,7 +263,13 @@
 				spill++;
 			}
 		}
-		return { text: drawnText(v?.text ?? '', look.wrap), ...look, view: v, spill };
+		return {
+			text: drawnText(v?.text ?? '', look.wrap),
+			...look,
+			view: v,
+			link: cellLink(v?.value),
+			spill
+		};
 	}
 
 	function flagsOf(v: CellView | undefined): string {
@@ -663,6 +671,8 @@
 	let sizing: { axis: 'width' | 'height'; index: number; start: number; from: number } | null =
 		null;
 	let touch: { x: number; y: number; at: number; hit: Hit } | null = null;
+	/** A link pressed in a cell, followed if the press ends on the same cell. */
+	let pressed: { href: string; row: number; col: number; open: boolean } | null = null;
 	let lastTap = { at: 0, row: -1, col: -1 };
 
 	function cellOf(h: Hit): Pos {
@@ -714,6 +724,17 @@
 			return;
 		const h = hit(e);
 		if (!h) return;
+		// Links open from view mode, or with Ctrl or Cmd held while editing.
+		const link = (e.target as Element).closest?.('a.link');
+		pressed =
+			link instanceof HTMLAnchorElement && e.button === 0 && h.row >= 0 && h.col >= 0
+				? {
+						href: link.href,
+						row: h.row,
+						col: h.col,
+						open: !editable || e.ctrlKey || e.metaKey
+					}
+				: null;
 		if (e.pointerType === 'touch') {
 			touch = { x: e.clientX, y: e.clientY, at: Date.now(), hit: h };
 			return;
@@ -799,6 +820,7 @@
 		}
 		if (drag && drag.pointer === e.pointerId) {
 			drag = null;
+			follow(hit(e));
 			return;
 		}
 		if (touch && e.pointerType === 'touch') {
@@ -806,6 +828,7 @@
 			touch = null;
 			if (Math.abs(e.clientX - t.x) > 10 || Math.abs(e.clientY - t.y) > 10) return;
 			const now = Date.now();
+			follow(t.hit);
 			const p = cellOf(t.hit);
 			const again = now - lastTap.at < 400 && lastTap.row === p.row && lastTap.col === p.col;
 			lastTap = { at: now, row: p.row, col: p.col };
@@ -813,6 +836,21 @@
 				if (again && !draft && t.hit.row >= 0 && t.hit.col >= 0) void startEdit('edit');
 			});
 		}
+	}
+
+	function openLink(href: string) {
+		window.open(href, '_blank', 'noopener,noreferrer');
+	}
+
+	function follow(h: Hit | null) {
+		const p = pressed;
+		pressed = null;
+		if (p?.open && h && h.row === p.row && h.col === p.col) openLink(p.href);
+	}
+
+	/** The browser does not follow a cell's link itself: a press selects, and `follow` decides. */
+	function onclick(e: MouseEvent) {
+		if ((e.target as Element).closest?.('a.link')) e.preventDefault();
 	}
 
 	/** Drawn sizes are dropped once the layout read back carries the new one. */
@@ -836,7 +874,9 @@
 		const cols = h.row < 0 || fullCols;
 		const nRows = area.bottom - area.top + 1;
 		const nCols = area.right - area.left + 1;
+		menuLink = h.row >= 0 && h.col >= 0 ? cellLink(cache.get(h.row, h.col)?.value) : null;
 		const items: MenuItem[] = [
+			...(menuLink ? [{ id: 'open-link', label: 'Open link', icon: 'link' as const }] : []),
 			{ id: 'cut', label: 'Cut', icon: 'close', disabled: !editable },
 			{ id: 'copy', label: 'Copy', icon: 'copy' },
 			{ id: 'paste', label: 'Paste', icon: 'download', disabled: !editable }
@@ -867,8 +907,12 @@
 		menu = { x: e.clientX, y: e.clientY, items };
 	}
 
+	let menuLink: string | null = null;
+
 	function chooseMenu(id: string) {
-		if (id === 'copy' || id === 'cut') {
+		if (id === 'open-link') {
+			if (menuLink) openLink(menuLink);
+		} else if (id === 'copy' || id === 'cut') {
 			copyOut(id === 'cut');
 		} else if (id === 'paste') {
 			void pasteFromMenu();
@@ -1033,6 +1077,25 @@
 	const activeId = $derived(cid(activeArea.top, activeArea.left));
 </script>
 
+{#snippet text(d: Look)}
+	{#if d.link}
+		<!-- An address from the cell, to another site. -->
+		<!-- eslint-disable svelte/no-navigation-without-resolve -->
+		<a
+			class="txt link"
+			href={d.link}
+			target="_blank"
+			rel="noopener noreferrer"
+			tabindex="-1"
+			draggable="false"
+			title={editable ? 'Ctrl+click or ⌘+click to open the link' : 'Open the link'}>{d.text}</a
+		>
+		<!-- eslint-enable svelte/no-navigation-without-resolve -->
+	{:else}
+		<span class="txt">{d.text}</span>
+	{/if}
+{/snippet}
+
 {#snippet cells(rows: number[], cols: number[])}
 	{@const lastCol = cols[cols.length - 1] ?? 0}
 	{#each rows as r (r)}
@@ -1064,7 +1127,7 @@
 						title={flag || undefined}
 					>
 						{#if d.border}<span class="bd" style={d.border}></span>{/if}
-						<span class="txt">{d.text}</span>
+						{@render text(d)}
 						{#if commented.has(`${r}:${c}`)}<span class="cm" data-testid="comment-mark"></span>{/if}
 					</div>
 				{/if}
@@ -1096,7 +1159,7 @@
 				title={flag || undefined}
 			>
 				{#if d.border}<span class="bd" style={d.border}></span>{/if}
-				<span class="txt">{d.text}</span>
+				{@render text(d)}
 				{#if commented.has(`${m.top}:${m.left}`)}<span class="cm" data-testid="comment-mark"
 					></span>{/if}
 			</div>
@@ -1185,6 +1248,7 @@
 	{onpointermove}
 	{onpointerup}
 	onpointercancel={() => ((drag = null), (touch = null))}
+	{onclick}
 	{ondblclick}
 	{oncontextmenu}
 	{oncopy}
@@ -1466,6 +1530,17 @@
 
 	.cell:not(.wrap) .txt {
 		text-overflow: clip;
+	}
+
+	.link {
+		color: var(--accent-ink);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+		cursor: cell;
+	}
+
+	.viewport[aria-readonly='true'] .link {
+		cursor: pointer;
 	}
 
 	.bd {

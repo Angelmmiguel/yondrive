@@ -125,3 +125,23 @@ export function cellLook(style: CellStyle | undefined, value: Scalar | undefined
 	looks.set(style, byAlign);
 	return look;
 }
+
+const LINK = /^(?:https?:\/\/|mailto:)\S+$/i;
+
+/**
+ * The address a cell's value links to: the whole value is a web or mail
+ * address. Anything else, `javascript:` and `data:` among it, is text.
+ */
+export function cellLink(v: Scalar | undefined): string | null {
+	if (typeof v !== 'string' || v.length > 2048) return null;
+	const t = v.trim();
+	if (!LINK.test(t)) return null;
+	try {
+		const u = new URL(t);
+		return u.protocol === 'https:' || u.protocol === 'http:' || u.protocol === 'mailto:'
+			? u.href
+			: null;
+	} catch {
+		return null;
+	}
+}

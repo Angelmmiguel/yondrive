@@ -4,7 +4,7 @@ import { htmlTableRows, isOwnCopy, parseTsv, toTsv, type Copied } from './clipbo
 import { Axis, colPx, pxToChars, pxToPt, rowPx } from './geometry';
 import { editorKey, gridKey } from './keys';
 import { areaOf, cycle, jump, moved, single, withMerges } from './selection';
-import { cellLook, DRAWN_CHARS, drawnText } from './style';
+import { cellLink, cellLook, DRAWN_CHARS, drawnText } from './style';
 import { DISTINCT_LIMIT, distinctValues, hiddenRows, statsOf } from './summary';
 import type { CellView } from '../service';
 import { DEFAULT_STYLE } from '$lib/formats/workbook';
@@ -370,6 +370,29 @@ describe('a hostile column for the filter', () => {
 		expect(more).toBe(true);
 		expect(values.slice(0, 3)).toEqual(['v1', 'v2', 'v3']);
 		expect(distinctValues(texts, 1, 3, 3)).toEqual({ values: ['v1', 'v2', 'v3'], more: false });
+	});
+});
+
+describe('links in cells', () => {
+	it('links a value that is a whole web or mail address, and nothing else', () => {
+		expect(cellLink('https://example.org/a?b=1')).toBe('https://example.org/a?b=1');
+		expect(cellLink(' http://example.org ')).toBe('http://example.org/');
+		expect(cellLink('mailto:someone@example.org')).toBe('mailto:someone@example.org');
+		for (const v of [
+			'javascript:alert(1)',
+			'JAVASCRIPT:alert(1)',
+			'data:text/html,x',
+			'see https://example.org',
+			'https://example.org and more',
+			'ftp://example.org',
+			'https://',
+			'example.org',
+			`https://example.org/${'a'.repeat(3000)}`,
+			42,
+			null,
+			undefined
+		])
+			expect(cellLink(v as string)).toBeNull();
 	});
 });
 
