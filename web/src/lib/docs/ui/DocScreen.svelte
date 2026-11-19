@@ -1037,6 +1037,7 @@
 	}
 
 	button.fmt {
+		background: transparent;
 		line-height: inherit;
 		cursor: help;
 	}
