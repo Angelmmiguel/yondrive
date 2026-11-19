@@ -78,6 +78,8 @@ tag whose section is missing or still marked unreleased
   with a click while viewing, with Ctrl or Cmd held while editing, as in
   documents, and from the cell's menu; a plain click while editing selects the
   cell.
+- Typing into a cell no longer jumps: the editor lies exactly on the cell, in
+  its font, size, weight and alignment, so Enter leaves the text where it is.
 
 ### Devices
 

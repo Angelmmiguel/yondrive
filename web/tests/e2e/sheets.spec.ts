@@ -208,6 +208,33 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			}
 		});
 
+		test('the cell editor lies exactly on the cell, in its font, so Enter moves nothing', async () => {
+			const fontOf = (el: Element) => {
+				const s = getComputedStyle(el);
+				return [s.fontFamily, s.fontSize, s.fontWeight, s.fontStyle, s.lineHeight].join(' | ');
+			};
+			const round = (b: { x: number; y: number; width: number; height: number } | null) =>
+				b && [b.x, b.y, b.width, b.height].map((n) => Math.round(n * 2) / 2);
+			await goTo(page, 'B5');
+			await page.keyboard.type('Hi 5');
+			const editor = page.getByRole('textbox', { name: 'Edit cell B5' });
+			await expect(editor).toHaveValue('Hi 5');
+			expect(round(await editor.locator('..').boundingBox())).toEqual(
+				round(await cell(page, 'B5').boundingBox())
+			);
+			const typing = await editor.evaluate(fontOf);
+			const at = (await editor.boundingBox())!;
+			await page.keyboard.press('Enter');
+			await expect(editor).toHaveCount(0);
+			const text = cell(page, 'B5').locator('.txt');
+			await expect(text).toHaveText('Hi 5');
+			expect(await text.evaluate(fontOf)).toBe(typing);
+			const shown = (await text.boundingBox())!;
+			expect(Math.round(shown.x)).toBe(Math.round(at.x));
+			expect(Math.round(shown.y)).toBe(Math.round(at.y));
+			expect(Math.round(shown.height)).toBe(Math.round(at.height));
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');

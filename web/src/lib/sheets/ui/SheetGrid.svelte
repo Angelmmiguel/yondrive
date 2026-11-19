@@ -720,8 +720,7 @@
 	}
 
 	function onpointerdown(e: PointerEvent) {
-		if (e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement).closest('.hbtn'))
-			return;
+		if ((e.target as HTMLElement).closest('.editbox, .hbtn')) return;
 		const h = hit(e);
 		if (!h) return;
 		// Links open from view mode, or with Ctrl or Cmd held while editing.
@@ -1331,15 +1330,27 @@
 		{/if}
 
 		{#if draft}
-			<textarea
-				bind:this={editor}
-				bind:value={draft.text}
-				class="editor"
-				aria-label="Edit cell {colName(sel.active.col)}{sel.active.row + 1}"
-				spellcheck="false"
-				autocomplete="off"
-				style="left:{activeBox.left}px;top:{activeBox.top}px;min-width:{activeBox.width}px;min-height:{activeBox.height}px"
-				onkeydown={oneditorkey}></textarea>
+			<!-- Laid out as the cell is, in its font, so that what is typed does not move on Enter. -->
+			{@const look = lookOf(activeArea.top, activeArea.left, activeArea.left)}
+			{@const lines = look.wrap || draft.text.includes('\n')}
+			<div
+				class="editbox {look.align}"
+				class:wrap={look.wrap}
+				style="left:{activeBox.left}px;top:{activeBox.top}px;{look.wrap
+					? 'width'
+					: 'min-width'}:{activeBox.width}px;{lines
+					? 'min-height'
+					: 'height'}:{activeBox.height}px;{look.css}"
+			>
+				<textarea
+					bind:this={editor}
+					bind:value={draft.text}
+					class="editor"
+					aria-label="Edit cell {colName(sel.active.col)}{sel.active.row + 1}"
+					spellcheck="false"
+					autocomplete="off"
+					onkeydown={oneditorkey}></textarea>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -1492,15 +1503,10 @@
 		position: absolute;
 		top: 0;
 		height: 100%;
-		box-sizing: border-box;
 		display: flex;
 		align-items: flex-end;
-		padding: 0 calc(4px * var(--z)) calc(2px * var(--z));
-		border-right: 1px solid var(--divider);
-		border-bottom: 1px solid var(--divider);
 		overflow: hidden;
 		white-space: pre;
-		line-height: 1.25;
 		cursor: cell;
 	}
 
@@ -1620,26 +1626,65 @@
 		width: 2px;
 	}
 
-	.editor {
+	/* The cell's own box: its padding, its grid lines and its alignment, with the
+	   active cell's frame drawn inside rather than taking room. */
+	.cell,
+	.editbox {
+		box-sizing: border-box;
+		padding: 0 calc(4px * var(--z)) calc(2px * var(--z));
+		border-right: 1px solid var(--divider);
+		border-bottom: 1px solid var(--divider);
+		line-height: 1.25;
+	}
+
+	.editbox {
 		position: absolute;
 		z-index: 10;
-		box-sizing: border-box;
+		display: flex;
+		align-items: flex-end;
 		max-width: 60vw;
 		max-height: 50vh;
-		margin: 0;
-		padding: calc(2px * var(--z)) calc(4px * var(--z));
-		border: 2px solid var(--sheets);
-		border-radius: 0;
+		overflow: hidden;
 		background: var(--surface-paper);
-		color: var(--text-strong);
+		box-shadow:
+			inset 0 0 0 2px var(--sheets),
+			var(--shadow-lg);
+	}
+
+	.editor {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-height: calc(50vh - 4px);
+		margin: 0;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
+		color: inherit;
 		font: inherit;
-		font-size: calc(13px * var(--z));
-		line-height: 1.25;
+		line-height: inherit;
+		text-align: inherit;
+		text-decoration: inherit;
 		resize: none;
 		outline: none;
-		box-shadow: var(--shadow-lg);
+		/* The frame is the box's: no focus ring of its own inside it. */
+		box-shadow: none;
 		field-sizing: content;
 		white-space: pre;
+		overflow: auto;
+	}
+
+	.editbox.right {
+		text-align: right;
+	}
+
+	.editbox.center {
+		text-align: center;
+	}
+
+	.editbox.wrap .editor {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
 	}
 
 	.sr {
