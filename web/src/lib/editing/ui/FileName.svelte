@@ -86,7 +86,7 @@
 	</span>
 {:else}
 	<!-- Named by the file alone, whatever the button inside says it does. -->
-	<h1 class="name" aria-label={name} title={canRename ? undefined : name}>
+	<h1 class="name" class:plain={!canRename} aria-label={name} title={canRename ? undefined : name}>
 		{#if canRename}
 			<button
 				bind:this={button}
@@ -104,7 +104,8 @@
 
 <style>
 	.name {
-		margin: 0;
+		/* Room for the button's hover padding, without moving the name. */
+		margin: 0 -6px;
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -118,7 +119,7 @@
 		max-width: 100%;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		margin: -2px -6px;
+		margin: -2px 0;
 		padding: 2px 6px;
 		border: 0;
 		border-radius: 6px;
@@ -128,6 +129,10 @@
 		letter-spacing: inherit;
 		white-space: nowrap;
 		cursor: text;
+	}
+
+	.name.plain {
+		padding: 0 6px;
 	}
 
 	.rename:hover {
