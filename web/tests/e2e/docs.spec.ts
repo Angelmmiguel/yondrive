@@ -64,6 +64,33 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(errors).toEqual([]);
 		});
 
+		test('the file is renamed in place from the header', async () => {
+			const name = 'Untitled document.docx';
+			const field = page.getByRole('textbox', { name: 'File name' });
+			await page.getByRole('button', { name: `Rename ${name}` }).click();
+			await expect(field).toBeFocused();
+			// The name before the extension is ready to be typed over.
+			expect(await field.evaluate((el: HTMLInputElement) => el.selectionEnd)).toBe(
+				'Untitled document'.length
+			);
+			await field.fill('a/b.docx');
+			await field.press('Enter');
+			await expect(page.getByRole('alert').filter({ hasText: 'slash' })).toBeVisible();
+			await field.press('Escape');
+			await expect(page.getByRole('heading', { name })).toBeVisible();
+			await page.getByRole('button', { name: `Rename ${name}` }).click();
+			await field.fill('Notes for later.docx');
+			// Leaving the field keeps the name.
+			await page.getByTestId('save-status').click();
+			await expect(page.getByRole('heading', { name: 'Notes for later.docx' })).toBeVisible();
+			await page.getByRole('button', { name: 'Rename Notes for later.docx' }).click();
+			await field.fill(name);
+			await field.press('Enter');
+			await expect(page.getByRole('heading', { name })).toBeVisible();
+			await reloadHome(page, server);
+			await openDoc(page, name);
+		});
+
 		test('the page: a click below the text types at its end, no ring, sans-serif, zoom', async () => {
 			await expect(editor(page)).toContainText('First words of a new document.');
 			const paper = page.locator('article.paper');

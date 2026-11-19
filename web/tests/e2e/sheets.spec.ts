@@ -299,6 +299,41 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			}
 		});
 
+		test('the file and a sheet are renamed in place', async () => {
+			const name = 'Untitled spreadsheet.xlsx';
+			const field = page.getByRole('textbox', { name: 'File name' });
+			await page.getByRole('button', { name: `Rename ${name}` }).click();
+			await expect(field).toBeFocused();
+			await field.fill('');
+			await field.press('Enter');
+			await expect(page.getByRole('alert').filter({ hasText: 'Type a name.' })).toBeVisible();
+			await field.press('Escape');
+			await expect(page.getByRole('heading', { name })).toBeVisible();
+			await page.getByRole('button', { name: `Rename ${name}` }).click();
+			await field.fill('Renamed here.xlsx');
+			await field.press('Enter');
+			await expect(page.getByRole('heading', { name: 'Renamed here.xlsx' })).toBeVisible();
+			await page.getByRole('button', { name: 'Rename Renamed here.xlsx' }).click();
+			await field.fill(name);
+			await field.press('Enter');
+			await expect(page.getByRole('heading', { name })).toBeVisible();
+
+			const tabField = page.getByRole('textbox', { name: 'Sheet name' });
+			await page.getByRole('tab', { name: 'Sheet1' }).dblclick();
+			await expect(tabField).toBeFocused();
+			await tabField.fill('Data');
+			await tabField.press('Escape');
+			await expect(page.getByRole('tab', { name: 'Sheet1' })).toBeFocused();
+			await page.getByRole('tab', { name: 'Sheet1' }).dblclick();
+			await tabField.fill('Data');
+			await tabField.press('Enter');
+			await expect(page.getByRole('tab', { name: 'Data' })).toBeFocused();
+			await page.getByRole('tab', { name: 'Data' }).dblclick();
+			await tabField.fill('Sheet1');
+			await tabField.press('Enter');
+			await expect(page.getByRole('tab', { name: 'Sheet1' })).toBeVisible();
+		});
+
 		test('inserting a row moves the formulas that read below it', async () => {
 			await typeIn(page, 'C1', '1');
 			await typeIn(page, 'C2', '2');

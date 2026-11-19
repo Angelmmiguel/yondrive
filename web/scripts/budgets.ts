@@ -39,7 +39,7 @@ export const BUDGETS = {
 		'/setup': 13 * KIB,
 		'/shared': 6 * KIB,
 		'/shared/by-me': 3 * KIB,
-		'/sheet/[id]': 94 * KIB,
+		'/sheet/[id]': 100 * KIB,
 		'/signin': 3 * KIB,
 		'/styleguide': 7 * KIB,
 		'/tags/[id]': 5 * KIB,

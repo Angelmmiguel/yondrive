@@ -1069,7 +1069,7 @@ Measured when the budgets were set (gzip, KiB), each budget about 5% above:
 | Shell CSS | 12.8 | 14 |
 | `/doc/[id]` (ProseMirror, the document formats) | 125.7 | 133 |
 | `/notes/[id]` (ProseMirror, Markdown) | 129.4 | 136 |
-| `/sheet/[id]` (grid, formula engine, sheet formats) | 89.1 | 94 |
+| `/sheet/[id]` (grid, formula engine, sheet formats) | 94.8 | 100 |
 | `/admin` | 13.4 | 15 |
 | `/setup` | 11.6 | 13 |
 | Every other route | 1.2 to 9.0 | 2 to 10 |

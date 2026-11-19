@@ -70,6 +70,11 @@ export class EditSession<F extends string> {
 		return this.#file;
 	}
 
+	/** The file was renamed from its editor: a copy or a conversion starts from the new name. */
+	renamed(name: string): void {
+		this.#file = { ...this.#file, name };
+	}
+
 	get status(): SaveStatus {
 		return this.#status;
 	}

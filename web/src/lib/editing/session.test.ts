@@ -34,6 +34,18 @@ describe('an edit session', () => {
 		expect(s.status).toBe('saved');
 	});
 
+	it('takes a new name given in the editor, for the copy a conflict makes', async () => {
+		const { d } = deps();
+		vi.mocked(d.save).mockRejectedValueOnce(new ApiError(409, 'version_conflict'));
+		const write = vi.fn(async () => new Uint8Array([1]));
+		const s = new EditSession(d, file, { original: 'xls', saveAs: 'xls' }, write);
+		s.renamed('Budget.xls');
+		expect(s.file).toEqual({ ...file, name: 'Budget.xls' });
+		s.changed();
+		await s.flush();
+		expect(d.copy).toHaveBeenCalledWith({ ...file, name: 'Budget.xls' }, new Uint8Array([1]));
+	});
+
 	it('never saves again once discarded, whatever was waiting', async () => {
 		const { d, timers } = deps();
 		const write = vi.fn(async () => new Uint8Array([1]));

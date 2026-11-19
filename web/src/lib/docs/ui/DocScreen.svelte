@@ -10,7 +10,7 @@
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { EditorView } from 'prosemirror-view';
 	import { api } from '$lib/api/client';
-	import type { Editor } from '$lib/api/types';
+	import { isApiError, type Editor } from '$lib/api/types';
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import {
 		Banner,
@@ -59,6 +59,7 @@
 	import { takeNew } from '$lib/editing/fresh';
 	import { DocSession, type SaveStatus, type SessionFile } from '../session';
 	import { schema } from '../schema';
+	import FileName from '$lib/editing/ui/FileName.svelte';
 	import FileSide from '$lib/editing/ui/FileSide.svelte';
 	import DocToolbar from './DocToolbar.svelte';
 	import FindBar from './FindBar.svelte';
@@ -583,6 +584,22 @@
 		else if (id === 'theme') theme.choose(dark ? 'light' : 'dark');
 		else if (id.startsWith('download:')) void download(id.slice('download:'.length));
 	}
+
+	/** Renames the file from its header, as the folder's Rename does. */
+	async function renameFile(name: string): Promise<string | null> {
+		const core = drive.core;
+		const n = node;
+		if (!core || !n) return 'This file cannot be renamed now.';
+		try {
+			const renamed = await core.tree.rename(n.id, name);
+			fileName = renamed.name;
+			docSession?.renamed(renamed.name);
+			return null;
+		} catch (e) {
+			if (isApiError(e, 'unauthorized')) account.signedOut();
+			return describeDriveError(e);
+		}
+	}
 </script>
 
 {#snippet zoomPick()}
@@ -632,7 +649,12 @@
 			<span class="badge" aria-hidden="true"><Icon name="doc" size={20} /></span>
 			<div class="title">
 				<div class="line">
-					<h1 class="name" title={fileName}>{fileName}</h1>
+					<FileName
+						--name-size="17px"
+						name={fileName}
+						canRename={!!node && isOwner(node)}
+						onrename={renameFile}
+					/>
 					<span class="fmt">{format.toUpperCase()}</span>
 				</div>
 				<div class="meta">
@@ -993,15 +1015,6 @@
 		align-items: center;
 		gap: 8px;
 		min-width: 0;
-	}
-
-	.name {
-		margin: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 17px;
-		font-weight: 600;
 	}
 
 	.fmt {

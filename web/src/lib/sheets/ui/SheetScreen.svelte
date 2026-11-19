@@ -10,7 +10,7 @@
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { MediaQuery, SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { api } from '$lib/api/client';
-	import type { Editor } from '$lib/api/types';
+	import { isApiError, type Editor } from '$lib/api/types';
 	import { formatBytes, formatWhen } from '$lib/app/format';
 	import {
 		Banner,
@@ -31,6 +31,7 @@
 	import { takeNew } from '$lib/editing/fresh';
 	import { Presence } from '$lib/editing/presence';
 	import { EditSession, type SaveStatus, type SessionFile } from '$lib/editing/session';
+	import FileName from '$lib/editing/ui/FileName.svelte';
 	import FileSide from '$lib/editing/ui/FileSide.svelte';
 	import { colName, MAX_COLS, MAX_ROWS, parseArea, type Area } from '$lib/formula/address';
 	import {
@@ -891,13 +892,21 @@
 
 	async function doRename() {
 		const r = renaming;
+		if (!r) return;
+		const error = await renameSheet(r.id, r.name);
+		if (error === null) renaming = null;
+		else if (error) renaming = { ...r, error };
+	}
+
+	/** Renames a sheet: null when it was, else what to say why not ('' when already said). */
+	async function renameSheet(id: number, name: string): Promise<string | null> {
 		const ed = editor;
-		if (!r || !ed || !client) return;
+		if (!ed || !client) return '';
 		try {
-			const was = sheets.find((s) => s.id === r.id)?.name;
-			await ed.untracked((a) => a.renameSheet(r.id, r.name));
+			const was = sheets.find((s) => s.id === id)?.name;
+			await ed.untracked((a) => a.renameSheet(id, name));
 			sheets = await client.api.sheets();
-			const now = sheets.find((s) => s.id === r.id)?.name;
+			const now = sheets.find((s) => s.id === id)?.name;
 			if (was !== undefined && now !== undefined && was !== now && comments) {
 				for (const t of comments.threads) {
 					const cell = cellOf(t);
@@ -905,11 +914,12 @@
 				}
 			}
 			fileSession?.changed();
-			renaming = null;
 			rev++;
+			return null;
 		} catch (e) {
-			if (e instanceof RemoteError) renaming = { ...r, error: describeInputError(e) };
-			else report(e);
+			if (e instanceof RemoteError) return describeInputError(e);
+			report(e);
+			return '';
 		} finally {
 			syncHistory();
 		}
@@ -1236,6 +1246,22 @@
 			? `A .${format} file holds one sheet of values. To keep formulas, formatting or more sheets, download it as .xlsx or change “Save changes as” in Details.`
 			: ''
 	);
+
+	/** Renames the file from its header, as the folder's Rename does. */
+	async function renameFile(name: string): Promise<string | null> {
+		const core = drive.core;
+		const n = node;
+		if (!core || !n) return 'This file cannot be renamed now.';
+		try {
+			const renamed = await core.tree.rename(n.id, name);
+			fileName = renamed.name;
+			fileSession?.renamed(renamed.name);
+			return null;
+		} catch (e) {
+			if (isApiError(e, 'unauthorized')) account.signedOut();
+			return describeDriveError(e);
+		}
+	}
 </script>
 
 {#snippet commentsTab()}
@@ -1268,7 +1294,7 @@
 			<span class="badge" aria-hidden="true"><Icon name="sheet" size={19} /></span>
 			<div class="title">
 				<div class="line">
-					<h1 class="name" title={fileName}>{fileName}</h1>
+					<FileName name={fileName} canRename={!!node && isOwner(node)} onrename={renameFile} />
 					<span class="fmt">{format.toUpperCase()}</span>
 					{#if node && isOwner(node)}
 						<button
@@ -1604,6 +1630,7 @@
 				onpick={(id) => void pick(id)}
 				onadd={() => void addSheet()}
 				onaction={tabAction}
+				onrename={renameSheet}
 			/>
 		{/if}
 		<span class="status">
@@ -1925,16 +1952,6 @@
 		align-items: center;
 		gap: 8px;
 		min-width: 0;
-	}
-
-	.name {
-		margin: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: 16px;
-		font-weight: 600;
-		letter-spacing: -0.01em;
 	}
 
 	.fmt {

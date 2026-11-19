@@ -64,6 +64,8 @@ tag whose section is missing or still marked unreleased
   end; beside a line, on that line.
 - No focus ring around the text while typing.
 - The default font is sans-serif (Geist). A file's own fonts are kept.
+- The file's name in the header of a document or a spreadsheet renames it in
+  place: click it, type, and Enter or click away; Escape keeps the old name.
 
 ### Spreadsheets
 
@@ -87,6 +89,7 @@ tag whose section is missing or still marked unreleased
   opens it.
 - Pressing on the grid's scrollbars scrolls it, and no longer selects the cells
   under them or starts a selection.
+- A double click on a sheet's tab renames it in place.
 
 ### Devices
 
