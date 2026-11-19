@@ -25,6 +25,12 @@ import { startServer, type Mode, type Server } from '../server';
 import { addUser, openShared, refocus, shareDialog, shareWith } from '../sharing';
 
 const box = await fileBox();
+
+/** Opens the side panel, which starts closed. */
+async function openPanel(page: Page) {
+	const toggle = page.getByRole('button', { name: 'Toggle details panel' });
+	if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
+}
 test.afterAll(() => box.remove());
 
 for (const mode of ['e2e', 'none'] as Mode[]) {
@@ -54,6 +60,14 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(page.getByRole('heading', { name: 'Untitled spreadsheet.xlsx' })).toBeVisible();
 			// Made here, not brought: nothing to say about how the file is kept.
 			await expect(page.getByTestId('sheet-notice')).toHaveCount(0);
+			// The whole sheet shows: the details panel starts closed, and opens on request.
+			const toggle = page.getByRole('button', { name: 'Toggle details panel' });
+			await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+			await expect(page.getByRole('complementary', { name: 'Spreadsheet details' })).toHaveCount(0);
+			await toggle.click();
+			await expect(page.getByRole('complementary', { name: 'Spreadsheet details' })).toBeVisible();
+			await toggle.click();
+			await expect(page.getByRole('complementary', { name: 'Spreadsheet details' })).toHaveCount(0);
 			await typeIn(page, 'A1', '2');
 			await page.keyboard.type('3');
 			await page.keyboard.press('Enter');
@@ -422,6 +436,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			expect(bytes.subarray(0, 2).toString()).toBe('PK');
 			const { book } = await readSpreadsheet(new Uint8Array(bytes), 'xlsx');
 			expect(book.engine.cell(book.ordered()[0].id, 0, 2)?.value).toBe('Converted');
+			await openPanel(page);
 			await page.getByRole('tab', { name: 'Versions' }).click();
 			await expect(page.getByTestId('doc-version')).toHaveCount(2);
 		});
@@ -443,6 +458,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await expect(cell(page, 'A1')).toHaveText('20');
 			await saveNow(page);
 
+			await openPanel(page);
 			await page.getByRole('tab', { name: 'Versions' }).click();
 			const versions = page.getByTestId('doc-version');
 			await expect(versions.nth(1)).toBeVisible();
@@ -520,6 +536,7 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await reloadHome(page, server);
 			await openSheet(page, 'Untitled spreadsheet.xlsx');
 			const details = page.getByRole('complementary', { name: 'Spreadsheet details' });
+			await openPanel(page);
 			await expect(details).toBeVisible();
 			await page.setViewportSize({ width: 390, height: 844 });
 			try {

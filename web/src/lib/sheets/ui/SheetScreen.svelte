@@ -100,9 +100,10 @@
 	let warnedFixed = false;
 	let mode = $state<'edit' | 'view'>('edit');
 	let zoom = $state(100);
-	/** A phone: the panel starts closed and opens over the grid. */
+	/** A phone: the panel opens over the grid. */
 	const narrow = new MediaQuery('max-width: 720px');
-	let panel = $state<'details' | 'versions' | 'comments' | null>(narrow.current ? null : 'details');
+	/** The side panel starts closed, so the whole sheet shows. */
+	let panel = $state<'details' | 'versions' | 'comments' | null>(null);
 	// Narrowed to a phone's width, an open panel would cover the grid: it closes.
 	$effect(() => {
 		if (narrow.current) untrack(() => (panel = null));

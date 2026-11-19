@@ -83,6 +83,8 @@ tag whose section is missing or still marked unreleased
 - Rows of the default height have a little more room around their text. Only
   how they are drawn changes: the height the file keeps is the same, and rows a
   file or a person sized keep their size.
+- The details panel starts closed, so the whole sheet shows; the Details button
+  opens it.
 
 ### Devices
 
