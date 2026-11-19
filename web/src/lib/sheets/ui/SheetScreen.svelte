@@ -22,6 +22,7 @@
 		Menu,
 		SegmentedControl,
 		TextInput,
+		Tooltip,
 		type MenuItem
 	} from '$lib/components';
 	import { describeDriveError } from '$lib/drive/errors';
@@ -97,6 +98,8 @@
 	let status = $state<SaveStatus>('saved');
 	let saveError = $state('');
 	let notice = $state<SheetNotice | null>(null);
+	/** How the file is kept, told by its format's badge. */
+	let about = $state('');
 	let fixedRanges = $state.raw<string[]>([]);
 	let warnedFixed = false;
 	let mode = $state<'edit' | 'view'>('edit');
@@ -227,7 +230,9 @@
 			saveAs = sheetSaveFormatOf(f);
 			fileName = found.name;
 			// A file just made here has nothing to say about how it was opened.
-			notice = takeNew(found.id) ? null : loaded.notice;
+			const told = takeNew(found.id) ? null : loaded.notice;
+			about = told?.summary ?? '';
+			notice = told && (!told.quiet || told.lines.length > 0) ? told : null;
 			fixedRanges = loaded.fixedRanges;
 			warnedFixed = false;
 			styles = loaded.styles;
@@ -964,7 +969,8 @@
 				`Saved as ${SHEET_FORMAT_NAMES[c.to]}. The previous version is in Versions.`
 			);
 			format = c.to;
-			notice = { summary: `Saved as .${c.to} from now on.`, lines: [] };
+			notice = { summary: `Saved as .${c.to} from now on.`, lines: [], quiet: false };
+			about = notice.summary;
 		}
 	}
 
@@ -1295,7 +1301,17 @@
 			<div class="title">
 				<div class="line">
 					<FileName name={fileName} canRename={!!node && isOwner(node)} onrename={renameFile} />
-					<span class="fmt">{format.toUpperCase()}</span>
+					{#if about}
+						<Tooltip text={about}>
+							{#snippet trigger(attrs)}
+								<button type="button" class="fmt" data-testid="format-badge" {...attrs}
+									>{format.toUpperCase()}</button
+								>
+							{/snippet}
+						</Tooltip>
+					{:else}
+						<span class="fmt">{format.toUpperCase()}</span>
+					{/if}
 					{#if node && isOwner(node)}
 						<button
 							type="button"
@@ -1540,7 +1556,7 @@
 				<div class="notice" role="status" data-testid="sheet-notice">
 					<Icon name="info" />
 					<div class="notice-text">
-						<span>{notice.summary}</span>
+						{#if !notice.quiet}<span>{notice.summary}</span>{/if}
 						{#each notice.lines as line (line)}<span>{line}</span>{/each}
 						{#if csvNote}<span>{csvNote}</span>{/if}
 					</div>
@@ -1954,6 +1970,19 @@
 		align-items: center;
 		gap: 8px;
 		min-width: 0;
+	}
+
+	button.fmt {
+		border: 0;
+		line-height: inherit;
+		cursor: help;
+	}
+
+	/* A finger's 44px, as every control has here, without making the header taller. */
+	@media (max-width: 640px), (pointer: coarse) {
+		button.fmt {
+			margin-block: -12px;
+		}
 	}
 
 	.fmt {

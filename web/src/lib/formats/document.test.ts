@@ -51,5 +51,8 @@ describe('document', () => {
 		expect(n.summary).toContain('.docx');
 		expect(n.lines.join(' ')).toMatch(/not editable here.*tracked change/i);
 		expect(noticeOf('docx', { items: [] }).lines).toEqual([]);
+		expect(n.quiet).toBe(true);
+		expect(noticeOf('doc', { items: [] }).quiet).toBe(false);
+		expect(noticeOf('txt', { items: [] }).quiet).toBe(false);
 	});
 });

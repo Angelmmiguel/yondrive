@@ -68,6 +68,12 @@ tag whose section is missing or still marked unreleased
   place: click it, type, and Enter or click away; Escape keeps the old name.
 - Share and Comments in the header of a document or a spreadsheet are as tall
   as the buttons beside them.
+- How a .docx, .odt, Markdown, .xlsx or .ods file is kept ("Opened from .docx.
+  Changes are saved back as .docx…") is no longer a notice above the editor: it
+  is the tooltip of the format's badge in the header, on hover, focus or a tap,
+  and its description for screen readers. What a file holds that is kept, locked
+  or lost, and the warnings of formats that are not saved back as they came,
+  still show above the editor.
 
 ### Spreadsheets
 

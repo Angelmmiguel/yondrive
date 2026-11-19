@@ -21,6 +21,7 @@
 		Menu,
 		SegmentedControl,
 		TextInput,
+		Tooltip,
 		type MenuItem
 	} from '$lib/components';
 	import { describeDriveError } from '$lib/drive/errors';
@@ -83,6 +84,8 @@
 	let status = $state<SaveStatus>('saved');
 	let saveError = $state('');
 	let notice = $state<Notice | null>(null);
+	/** How the file is kept, told by its format's badge. */
+	let about = $state('');
 	let mode = $state<'edit' | 'view'>('edit');
 	let rev = $state(0);
 	let zoom = $state(100);
@@ -157,7 +160,9 @@
 			saveAs = f === 'doc' ? 'docx' : f;
 			fileName = found.name;
 			// A file just made here has nothing to say about how it was opened.
-			notice = takeNew(found.id) ? null : noticeOf(f, opened.census);
+			const told = takeNew(found.id) ? null : noticeOf(f, opened.census);
+			about = told?.summary ?? '';
+			notice = told && (!told.quiet || told.lines.length > 0) ? told : null;
 			hasLocked = opened.model.blocks.some((b) => b.type === 'locked');
 			mode = canWrite(found) ? 'edit' : 'view';
 			store = new ImageStore(opened.model.images);
@@ -511,7 +516,8 @@
 		if (docSession.status === 'saved') {
 			toasts.push('ok', `Saved as ${FORMAT_NAMES[f]}. The previous version is in Versions.`);
 			format = f;
-			notice = { summary: `Saved as .${f} from now on.`, lines: [] };
+			notice = { summary: `Saved as .${f} from now on.`, lines: [], quiet: false };
+			about = notice.summary;
 		}
 	}
 
@@ -655,7 +661,17 @@
 						canRename={!!node && isOwner(node)}
 						onrename={renameFile}
 					/>
-					<span class="fmt">{format.toUpperCase()}</span>
+					{#if about}
+						<Tooltip text={about}>
+							{#snippet trigger(attrs)}
+								<button type="button" class="fmt" data-testid="format-badge" {...attrs}
+									>{format.toUpperCase()}</button
+								>
+							{/snippet}
+						</Tooltip>
+					{:else}
+						<span class="fmt">{format.toUpperCase()}</span>
+					{/if}
 				</div>
 				<div class="meta">
 					<span
@@ -836,7 +852,7 @@
 				<div class="notice" role="status" data-testid="doc-notice">
 					<Icon name="info" />
 					<div class="notice-text">
-						<span>{notice.summary}</span>
+						{#if !notice.quiet}<span>{notice.summary}</span>{/if}
 						{#each notice.lines as line (line)}<span class="line">{line}</span>{/each}
 					</div>
 					<button type="button" class="ghost" aria-label="Dismiss" onclick={() => (notice = null)}
@@ -1017,6 +1033,18 @@
 		align-items: center;
 		gap: 8px;
 		min-width: 0;
+	}
+
+	button.fmt {
+		line-height: inherit;
+		cursor: help;
+	}
+
+	/* A finger's 44px, as every control has here, without making the header taller. */
+	@media (max-width: 640px), (pointer: coarse) {
+		button.fmt {
+			margin-block: -12px;
+		}
 	}
 
 	.fmt {

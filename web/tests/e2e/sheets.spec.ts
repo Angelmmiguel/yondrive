@@ -421,7 +421,24 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await reloadHome(page, server);
 			await upload(page, await box.add(`book-${mode}.xlsx`, original));
 			await openSheet(page, `book-${mode}.xlsx`);
-			await expect(page.getByTestId('sheet-notice')).toContainText('Opened from .xlsx');
+			// How the file is kept is told by its format's badge, not above the editor.
+			const badge = page.getByTestId('format-badge');
+			await expect(badge).toHaveAccessibleDescription(
+				/^Opened from \.xlsx\. Changes are saved back/
+			);
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await badge.hover();
+			await expect(page.getByRole('tooltip')).toBeVisible();
+			await expect(page.getByRole('tooltip')).toContainText('Opened from .xlsx');
+			await page.mouse.move(0, 400);
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await badge.focus();
+			await expect(page.getByRole('tooltip')).toBeVisible();
+			await badge.press('Escape');
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await expect(page.getByTestId('sheet-notice').filter({ hasText: 'Opened from' })).toHaveCount(
+				0
+			);
 			await expect(page.getByTestId('sheet-notice')).toContainText(
 				'Kept in the file but not shown: chart'
 			);

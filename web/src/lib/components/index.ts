@@ -45,6 +45,7 @@ export { default as TextInput } from './TextInput.svelte';
 export { default as ThemeToggle } from './ThemeToggle.svelte';
 export { default as Toast } from './Toast.svelte';
 export { default as ToastStack } from './ToastStack.svelte';
+export { default as Tooltip } from './Tooltip.svelte';
 export { default as TopBar } from './TopBar.svelte';
 
 export { copyText, type CopyResult } from './clipboard';
@@ -53,6 +54,7 @@ export { ICONS, type IconName } from './icons';
 export type { FieldControl } from './Field.svelte';
 export type { FileTag } from './FileRow.svelte';
 export type { MenuItem, TriggerAttrs } from './Menu.svelte';
+export type { TooltipAttrs } from './Tooltip.svelte';
 export type { Segment as ProgressSegment } from './ProgressBar.svelte';
 export type { Segment } from './SegmentedControl.svelte';
 export type { SelectOption } from './Select.svelte';

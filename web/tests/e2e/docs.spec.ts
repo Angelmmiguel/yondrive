@@ -121,7 +121,24 @@ for (const mode of ['e2e', 'none'] as Mode[]) {
 			await reloadHome(page, server);
 			await upload(page, await box.add(`sample-${mode}.docx`, original));
 			await openDoc(page, `sample-${mode}.docx`);
-			await expect(page.getByTestId('doc-notice')).toContainText('Opened from .docx');
+			// How the file is kept is told by its format's badge, not above the editor.
+			const badge = page.getByTestId('format-badge');
+			await expect(badge).toHaveAccessibleDescription(
+				/^Opened from \.docx\. Changes are saved back/
+			);
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await badge.hover();
+			await expect(page.getByRole('tooltip')).toBeVisible();
+			await expect(page.getByRole('tooltip')).toContainText('Opened from .docx');
+			await page.mouse.move(0, 400);
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await badge.focus();
+			await expect(page.getByRole('tooltip')).toBeVisible();
+			await badge.press('Escape');
+			await expect(page.getByRole('tooltip')).toBeHidden();
+			await expect(page.getByTestId('doc-notice').filter({ hasText: 'Opened from' })).toHaveCount(
+				0
+			);
 			await typeAfter(page, 'for more.', ' Edited here.');
 			await saveNow(page);
 

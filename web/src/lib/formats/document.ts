@@ -170,6 +170,11 @@ export interface Notice {
 	summary: string;
 	/** One line for each way things are handled, if anything is. */
 	lines: string[];
+	/**
+	 * The summary only says the file is saved back as it came: it can wait behind
+	 * the format's badge rather than stand above the editor.
+	 */
+	quiet: boolean;
 }
 
 function list(items: Census['items']): string {
@@ -201,5 +206,5 @@ export function noticeOf(format: DocFormat, census: Census): Notice {
 	const lost = by('lost');
 	if (lost.length > 0) lines.push(`Not carried over when saved: ${list(lost)}.`);
 	for (const c of by('changed')) lines.push(`${c.label}.`);
-	return { summary, lines };
+	return { summary, lines, quiet: format === 'docx' || format === 'odt' || format === 'md' };
 }

@@ -56,5 +56,9 @@ describe('spreadsheet formats', () => {
 		]);
 		const xls = await readSpreadsheet(sampleXls(), 'xls');
 		expect(sheetNoticeOf('xls', xls.census).lines).toContain('Formula kept as its last value.');
+		// Only a format kept as it came can say so quietly.
+		expect(notice.quiet).toBe(true);
+		expect(sheetNoticeOf('xls', xls.census).quiet).toBe(false);
+		expect(sheetNoticeOf('csv', { items: [] }).quiet).toBe(false);
 	});
 });
